@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""
+Copyright 2023 Ryan Wick (rrwick@gmail.com)
+https://github.com/rrwick/Autocycler
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not,
+see <https://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import collections
+import gzip
+import multiprocessing
+import os
+import pathlib
+import shutil
+import statistics
+import subprocess
+import sys
+
+__version__ = '0.0.0'
+
+
+def get_arguments(args):
+    parser = MyParser(description='Autocycler', add_help=False,
+                      formatter_class=MyHelpFormatter)
+
+    required_args = parser.add_argument_group('Required')
+    required_args.add_argument('-i', '--in_dir', type=pathlib.Path, required=True,
+                               help='Directory containing input assemblies')
+    required_args.add_argument('-o', '--out_dir', type=pathlib.Path, required=True,
+                               help='Directory where consensus assembly will be constructed')
+
+    setting_args = parser.add_argument_group('Settings')
+    setting_args.add_argument('-k', '--kmer', type=int, default=31,
+                              help='K-mer size for De Bruijn graph (default: DEFAULT)')
+    setting_args.add_argument('-t', '--threads', type=int, default=get_default_thread_count(),
+                              help='Number of CPU threads (default: DEFAULT)')
+    setting_args.add_argument('--verbose', action='store_true',
+                              help='Display more output information')
+
+    other_args = parser.add_argument_group('Other')
+    other_args.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                            help='Show this help message and exit')
+    other_args.add_argument('--version', action='version',
+                            version='Autocycler v' + __version__,
+                            help="Show program's version number and exit")
+
+    args = parser.parse_args(args)
+    return args
+
+
+def main(args=None):
+    args = get_arguments(args)
+    check_args(args)
+    assemblies = find_all_assemblies(args.in_dir)
+
+    kmer_graph = KmerGraph(args.kmer)
+    kmer_graph.add_assemblies(assemblies)
+    print(f'\nGraph contains {len(kmer_graph.kmers)} k-mers')
+
+    unitig_graph = UnitigGraph(kmer_graph)
+    unitig_graph.save_gfa('temp.gfa')
+
+
+def check_args(args):
+    if args.kmer < 11:
+        sys.exit('Error: --kmer must be 11 or greater')
+    if args.kmer % 2 == 0:
+        sys.exit('Error: --kmer must be odd')
+
+
+def find_all_assemblies(in_dir):
+    print(f'\nLooking for assembly files in {in_dir}...', flush=True, end='')
+    all_assemblies = [str(x) for x in sorted(pathlib.Path(in_dir).glob('**/*'))
+                      if x.is_file()]
+    all_assemblies = [x for x in all_assemblies if
+                      x.endswith('.fasta') or x.endswith('.fasta.gz') or
+                      x.endswith('.fna') or x.endswith('.fna.gz') or
+                      x.endswith('.fa') or x.endswith('.fa.gz')]
+    # TODO: also look for GFA-format assemblies
+    plural = 'assembly' if len(all_assemblies) == 1 else 'assemblies'
+    print(f' found {len(all_assemblies)} {plural}')
+    if len(all_assemblies) == 0:
+        sys.exit(f'Error: no assemblies found in {in_dir}')
+    return sorted(all_assemblies)
+
+
+class KmerGraph(object):
+    """
+    This class stores all k-mers in the sequences that were added to it (a De Bruijn graph), and
+    for each k-mer it stores the positions in the input sequences where that k-mer occurred.
+    """
+    def __init__(self, k_size):
+        self.k_size = k_size
+        self.kmers = {}
+
+    def add_sequence(self, seq, seq_id):
+        for forward_pos in range(len(seq) - self.k_size + 1):
+            reverse_pos = len(seq) - forward_pos - self.k_size
+
+            forward_kmer = seq[forward_pos:forward_pos+self.k_size]
+            reverse_kmer = reverse_complement(forward_kmer)
+
+            if forward_kmer not in self.kmers:
+                self.kmers[forward_kmer] = KmerPositions()
+                self.kmers[reverse_kmer] = KmerPositions()
+
+            self.kmers[forward_kmer].add_position(seq_id, 1, forward_pos)
+            self.kmers[reverse_kmer].add_position(seq_id, -1, reverse_pos)
+
+
+    def add_assemblies(self, assemblies):
+        seq_id = 0
+        for assembly in assemblies:
+            print(f'\nAdding {assembly} to graph:')
+            for name, info, seq in iterate_fasta(assembly):
+                print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
+                self.add_sequence(seq, seq_id)
+                print(' done')
+                seq_id += 1
+
+    def next_kmers(self, kmer):
+        """
+        Returns a list of the k-mers in the graph which follow the given one. The list will have a
+        length from 0 to 4.
+        """
+        a = kmer[1:] + 'A'
+        c = kmer[1:] + 'C'
+        g = kmer[1:] + 'G'
+        t = kmer[1:] + 'T'
+        next_list = []
+        if a in self.kmers:
+            next_list.append(a)
+        if c in self.kmers:
+            next_list.append(c)
+        if g in self.kmers:
+            next_list.append(g)
+        if t in self.kmers:
+            next_list.append(t)
+        return next_list
+
+    def previous_kmers(self, kmer):
+        """
+        Returns a list of the k-mers in the graph which precede the given one. The list will have a
+        length from 0 to 4.
+        """
+        a = 'A' + kmer[:-1]
+        c = 'C' + kmer[:-1]
+        g = 'G' + kmer[:-1]
+        t = 'T' + kmer[:-1]
+        previous_list = []
+        if a in self.kmers:
+            previous_list.append(a)
+        if c in self.kmers:
+            previous_list.append(c)
+        if g in self.kmers:
+            previous_list.append(g)
+        if t in self.kmers:
+            previous_list.append(t)
+        return previous_list
+
+
+class KmerPositions(object):
+    def __init__(self):
+        self.positions = set()
+
+    def __repr__(self):
+        positions = ','.join([str(p) for p in sorted(self.positions)])
+        return f'{positions}'
+
+    def add_position(self, seq_id, strand, pos):
+        self.positions.add((seq_id, strand, pos))
+
+    def count(self):
+        return len(self.positions)
+
+
+class UnitigGraph(object):
+    """
+    This class builds a unitig graph from a k-mer graph, where all nonbranching paths are merged
+    into unitigs. This simplifies things and saves memory, as position info only needs to be
+    stored for the k-mers at the ends of each unitig.
+    """
+    def __init__(self, kmer_graph):
+        self.unitigs = []
+        self.links = []
+        self.k_size = kmer_graph.k_size
+        self.build_unitigs_from_kmer_graph(kmer_graph)
+        self.create_links()
+
+        print(len(self.unitigs))
+        print(sum(len(u.forward_seq) for u in self.unitigs))
+
+    def save_gfa(self, gfa_filename):
+        with open(gfa_filename, 'wt') as f:
+            for unitig in self.unitigs:
+                f.write(unitig.gfa_segment_line())
+
+    def build_unitigs_from_kmer_graph(self, kmer_graph):
+        seen = set()
+        unitig_number = 0
+        for kmer in sorted(kmer_graph.kmers):
+            forward_kmer = kmer
+            reverse_kmer = reverse_complement(forward_kmer)
+            if forward_kmer in seen:
+                continue
+
+            # Initialise unitig with k-mer
+            unitig_number += 1
+            unitig = Unitig(unitig_number, forward_kmer, reverse_kmer)
+            depths = collections.deque([kmer_graph.kmers[forward_kmer].count()])
+            seen.add(forward_kmer)
+            seen.add(reverse_kmer)
+            starting_kmer = forward_kmer
+
+            # Extend unitig forward
+            while True:
+                next_kmers = kmer_graph.next_kmers(forward_kmer)
+                if len(next_kmers) != 1:
+                    break
+                forward_kmer = next_kmers[0]
+                if forward_kmer in seen:
+                    break
+                previous_kmers = kmer_graph.previous_kmers(forward_kmer)
+                if len(previous_kmers) != 1:
+                    break
+                unitig.add_base_to_end(forward_kmer[-1])
+                depths.append(kmer_graph.kmers[forward_kmer].count())
+                seen.add(forward_kmer)
+                seen.add(reverse_complement(forward_kmer))
+
+            # Extend unitig backward
+            forward_kmer = starting_kmer
+            while True:
+                previous_kmers = kmer_graph.previous_kmers(forward_kmer)
+                if len(previous_kmers) != 1:
+                    break
+                forward_kmer = previous_kmers[0]
+                if forward_kmer in seen:
+                    break
+                next_kmers = kmer_graph.next_kmers(forward_kmer)
+                if len(next_kmers) != 1:
+                    break
+                unitig.add_base_to_start(forward_kmer[0])
+                depths.appendleft(kmer_graph.kmers[forward_kmer].count())
+                seen.add(forward_kmer)
+                seen.add(reverse_complement(forward_kmer))
+
+            unitig.simplify_seqs()
+            unitig.depth = statistics.mean(depths)
+            self.unitigs.append(unitig)
+
+    def create_links(self):
+        piece_len = self.k_size - 1
+        for unitig in self.unitigs:
+            starting_forward_seq = unitig.forward_seq[:piece_len]
+            ending_forward_seq = unitig.forward_seq[-piece_len:]
+            starting_reverse_seq = unitig.reverse_seq[:piece_len]
+            ending_reverse_seq = unitig.reverse_seq[-piece_len:]
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+        # TODO
+
+
+class Unitig(object):
+    def __init__(self, number, forward_kmer, reverse_kmer):
+        self.number = number
+        self.forward_seq = collections.deque([forward_kmer])
+        self.reverse_seq = collections.deque([reverse_kmer])
+        self.depth = 0.0
+
+    def __repr__(self):
+        if len(self.forward_seq) < 15:
+            seq = self.forward_seq
+        else:
+            seq = self.forward_seq[:6] + '...' + self.forward_seq[-6:]
+        return f'unitig {self.number}: {seq}, {len(self.forward_seq)} bp, {self.depth:.2f}x'
+
+    def add_base_to_end(self, base):
+        self.forward_seq.append(base)
+        self.reverse_seq.appendleft(complement_base(base))
+
+    def add_base_to_start(self, base):
+        self.forward_seq.appendleft(base)
+        self.reverse_seq.append(complement_base(base))
+
+    def simplify_seqs(self):
+        self.forward_seq = ''.join(self.forward_seq)
+        self.reverse_seq = ''.join(self.reverse_seq)
+
+    def gfa_segment_line(self):
+        return f'S\t{self.number}\t{self.forward_seq}\tDP:f:{self.depth:.2f}\n'
+
+
+
+
+REV_COMP_DICT = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'a': 't', 't': 'a', 'g': 'c', 'c': 'g',
+                 'R': 'Y', 'Y': 'R', 'S': 'S', 'W': 'W', 'K': 'M', 'M': 'K', 'B': 'V', 'V': 'B',
+                 'D': 'H', 'H': 'D', 'N': 'N', 'r': 'y', 'y': 'r', 's': 's', 'w': 'w', 'k': 'm',
+                 'm': 'k', 'b': 'v', 'v': 'b', 'd': 'h', 'h': 'd', 'n': 'n', '.': '.', '-': '-',
+                 '?': '?'}
+
+
+def complement_base(base):
+    try:
+        return REV_COMP_DICT[base]
+    except KeyError:
+        return 'N'
+
+
+def reverse_complement(seq):
+    return ''.join([complement_base(x) for x in seq][::-1])
+
+
+def canonical_kmer(kmer):
+    rev_kmer = reverse_complement(kmer)
+    if rev_kmer < kmer:
+        return rev_kmer, -1
+    else:
+        return kmer, 1
+
+
+def get_compression_type(filename):
+    """
+    Attempts to guess the compression (if any) on a file using the first few bytes.
+    http://stackoverflow.com/questions/13044562
+    """
+    magic_dict = {'gz': (b'\x1f', b'\x8b', b'\x08'),
+                  'bz2': (b'\x42', b'\x5a', b'\x68'),
+                  'zip': (b'\x50', b'\x4b', b'\x03', b'\x04')}
+    max_len = max(len(x) for x in magic_dict)
+
+    unknown_file = open(str(filename), 'rb')
+    file_start = unknown_file.read(max_len)
+    unknown_file.close()
+    compression_type = 'plain'
+    for file_type, magic_bytes in magic_dict.items():
+        if file_start.startswith(magic_bytes):
+            compression_type = file_type
+    if compression_type == 'bz2':
+        sys.exit('Error: cannot use bzip2 format - use gzip instead')
+    if compression_type == 'zip':
+        sys.exit('Error: cannot use zip format - use gzip instead')
+    return compression_type
+
+
+def get_open_func(filename):
+    if get_compression_type(filename) == 'gz':
+        return gzip.open
+    else:  # plain text
+        return open
+
+
+def iterate_fasta(filename):
+    """
+    Takes a FASTA file as input and yields the contents as (name, info, seq) tuples.
+    """
+    with get_open_func(filename)(filename, 'rt') as fasta_file:
+        name = ''
+        sequence = []
+        for line in fasta_file:
+            line = line.strip()
+            if not line:
+                continue
+            if line[0] == '>':  # Header line = start of new contig
+                if name:
+                    name_parts = name.split(maxsplit=1)
+                    contig_name = name_parts[0]
+                    info = '' if len(name_parts) == 1 else name_parts[1]
+                    yield contig_name, info, ''.join(sequence)
+                    sequence = []
+                name = line[1:]
+            else:
+                sequence.append(line.upper())
+        if name:
+            name_parts = name.split(maxsplit=1)
+            contig_name = name_parts[0]
+            info = '' if len(name_parts) == 1 else name_parts[1]
+            yield contig_name, info, ''.join(sequence)
+
+
+END_FORMATTING = '\033[0m'
+BOLD = '\033[1m'
+DIM = '\033[2m'
+
+
+class MyParser(argparse.ArgumentParser):
+    """
+    This subclass of ArgumentParser changes the error messages, such that if the script is run with
+    no other arguments, it will display the help text. If there is a different error, it will give
+    the normal response (usage and error).
+    """
+    def error(self, message):
+        if len(sys.argv) == 1:  # if no arguments were given.
+            self.print_help(file=sys.stderr)
+            sys.exit(1)
+        else:
+            super().error(message)
+
+
+class MyHelpFormatter(argparse.HelpFormatter):
+
+    def __init__(self, prog):
+        terminal_width = shutil.get_terminal_size().columns
+        os.environ['COLUMNS'] = str(terminal_width)
+        max_help_position = min(max(24, terminal_width // 3), 40)
+        self.colours = get_colours_from_tput()
+        super().__init__(prog, max_help_position=max_help_position)
+
+    def _get_help_string(self, action):
+        """
+        Override this function to add default values, but only when 'default' is not already in the
+        help text.
+        """
+        help_text = action.help
+        if action.default != argparse.SUPPRESS and action.default is not None:
+            if 'default: DEFAULT' in help_text:
+                help_text = help_text.replace('default: DEFAULT', f'default: {action.default}')
+        return help_text
+
+    def start_section(self, heading):
+        """
+        Override this method to add bold underlining to section headers.
+        """
+        if self.colours > 1:
+            heading = BOLD + heading + END_FORMATTING
+        super().start_section(heading)
+
+    def _format_action(self, action):
+        """
+        Override this method to make help descriptions dim.
+        """
+        help_position = min(self._action_max_length + 2, self._max_help_position)
+        help_width = self._width - help_position
+        action_width = help_position - self._current_indent - 2
+        action_header = self._format_action_invocation(action)
+        if not action.help:
+            tup = self._current_indent, '', action_header
+            action_header = '%*s%s\n' % tup
+            indent_first = 0
+        elif len(action_header) <= action_width:
+            tup = self._current_indent, '', action_width, action_header
+            action_header = '%*s%-*s  ' % tup
+            indent_first = 0
+        else:
+            tup = self._current_indent, '', action_header
+            action_header = '%*s%s\n' % tup
+            indent_first = help_position
+        parts = [action_header]
+        if action.help:
+            help_text = self._expand_help(action)
+            help_lines = self._split_lines(help_text, help_width)
+            first_line = help_lines[0]
+            if self.colours > 8:
+                first_line = DIM + first_line + END_FORMATTING
+            parts.append('%*s%s\n' % (indent_first, '', first_line))
+            for line in help_lines[1:]:
+                if self.colours > 8:
+                    line = DIM + line + END_FORMATTING
+                parts.append('%*s%s\n' % (help_position, '', line))
+        elif not action_header.endswith('\n'):
+            parts.append('\n')
+        for subaction in self._iter_indented_subactions(action):
+            parts.append(self._format_action(subaction))
+        return self._join_parts(parts)
+
+
+def get_colours_from_tput():
+    try:
+        return int(subprocess.check_output(['tput', 'colors']).decode().strip())
+    except (ValueError, subprocess.CalledProcessError, FileNotFoundError, AttributeError):
+        return 1
+
+
+def get_default_thread_count():
+    return min(multiprocessing.cpu_count(), 16)
+
+
+if __name__ == '__main__':
+    main()
+
+
+# Pytest tests
+# ------------
+
+def test_reverse_complement():
+    assert reverse_complement('ACGACTACG') == 'CGTAGTCGT'
+    assert reverse_complement('AXX???XXG') == 'CNN???NNT'
+
+
+def test_canonical_kmer():
+    assert canonical_kmer('AAAAA') == ('AAAAA', 1)
+    assert canonical_kmer('TTTTT') == ('AAAAA', -1)
+    assert canonical_kmer('ACGCT') == ('ACGCT', 1)
+    assert canonical_kmer('AGCGT') == ('ACGCT', -1)
