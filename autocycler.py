@@ -197,13 +197,12 @@ class UnitigGraph(object):
         self.build_unitigs_from_kmer_graph(kmer_graph)
         self.create_links()
 
-        print(len(self.unitigs))
-        print(sum(len(u.forward_seq) for u in self.unitigs))
-
     def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
+            for a_num, a_strand, b_num, b_strand in self.links:
+                f.write(f'L\t{a_num}\t{a_strand}\t{b_num}\t{b_strand}\t{self.k_size-1}M\n')
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
@@ -260,28 +259,29 @@ class UnitigGraph(object):
             self.unitigs.append(unitig)
 
     def create_links(self):
+        self.links = []
         piece_len = self.k_size - 1
+
+        # Index unitigs by their k-1 starting and ending sequences
+        starting_forward = collections.defaultdict(list)
+        ending_forward = collections.defaultdict(list)
+        starting_reverse = collections.defaultdict(list)
+        ending_reverse = collections.defaultdict(list)
         for unitig in self.unitigs:
-            starting_forward_seq = unitig.forward_seq[:piece_len]
+            starting_forward[unitig.forward_seq[:piece_len]].append(unitig.number)
+            ending_forward[unitig.forward_seq[-piece_len:]].append(unitig.number)
+            starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig.number)
+            ending_reverse[unitig.reverse_seq[-piece_len:]].append(unitig.number)
+
+        for unitig in self.unitigs:
             ending_forward_seq = unitig.forward_seq[-piece_len:]
-            starting_reverse_seq = unitig.reverse_seq[:piece_len]
+            for next_unitig in starting_forward[ending_forward_seq]:
+                self.links.append((unitig.number, '+', next_unitig, '+'))
+            for next_unitig in starting_reverse[ending_forward_seq]:
+                self.links.append((unitig.number, '+', next_unitig, '-'))
             ending_reverse_seq = unitig.reverse_seq[-piece_len:]
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
+            for next_unitig in starting_forward[ending_reverse_seq]:
+                self.links.append((unitig.number, '-', next_unitig, '+'))
 
 
 class Unitig(object):
