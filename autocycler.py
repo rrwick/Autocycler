@@ -40,7 +40,7 @@ def get_arguments(args):
                                help='Directory where consensus assembly will be constructed')
 
     setting_args = parser.add_argument_group('Settings')
-    setting_args.add_argument('-k', '--kmer', type=int, default=31,
+    setting_args.add_argument('-k', '--kmer', type=int, default=91,
                               help='K-mer size for De Bruijn graph (default: DEFAULT)')
     setting_args.add_argument('-t', '--threads', type=int, default=get_default_thread_count(),
                               help='Number of CPU threads (default: DEFAULT)')
@@ -61,14 +61,14 @@ def get_arguments(args):
 def main(args=None):
     args = get_arguments(args)
     check_args(args)
+    args.out_dir.mkdir(exist_ok=True)
     assemblies = find_all_assemblies(args.in_dir)
 
     kmer_graph = KmerGraph(args.kmer)
     kmer_graph.add_assemblies(assemblies)
-    print(f'\nGraph contains {len(kmer_graph.kmers)} k-mers')
 
     unitig_graph = UnitigGraph(kmer_graph)
-    unitig_graph.save_gfa('temp.gfa')
+    unitig_graph.save_gfa(args.out_dir / f'001_de_bruijn_graph.gfa')
 
 
 def check_args(args):
@@ -127,6 +127,7 @@ class KmerGraph(object):
                 self.add_sequence(seq, seq_id)
                 print(' done')
                 seq_id += 1
+        print(f'\nGraph contains {len(self.kmers)} k-mers')
 
     def next_kmers(self, kmer):
         """
@@ -146,6 +147,7 @@ class KmerGraph(object):
             next_list.append(g)
         if t in self.kmers:
             next_list.append(t)
+        assert 0 <= len(next_list) <= 4
         return next_list
 
     def previous_kmers(self, kmer):
@@ -166,6 +168,7 @@ class KmerGraph(object):
             previous_list.append(g)
         if t in self.kmers:
             previous_list.append(t)
+        assert 0 <= len(previous_list) <= 4
         return previous_list
 
 
@@ -194,15 +197,17 @@ class UnitigGraph(object):
         self.unitigs = []
         self.links = []
         self.k_size = kmer_graph.k_size
+        print('\nBuilding unitig graph from k-mer graph:')
         self.build_unitigs_from_kmer_graph(kmer_graph)
         self.create_links()
+        self.trim_overlaps()
 
     def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
             for a_num, a_strand, b_num, b_strand in self.links:
-                f.write(f'L\t{a_num}\t{a_strand}\t{b_num}\t{b_strand}\t{self.k_size-1}M\n')
+                f.write(f'L\t{a_num}\t{a_strand}\t{b_num}\t{b_strand}\t0M\n')
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
@@ -257,6 +262,7 @@ class UnitigGraph(object):
             unitig.simplify_seqs()
             unitig.depth = statistics.mean(depths)
             self.unitigs.append(unitig)
+        print(f'  {len(self.unitigs)} unitigs')
 
     def create_links(self):
         self.links = []
@@ -264,31 +270,36 @@ class UnitigGraph(object):
 
         # Index unitigs by their k-1 starting and ending sequences
         starting_forward = collections.defaultdict(list)
-        ending_forward = collections.defaultdict(list)
         starting_reverse = collections.defaultdict(list)
-        ending_reverse = collections.defaultdict(list)
         for unitig in self.unitigs:
             starting_forward[unitig.forward_seq[:piece_len]].append(unitig.number)
-            ending_forward[unitig.forward_seq[-piece_len:]].append(unitig.number)
             starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig.number)
-            ending_reverse[unitig.reverse_seq[-piece_len:]].append(unitig.number)
 
         for unitig in self.unitigs:
             ending_forward_seq = unitig.forward_seq[-piece_len:]
             for next_unitig in starting_forward[ending_forward_seq]:
                 self.links.append((unitig.number, '+', next_unitig, '+'))
+                self.links.append((next_unitig, '-', unitig.number, '-'))
             for next_unitig in starting_reverse[ending_forward_seq]:
                 self.links.append((unitig.number, '+', next_unitig, '-'))
             ending_reverse_seq = unitig.reverse_seq[-piece_len:]
             for next_unitig in starting_forward[ending_reverse_seq]:
                 self.links.append((unitig.number, '-', next_unitig, '+'))
 
+        self.links = sorted(self.links, key=lambda x: (sorted([x[0], x[2]]), x[0]))
+        print(f'  {len(self.links)} links')
+
+    def trim_overlaps(self):
+        for unitig in self.unitigs:
+            unitig.trim_overlaps(self.k_size)
+
+
 
 class Unitig(object):
-    def __init__(self, number, forward_kmer, reverse_kmer):
+    def __init__(self, number, forward_seq, reverse_seq):
         self.number = number
-        self.forward_seq = collections.deque([forward_kmer])
-        self.reverse_seq = collections.deque([reverse_kmer])
+        self.forward_seq = collections.deque([forward_seq])
+        self.reverse_seq = collections.deque([reverse_seq])
         self.depth = 0.0
 
     def __repr__(self):
@@ -309,6 +320,14 @@ class Unitig(object):
     def simplify_seqs(self):
         self.forward_seq = ''.join(self.forward_seq)
         self.reverse_seq = ''.join(self.reverse_seq)
+        assert len(self.forward_seq) == len(self.reverse_seq)
+
+    def trim_overlaps(self, k_size):
+        overlap = k_size // 2
+        assert len(self.forward_seq) >= k_size
+        self.forward_seq = self.forward_seq[overlap:-overlap]
+        self.reverse_seq = self.reverse_seq[overlap:-overlap]
+        assert len(self.forward_seq) >= 1
 
     def gfa_segment_line(self):
         return f'S\t{self.number}\t{self.forward_seq}\tDP:f:{self.depth:.2f}\n'
@@ -332,14 +351,6 @@ def complement_base(base):
 
 def reverse_complement(seq):
     return ''.join([complement_base(x) for x in seq][::-1])
-
-
-def canonical_kmer(kmer):
-    rev_kmer = reverse_complement(kmer)
-    if rev_kmer < kmer:
-        return rev_kmer, -1
-    else:
-        return kmer, 1
 
 
 def get_compression_type(filename):
@@ -508,10 +519,3 @@ if __name__ == '__main__':
 def test_reverse_complement():
     assert reverse_complement('ACGACTACG') == 'CGTAGTCGT'
     assert reverse_complement('AXX???XXG') == 'CNN???NNT'
-
-
-def test_canonical_kmer():
-    assert canonical_kmer('AAAAA') == ('AAAAA', 1)
-    assert canonical_kmer('TTTTT') == ('AAAAA', -1)
-    assert canonical_kmer('ACGCT') == ('ACGCT', 1)
-    assert canonical_kmer('AGCGT') == ('ACGCT', -1)
