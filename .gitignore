@@ -95,5 +95,8 @@ ENV/
 # PyCharm stuff
 .idea/
 
+# VS Code stuff
+.vscode/
+
 gh-md-toc
 .github
