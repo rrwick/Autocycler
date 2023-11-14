@@ -111,12 +111,11 @@ class KmerGraph(object):
             reverse_kmer = reverse_complement(forward_kmer)
 
             if forward_kmer not in self.kmers:
-                self.kmers[forward_kmer] = KmerPositions()
-                self.kmers[reverse_kmer] = KmerPositions()
+                self.kmers[forward_kmer] = Kmer(forward_kmer)
+                self.kmers[reverse_kmer] = Kmer(reverse_kmer)
 
             self.kmers[forward_kmer].add_position(seq_id, 1, forward_pos)
             self.kmers[reverse_kmer].add_position(seq_id, -1, reverse_pos)
-
 
     def add_assemblies(self, assemblies):
         seq_id = 0
@@ -134,19 +133,19 @@ class KmerGraph(object):
         Returns a list of the k-mers in the graph which follow the given one. The list will have a
         length from 0 to 4.
         """
-        a = kmer[1:] + 'A'
-        c = kmer[1:] + 'C'
-        g = kmer[1:] + 'G'
-        t = kmer[1:] + 'T'
+        a = kmer.seq[1:] + 'A'
+        c = kmer.seq[1:] + 'C'
+        g = kmer.seq[1:] + 'G'
+        t = kmer.seq[1:] + 'T'
         next_list = []
         if a in self.kmers:
-            next_list.append(a)
+            next_list.append(self.kmers[a])
         if c in self.kmers:
-            next_list.append(c)
+            next_list.append(self.kmers[c])
         if g in self.kmers:
-            next_list.append(g)
+            next_list.append(self.kmers[g])
         if t in self.kmers:
-            next_list.append(t)
+            next_list.append(self.kmers[t])
         assert 0 <= len(next_list) <= 4
         return next_list
 
@@ -155,25 +154,39 @@ class KmerGraph(object):
         Returns a list of the k-mers in the graph which precede the given one. The list will have a
         length from 0 to 4.
         """
-        a = 'A' + kmer[:-1]
-        c = 'C' + kmer[:-1]
-        g = 'G' + kmer[:-1]
-        t = 'T' + kmer[:-1]
+        a = 'A' + kmer.seq[:-1]
+        c = 'C' + kmer.seq[:-1]
+        g = 'G' + kmer.seq[:-1]
+        t = 'T' + kmer.seq[:-1]
         previous_list = []
         if a in self.kmers:
-            previous_list.append(a)
+            previous_list.append(self.kmers[a])
         if c in self.kmers:
-            previous_list.append(c)
+            previous_list.append(self.kmers[c])
         if g in self.kmers:
-            previous_list.append(g)
+            previous_list.append(self.kmers[g])
         if t in self.kmers:
-            previous_list.append(t)
+            previous_list.append(self.kmers[t])
         assert 0 <= len(previous_list) <= 4
         return previous_list
 
+    def iterate_kmers(self):
+        """
+        This generator yields all the k-mers in the graph in lexographical order.
+        """
+        for kmer in sorted(self.kmers):
+            yield self.kmers[kmer]
 
-class KmerPositions(object):
-    def __init__(self):
+    def reverse(self, kmer):
+        """
+        Takes a Kmer object and returns its reverse complement Kmer object.
+        """
+        return self.kmers[reverse_complement(kmer.seq)]
+
+
+class Kmer(object):
+    def __init__(self, seq):
+        self.seq = seq
         self.positions = set()
 
     def __repr__(self):
@@ -190,8 +203,7 @@ class KmerPositions(object):
 class UnitigGraph(object):
     """
     This class builds a unitig graph from a k-mer graph, where all nonbranching paths are merged
-    into unitigs. This simplifies things and saves memory, as position info only needs to be
-    stored for the k-mers at the ends of each unitig.
+    into unitigs. This simplifies things and saves memory.
     """
     def __init__(self, kmer_graph):
         self.unitigs = []
@@ -212,16 +224,14 @@ class UnitigGraph(object):
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
         unitig_number = 0
-        for kmer in sorted(kmer_graph.kmers):
-            forward_kmer = kmer
-            reverse_kmer = reverse_complement(forward_kmer)
+        for forward_kmer in kmer_graph.iterate_kmers():
             if forward_kmer in seen:
                 continue
+            reverse_kmer = kmer_graph.reverse(forward_kmer)
 
             # Initialise unitig with k-mer
             unitig_number += 1
             unitig = Unitig(unitig_number, forward_kmer, reverse_kmer)
-            depths = collections.deque([kmer_graph.kmers[forward_kmer].count()])
             seen.add(forward_kmer)
             seen.add(reverse_kmer)
             starting_kmer = forward_kmer
@@ -237,10 +247,10 @@ class UnitigGraph(object):
                 previous_kmers = kmer_graph.previous_kmers(forward_kmer)
                 if len(previous_kmers) != 1:
                     break
-                unitig.add_base_to_end(forward_kmer[-1])
-                depths.append(kmer_graph.kmers[forward_kmer].count())
+                reverse_kmer = kmer_graph.reverse(forward_kmer)
+                unitig.add_kmer_to_end(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
-                seen.add(reverse_complement(forward_kmer))
+                seen.add(reverse_kmer)
 
             # Extend unitig backward
             forward_kmer = starting_kmer
@@ -254,13 +264,12 @@ class UnitigGraph(object):
                 next_kmers = kmer_graph.next_kmers(forward_kmer)
                 if len(next_kmers) != 1:
                     break
-                unitig.add_base_to_start(forward_kmer[0])
-                depths.appendleft(kmer_graph.kmers[forward_kmer].count())
+                reverse_kmer = kmer_graph.reverse(forward_kmer)
+                unitig.add_kmer_to_start(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
-                seen.add(reverse_complement(forward_kmer))
+                seen.add(reverse_kmer)
 
             unitig.simplify_seqs()
-            unitig.depth = statistics.mean(depths)
             self.unitigs.append(unitig)
         print(f'  {len(self.unitigs)} unitigs')
 
@@ -296,10 +305,12 @@ class UnitigGraph(object):
 
 
 class Unitig(object):
-    def __init__(self, number, forward_seq, reverse_seq):
+    def __init__(self, number, forward_kmer, reverse_kmer):
         self.number = number
-        self.forward_seq = collections.deque([forward_seq])
-        self.reverse_seq = collections.deque([reverse_seq])
+        self.forward_kmers = collections.deque([forward_kmer])
+        self.reverse_kmers = collections.deque([reverse_kmer])
+        self.forward_seq = ''
+        self.reverse_seq = ''
         self.depth = 0.0
 
     def __repr__(self):
@@ -309,18 +320,36 @@ class Unitig(object):
             seq = self.forward_seq[:6] + '...' + self.forward_seq[-6:]
         return f'unitig {self.number}: {seq}, {len(self.forward_seq)} bp, {self.depth:.2f}x'
 
-    def add_base_to_end(self, base):
-        self.forward_seq.append(base)
-        self.reverse_seq.appendleft(complement_base(base))
+    def add_kmer_to_end(self, forward_kmer, reverse_kmer):
+        self.forward_kmers.append(forward_kmer)
+        self.reverse_kmers.appendleft(reverse_kmer)
 
-    def add_base_to_start(self, base):
-        self.forward_seq.appendleft(base)
-        self.reverse_seq.append(complement_base(base))
+    def add_kmer_to_start(self, forward_kmer, reverse_kmer):
+        self.forward_kmers.appendleft(forward_kmer)
+        self.reverse_kmers.append(reverse_kmer)
 
     def simplify_seqs(self):
-        self.forward_seq = ''.join(self.forward_seq)
-        self.reverse_seq = ''.join(self.reverse_seq)
-        assert len(self.forward_seq) == len(self.reverse_seq)
+        forward_seq, reverse_seq = [], []
+        forward_depths, reverse_depths = [], []
+        for k in self.forward_kmers:
+            if not forward_seq:
+                forward_seq.append(k.seq)
+            else:
+                forward_seq.append(k.seq[-1])
+            forward_depths.append(len(k.positions))
+        for k in self.reverse_kmers:
+            if not reverse_seq:
+                reverse_seq.append(k.seq)
+            else:
+                reverse_seq.append(k.seq[-1])
+            reverse_depths.append(len(k.positions))
+        self.forward_seq = ''.join(forward_seq)
+        self.reverse_seq = ''.join(reverse_seq)
+        assert reverse_complement(self.forward_seq) == self.reverse_seq
+        forward_depth = statistics.mean(forward_depths)
+        reverse_depth = statistics.mean(reverse_depths)
+        assert forward_depth == reverse_depth
+        self.depth = forward_depth
 
     def trim_overlaps(self, k_size):
         overlap = k_size // 2
