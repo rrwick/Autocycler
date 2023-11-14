@@ -303,12 +303,18 @@ class UnitigGraph(object):
             unitig.trim_overlaps(self.k_size)
 
 
-
 class Unitig(object):
+    """
+    Unitig objects are built in multiple stages:
+    1. Initialised with a starting k-mer (forward and reverse).
+    2. K-mers are added with add_kmer_to_end and add_kmer_to_start methods.
+    3. The simplify_seqs method combines the k-mers into forward and reverse sequences.
+    4. The trim_overlaps method removes overlapping sequences from both ends.
+    """
     def __init__(self, number, forward_kmer, reverse_kmer):
         self.number = number
-        self.forward_kmers = collections.deque([forward_kmer])
-        self.reverse_kmers = collections.deque([reverse_kmer])
+        self.forward_kmers = collections.deque([forward_kmer])  # only used when building
+        self.reverse_kmers = collections.deque([reverse_kmer])  # only used when building
         self.forward_seq = ''
         self.reverse_seq = ''
         self.depth = 0.0
@@ -329,23 +335,32 @@ class Unitig(object):
         self.reverse_kmers.append(reverse_kmer)
 
     def simplify_seqs(self):
+        self.combine_kmers_into_sequences()
+        self.set_average_depth()
+        self.forward_kmers, self.reverse_kmers = None, None
+
+    def combine_kmers_into_sequences(self):
         forward_seq, reverse_seq = [], []
-        forward_depths, reverse_depths = [], []
         for k in self.forward_kmers:
             if not forward_seq:
                 forward_seq.append(k.seq)
             else:
                 forward_seq.append(k.seq[-1])
-            forward_depths.append(len(k.positions))
         for k in self.reverse_kmers:
             if not reverse_seq:
                 reverse_seq.append(k.seq)
             else:
                 reverse_seq.append(k.seq[-1])
-            reverse_depths.append(len(k.positions))
         self.forward_seq = ''.join(forward_seq)
         self.reverse_seq = ''.join(reverse_seq)
         assert reverse_complement(self.forward_seq) == self.reverse_seq
+
+    def set_average_depth(self):
+        forward_depths, reverse_depths = [], []
+        for k in self.forward_kmers:
+            forward_depths.append(len(k.positions))
+        for k in self.reverse_kmers:
+            reverse_depths.append(len(k.positions))
         forward_depth = statistics.mean(forward_depths)
         reverse_depth = statistics.mean(reverse_depths)
         assert forward_depth == reverse_depth
@@ -360,8 +375,6 @@ class Unitig(object):
 
     def gfa_segment_line(self):
         return f'S\t{self.number}\t{self.forward_seq}\tDP:f:{self.depth:.2f}\n'
-
-
 
 
 REV_COMP_DICT = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'a': 't', 't': 'a', 'g': 'c', 'c': 'g',
