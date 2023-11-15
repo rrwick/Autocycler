@@ -104,28 +104,33 @@ class KmerGraph(object):
         self.kmers = {}
 
     def add_sequence(self, seq, seq_id):
+        half_k = self.k_size // 2  # actually k_size/2 - 0.5, because k_size is odd
         for forward_pos in range(len(seq) - self.k_size + 1):
             reverse_pos = len(seq) - forward_pos - self.k_size
 
-            forward_kmer = seq[forward_pos:forward_pos+self.k_size]
-            reverse_kmer = reverse_complement(forward_kmer)
+            forward_seq = seq[forward_pos:forward_pos+self.k_size]
+            reverse_seq = reverse_complement(forward_seq)
 
-            if forward_kmer not in self.kmers:
-                self.kmers[forward_kmer] = Kmer(forward_kmer)
-                self.kmers[reverse_kmer] = Kmer(reverse_kmer)
+            if forward_seq not in self.kmers:
+                self.kmers[forward_seq] = Kmer(forward_seq)
+                self.kmers[reverse_seq] = Kmer(reverse_seq)
 
-            self.kmers[forward_kmer].add_position(seq_id, 1, forward_pos)
-            self.kmers[reverse_kmer].add_position(seq_id, -1, reverse_pos)
+            forward_centre_pos = forward_pos + half_k
+            reverse_centre_pos = reverse_pos + half_k
+            assert reverse_centre_pos == reverse_complement_position(forward_centre_pos, len(seq))
+
+            self.kmers[forward_seq].add_position(seq_id, 1, forward_centre_pos)
+            self.kmers[reverse_seq].add_position(seq_id, -1, reverse_centre_pos)
 
     def add_assemblies(self, assemblies):
         seq_id = 0
         for assembly in assemblies:
             print(f'\nAdding {assembly} to graph:')
-            for name, info, seq in iterate_fasta(assembly):
+            for name, _, seq in iterate_fasta(assembly):
+                seq_id += 1
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
                 print(' done')
-                seq_id += 1
         print(f'\nGraph contains {len(self.kmers)} k-mers')
 
     def next_kmers(self, kmer):
@@ -187,17 +192,27 @@ class KmerGraph(object):
 class Kmer(object):
     def __init__(self, seq):
         self.seq = seq
-        self.positions = set()
+        self.positions = []
 
     def __repr__(self):
         positions = ','.join([str(p) for p in sorted(self.positions)])
         return f'{positions}'
 
     def add_position(self, seq_id, strand, pos):
-        self.positions.add((seq_id, strand, pos))
+        self.positions.append(KmerPosition(seq_id, strand, pos))
 
     def count(self):
         return len(self.positions)
+
+
+class KmerPosition(object):
+    def __init__(self, seq_id, strand, pos):
+        self.seq_id = seq_id
+        self.strand = strand  # 1 for forward strand, -1 for reverse strand
+        self.pos = pos  # position of the k-mer's centre base (0-based indexing)
+
+    def __repr__(self):
+        return f'{self.seq_id}{"+" if self.strand == 1 else "-"}{self.pos}'
 
 
 class UnitigGraph(object):
@@ -315,8 +330,9 @@ class Unitig(object):
         self.number = number
         self.forward_kmers = collections.deque([forward_kmer])  # only used when building
         self.reverse_kmers = collections.deque([reverse_kmer])  # only used when building
-        self.forward_seq = ''
-        self.reverse_seq = ''
+        self.forward_seq, self.reverse_seq = '', ''
+        self.forward_start_positions, self.forward_end_positions = [], []
+        self.reverse_start_positions, self.reverse_end_positions = [], []
         self.depth = 0.0
 
     def __repr__(self):
@@ -336,6 +352,7 @@ class Unitig(object):
 
     def simplify_seqs(self):
         self.combine_kmers_into_sequences()
+        self.set_start_end_positions()
         self.set_average_depth()
         self.forward_kmers, self.reverse_kmers = None, None
 
@@ -354,6 +371,20 @@ class Unitig(object):
         self.forward_seq = ''.join(forward_seq)
         self.reverse_seq = ''.join(reverse_seq)
         assert reverse_complement(self.forward_seq) == self.reverse_seq
+
+    def set_start_end_positions(self):
+        """
+        Sets this unitig's start and end for both strands. The end positions get a 1 added to make
+        them exclusive-end Pythonic ranges.
+        """
+        self.forward_start_positions = self.forward_kmers[0].positions
+        self.forward_end_positions = self.forward_kmers[-1].positions
+        self.reverse_start_positions = self.reverse_kmers[0].positions
+        self.reverse_end_positions = self.reverse_kmers[-1].positions
+        for p in self.forward_end_positions:
+            p.pos += 1
+        for p in self.reverse_end_positions:
+            p.pos += 1
 
     def set_average_depth(self):
         forward_depths, reverse_depths = [], []
@@ -374,7 +405,17 @@ class Unitig(object):
         assert len(self.forward_seq) >= 1
 
     def gfa_segment_line(self):
-        return f'S\t{self.number}\t{self.forward_seq}\tDP:f:{self.depth:.2f}\n'
+        forward_start_positions_str = ','.join(str(p) for p in self.forward_start_positions)
+        forward_end_positions_str = ','.join(str(p) for p in self.forward_end_positions)
+        reverse_start_positions_str = ','.join(str(p) for p in self.reverse_start_positions)
+        reverse_end_positions_str = ','.join(str(p) for p in self.reverse_end_positions)
+
+        return f'S\t{self.number}\t{self.forward_seq}\t' \
+               f'DP:f:{self.depth:.2f}\t' \
+               f'FS:z:{forward_start_positions_str}\t' \
+               f'FE:z:{forward_end_positions_str}\t' \
+               f'RS:z:{reverse_start_positions_str}\t' \
+               f'RE:z:{reverse_end_positions_str}\n'
 
 
 REV_COMP_DICT = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'a': 't', 't': 'a', 'g': 'c', 'c': 'g',
@@ -393,6 +434,13 @@ def complement_base(base):
 
 def reverse_complement(seq):
     return ''.join([complement_base(x) for x in seq][::-1])
+
+
+def reverse_complement_position(pos, seq_len):
+    """
+    Returns the position of a base on the reverse complement strand using 0-based indexing.
+    """
+    return seq_len - pos - 1
 
 
 def get_compression_type(filename):
@@ -561,3 +609,11 @@ if __name__ == '__main__':
 def test_reverse_complement():
     assert reverse_complement('ACGACTACG') == 'CGTAGTCGT'
     assert reverse_complement('AXX???XXG') == 'CNN???NNT'
+
+
+def test_reverse_complement_position():
+    assert reverse_complement_position(0, 10) == 9
+    assert reverse_complement_position(1, 10) == 8
+    assert reverse_complement_position(8, 10) == 1
+    assert reverse_complement_position(9, 10) == 0
+    assert reverse_complement_position(2, 5) == 2
