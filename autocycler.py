@@ -65,10 +65,10 @@ def main(args=None):
     assemblies = find_all_assemblies(args.in_dir)
 
     kmer_graph = KmerGraph(args.kmer)
-    kmer_graph.add_assemblies(assemblies)
+    id_to_contig_info = kmer_graph.add_assemblies(assemblies)
 
     unitig_graph = UnitigGraph(kmer_graph)
-    unitig_graph.save_gfa(args.out_dir / f'001_de_bruijn_graph.gfa')
+    unitig_graph.save_gfa(args.out_dir / f'001_de_bruijn_graph.gfa', id_to_contig_info)
 
 
 def check_args(args):
@@ -123,15 +123,19 @@ class KmerGraph(object):
             self.kmers[reverse_seq].add_position(seq_id, -1, reverse_centre_pos)
 
     def add_assemblies(self, assemblies):
+        id_to_contig_info = {}
         seq_id = 0
         for assembly in assemblies:
             print(f'\nAdding {assembly} to graph:')
-            for name, _, seq in iterate_fasta(assembly):
+            for name, info, seq in iterate_fasta(assembly):
                 seq_id += 1
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
+                contig_header = name + ' ' + info if info else name
+                id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
                 print(' done')
         print(f'\nGraph contains {len(self.kmers)} k-mers')
+        return id_to_contig_info
 
     def next_kmers(self, kmer):
         """
@@ -154,7 +158,7 @@ class KmerGraph(object):
         assert 0 <= len(next_list) <= 4
         return next_list
 
-    def previous_kmers(self, kmer):
+    def prev_kmers(self, kmer):
         """
         Returns a list of the k-mers in the graph which precede the given one. The list will have a
         length from 0 to 4.
@@ -163,17 +167,17 @@ class KmerGraph(object):
         c = 'C' + kmer.seq[:-1]
         g = 'G' + kmer.seq[:-1]
         t = 'T' + kmer.seq[:-1]
-        previous_list = []
+        prev_list = []
         if a in self.kmers:
-            previous_list.append(self.kmers[a])
+            prev_list.append(self.kmers[a])
         if c in self.kmers:
-            previous_list.append(self.kmers[c])
+            prev_list.append(self.kmers[c])
         if g in self.kmers:
-            previous_list.append(self.kmers[g])
+            prev_list.append(self.kmers[g])
         if t in self.kmers:
-            previous_list.append(self.kmers[t])
-        assert 0 <= len(previous_list) <= 4
-        return previous_list
+            prev_list.append(self.kmers[t])
+        assert 0 <= len(prev_list) <= 4
+        return prev_list
 
     def iterate_kmers(self):
         """
@@ -199,17 +203,21 @@ class Kmer(object):
         return f'{positions}'
 
     def add_position(self, seq_id, strand, pos):
-        self.positions.append(KmerPosition(seq_id, strand, pos))
+        self.positions.append(Position(seq_id, strand, pos))
 
     def count(self):
         return len(self.positions)
 
 
-class KmerPosition(object):
+class Position(object):
     def __init__(self, seq_id, strand, pos):
         self.seq_id = seq_id
         self.strand = strand  # 1 for forward strand, -1 for reverse strand
-        self.pos = pos  # position of the k-mer's centre base (0-based indexing)
+        self.pos = pos  # 0-based indexing
+
+        # Pointers to the preceding and following Position objects:
+        self.prev_kmer_position = None
+        self.next_kmer_position = None
 
     def __repr__(self):
         return f'{self.seq_id}{"+" if self.strand == 1 else "-"}{self.pos}'
@@ -226,11 +234,16 @@ class UnitigGraph(object):
         self.k_size = kmer_graph.k_size
         print('\nBuilding unitig graph from k-mer graph:')
         self.build_unitigs_from_kmer_graph(kmer_graph)
+        self.renumber_unitigs()
         self.create_links()
         self.trim_overlaps()
 
-    def save_gfa(self, gfa_filename):
+    def save_gfa(self, gfa_filename, id_to_contig_info):
         with open(gfa_filename, 'wt') as f:
+            f.write('H\tVN:Z:1.0\n')
+            for id, contig in id_to_contig_info.items():
+                assembly, contig_header, seq_len = contig
+                f.write(f'# {id}: {seq_len} bp, {assembly}, {contig_header}\n')
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
             for a_num, a_strand, b_num, b_strand in self.links:
@@ -259,8 +272,8 @@ class UnitigGraph(object):
                 forward_kmer = next_kmers[0]
                 if forward_kmer in seen:
                     break
-                previous_kmers = kmer_graph.previous_kmers(forward_kmer)
-                if len(previous_kmers) != 1:
+                prev_kmers = kmer_graph.prev_kmers(forward_kmer)
+                if len(prev_kmers) != 1:
                     break
                 reverse_kmer = kmer_graph.reverse(forward_kmer)
                 unitig.add_kmer_to_end(forward_kmer, reverse_kmer)
@@ -270,10 +283,10 @@ class UnitigGraph(object):
             # Extend unitig backward
             forward_kmer = starting_kmer
             while True:
-                previous_kmers = kmer_graph.previous_kmers(forward_kmer)
-                if len(previous_kmers) != 1:
+                prev_kmers = kmer_graph.prev_kmers(forward_kmer)
+                if len(prev_kmers) != 1:
                     break
-                forward_kmer = previous_kmers[0]
+                forward_kmer = prev_kmers[0]
                 if forward_kmer in seen:
                     break
                 next_kmers = kmer_graph.next_kmers(forward_kmer)
@@ -287,6 +300,13 @@ class UnitigGraph(object):
             unitig.simplify_seqs()
             self.unitigs.append(unitig)
         print(f'  {len(self.unitigs)} unitigs')
+
+    def renumber_unitigs(self):
+        self.unitigs = sorted(self.unitigs, key=lambda u: u.length(), reverse=True)
+        unitig_number = 0
+        for unitig in self.unitigs:
+            unitig_number += 1
+            unitig.number = unitig_number
 
     def create_links(self):
         self.links = []
@@ -341,6 +361,10 @@ class Unitig(object):
         else:
             seq = self.forward_seq[:6] + '...' + self.forward_seq[-6:]
         return f'unitig {self.number}: {seq}, {len(self.forward_seq)} bp, {self.depth:.2f}x'
+
+    def length(self):
+        assert len(self.forward_seq) == len(self.reverse_seq)
+        return len(self.forward_seq)
 
     def add_kmer_to_end(self, forward_kmer, reverse_kmer):
         self.forward_kmers.append(forward_kmer)
