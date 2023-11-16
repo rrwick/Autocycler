@@ -21,7 +21,7 @@ import sys
 
 from .help_formatter import MyParser, MyHelpFormatter
 from .kmer_graph import KmerGraph
-from .misc import get_default_thread_count, reverse_complement, reverse_complement_position
+from .misc import find_all_assemblies, get_default_thread_count
 from .unitig_graph import UnitigGraph
 
 __version__ = '0.0.0'
@@ -65,8 +65,8 @@ def main(args=None):
     kmer_graph = KmerGraph(args.kmer)
     id_to_contig_info = kmer_graph.add_assemblies(assemblies)
 
-    unitig_graph = UnitigGraph(kmer_graph)
-    unitig_graph.save_gfa(args.out_dir / f'001_de_bruijn_graph.gfa', id_to_contig_info)
+    unitig_graph = UnitigGraph(kmer_graph, id_to_contig_info)
+    unitig_graph.save_gfa(args.out_dir / f'001_unitig_graph.gfa')
 
 
 def check_args(args):
@@ -74,22 +74,6 @@ def check_args(args):
         sys.exit('Error: --kmer must be 11 or greater')
     if args.kmer % 2 == 0:
         sys.exit('Error: --kmer must be odd')
-
-
-def find_all_assemblies(in_dir):
-    print(f'\nLooking for assembly files in {in_dir}...', flush=True, end='')
-    all_assemblies = [str(x) for x in sorted(pathlib.Path(in_dir).glob('**/*'))
-                      if x.is_file()]
-    all_assemblies = [x for x in all_assemblies if
-                      x.endswith('.fasta') or x.endswith('.fasta.gz') or
-                      x.endswith('.fna') or x.endswith('.fna.gz') or
-                      x.endswith('.fa') or x.endswith('.fa.gz')]
-    # TODO: also look for GFA-format assemblies
-    plural = 'assembly' if len(all_assemblies) == 1 else 'assemblies'
-    print(f' found {len(all_assemblies)} {plural}')
-    if len(all_assemblies) == 0:
-        sys.exit(f'Error: no assemblies found in {in_dir}')
-    return sorted(all_assemblies)
 
 
 if __name__ == '__main__':

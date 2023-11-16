@@ -130,10 +130,16 @@ class UnitigGraph(object):
     This class builds a unitig graph from a k-mer graph, where all nonbranching paths are merged
     into unitigs. This simplifies things and saves memory.
     """
-    def __init__(self, kmer_graph):
+    def __init__(self, kmer_graph, id_to_contig_info):
         self.unitigs = []
         self.links = []
         self.k_size = kmer_graph.k_size
+
+        self.contig_ids = sorted(id_to_contig_info.keys())
+        self.contig_ids_to_assembly = {i: id_to_contig_info[i][0] for i in self.contig_ids}
+        self.contig_ids_to_header = {i: id_to_contig_info[i][1] for i in self.contig_ids}
+        self.contig_ids_to_seq_len = {i: id_to_contig_info[i][2] for i in self.contig_ids}
+
         print('\nBuilding unitig graph from k-mer graph:')
         self.build_unitigs_from_kmer_graph(kmer_graph)
         self.renumber_unitigs()
@@ -141,12 +147,13 @@ class UnitigGraph(object):
         self.trim_overlaps()
         self.connect_positions()
 
-    def save_gfa(self, gfa_filename, id_to_contig_info):
+    def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
             f.write('H\tVN:Z:1.0\n')
-            for id, contig in id_to_contig_info.items():
-                assembly, contig_header, seq_len = contig
-                f.write(f'# {id}: {seq_len} bp, {assembly}, {contig_header}\n')
+            f.write(f'# Unitig graph built using {self.k_size}-mers from these sequences:\n')
+            for i in self.contig_ids:
+                f.write(f'# {i}: {self.contig_ids_to_seq_len[i]} bp, '
+                        f'{self.contig_ids_to_assembly[i]}, {self.contig_ids_to_header[i]}\n')
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
             for a_num, a_strand, b_num, b_strand in self.links:
@@ -222,6 +229,7 @@ class UnitigGraph(object):
             starting_forward[unitig.forward_seq[:piece_len]].append(unitig.number)
             starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig.number)
 
+        # Use the indices to find connections between unitigs
         for unitig in self.unitigs:
             ending_forward_seq = unitig.forward_seq[-piece_len:]
             for next_unitig in starting_forward[ending_forward_seq]:
@@ -239,7 +247,7 @@ class UnitigGraph(object):
     def trim_overlaps(self):
         for unitig in self.unitigs:
             unitig.trim_overlaps(self.k_size)
-    
+
     def connect_positions(self):
         pass
         # TODO
