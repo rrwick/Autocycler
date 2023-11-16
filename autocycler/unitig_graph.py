@@ -16,6 +16,7 @@ see <https://www.gnu.org/licenses/>.
 """
 
 import collections
+import copy
 import statistics
 
 from .misc import reverse_complement
@@ -46,7 +47,9 @@ class Unitig(object):
         return f'unitig {self.number}: {seq}, {len(self.forward_seq)} bp, {self.depth:.2f}x'
 
     def length(self):
-        assert len(self.forward_seq) == len(self.reverse_seq)
+        """
+        This method will only work after the unitig has been built (simplify_seqs has been run).
+        """
         return len(self.forward_seq)
 
     def add_kmer_to_end(self, forward_kmer, reverse_kmer):
@@ -84,10 +87,10 @@ class Unitig(object):
         Sets this unitig's start and end for both strands. The end positions get a 1 added to make
         them exclusive-end Pythonic ranges.
         """
-        self.forward_start_positions = self.forward_kmers[0].positions
-        self.forward_end_positions = self.forward_kmers[-1].positions
-        self.reverse_start_positions = self.reverse_kmers[0].positions
-        self.reverse_end_positions = self.reverse_kmers[-1].positions
+        self.forward_start_positions = copy.deepcopy(self.forward_kmers[0].positions)
+        self.forward_end_positions = copy.deepcopy(self.forward_kmers[-1].positions)
+        self.reverse_start_positions = copy.deepcopy(self.reverse_kmers[0].positions)
+        self.reverse_end_positions = copy.deepcopy(self.reverse_kmers[-1].positions)
         for p in self.forward_end_positions:
             p.pos += 1
         for p in self.reverse_end_positions:
@@ -124,6 +127,34 @@ class Unitig(object):
                f'RS:z:{reverse_start_positions_str}\t' \
                f'RE:z:{reverse_end_positions_str}\n'
 
+    def connect_positions(self):
+        """
+        Connects the start and end positions for this unitig on both strands, when they line up.
+        For most unitigs, there will be a 1-to-1 relationship between starting and ending positions,
+        i.e. they will all get connections. But sometimes a position will remain unconnected - this
+        happens when an original sequence starts/ends in the middle of the unitig.
+        """
+        for start in self.forward_start_positions:
+            assert start.prev_kmer_position is None and start.next_kmer_position is None
+            matches = [end for end in self.forward_end_positions
+                       if start.seq_id == end.seq_id and start.strand == end.strand and \
+                       start.pos + self.length() == end.pos]
+            assert len(matches) <= 1
+            if len(matches) == 1:
+                end = matches[0]
+                start.next_kmer_position = end
+                end.prev_kmer_position = start
+        for start in self.reverse_start_positions:
+            assert start.prev_kmer_position is None and start.next_kmer_position is None
+            matches = [end for end in self.reverse_end_positions
+                       if start.seq_id == end.seq_id and start.strand == end.strand and \
+                       start.pos + self.length() == end.pos]
+            assert len(matches) <= 1
+            if len(matches) == 1:
+                end = matches[0]
+                start.next_kmer_position = end
+                end.prev_kmer_position = start
+
 
 class UnitigGraph(object):
     """
@@ -156,8 +187,8 @@ class UnitigGraph(object):
                         f'{self.contig_ids_to_assembly[i]}, {self.contig_ids_to_header[i]}\n')
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
-            for a_num, a_strand, b_num, b_strand in self.links:
-                f.write(f'L\t{a_num}\t{a_strand}\t{b_num}\t{b_strand}\t0M\n')
+            for a, a_strand, b, b_strand in self.links:
+                f.write(f'L\t{a.number}\t{a_strand}\t{b.number}\t{b_strand}\t0M\n')
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
@@ -226,22 +257,23 @@ class UnitigGraph(object):
         starting_forward = collections.defaultdict(list)
         starting_reverse = collections.defaultdict(list)
         for unitig in self.unitigs:
-            starting_forward[unitig.forward_seq[:piece_len]].append(unitig.number)
-            starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig.number)
+            starting_forward[unitig.forward_seq[:piece_len]].append(unitig)
+            starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig)
 
         # Use the indices to find connections between unitigs
         for unitig in self.unitigs:
             ending_forward_seq = unitig.forward_seq[-piece_len:]
             for next_unitig in starting_forward[ending_forward_seq]:
-                self.links.append((unitig.number, '+', next_unitig, '+'))
-                self.links.append((next_unitig, '-', unitig.number, '-'))
+                self.links.append((unitig, '+', next_unitig, '+'))
+                self.links.append((next_unitig, '-', unitig, '-'))
             for next_unitig in starting_reverse[ending_forward_seq]:
-                self.links.append((unitig.number, '+', next_unitig, '-'))
+                self.links.append((unitig, '+', next_unitig, '-'))
             ending_reverse_seq = unitig.reverse_seq[-piece_len:]
             for next_unitig in starting_forward[ending_reverse_seq]:
-                self.links.append((unitig.number, '-', next_unitig, '+'))
+                self.links.append((unitig, '-', next_unitig, '+'))
 
-        self.links = sorted(self.links, key=lambda x: (sorted([x[0], x[2]]), x[0]))
+        self.links = sorted(self.links,
+                            key=lambda x: (sorted([x[0].number, x[2].number]), x[0].number))
         print(f'  {len(self.links)} links')
 
     def trim_overlaps(self):
@@ -249,7 +281,46 @@ class UnitigGraph(object):
             unitig.trim_overlaps(self.k_size)
 
     def connect_positions(self):
-        pass
+        """
+        This method connects up all Position objects in the UnitigGraph. This happens:
+        * Within unitigs, where a starting position is connected to an end position (carried out by
+          the Unitig connect_positions method).
+        * Between unitigs, where an ending position of one unitig is connected to a starting
+          position of a linked unitig (carried out by this method).
+        """
+        for unitig in self.unitigs:
+            unitig.connect_positions()
+        for a, a_strand, b, b_strand in self.links:
+            if a_strand == '+' and b_strand == '+':
+                first, second = a.forward_end_positions, b.forward_start_positions
+            elif a_strand == '+' and b_strand == '-':
+                first, second = a.forward_end_positions, b.reverse_start_positions
+            elif a_strand == '-' and b_strand == '+':
+                first, second = a.reverse_end_positions, b.forward_start_positions
+            elif a_strand == '-' and b_strand == '-':
+                first, second = a.reverse_end_positions, b.reverse_start_positions
+                pass
+            else:
+                assert False
+            for a in first:
+                matches = [b for b in second
+                        if a.seq_id == b.seq_id and a.strand == b.strand and a.pos == b.pos]
+                assert len(matches) <= 1
+                if len(matches) == 1:
+                    match = matches[0]
+                    if a.next_kmer_position is None:
+                        a.next_kmer_position = match
+                    else:
+                        assert a.next_kmer_position == match
+                    if match.prev_kmer_position is None:
+                        match.prev_kmer_position = a
+                    else:
+                        assert match.prev_kmer_position == a
+
+    def reconstruct_original_sequences(self):
+        """
+        Returns a list of the original sequences used to build the unitig graph.
+        """
         # TODO
         # TODO
         # TODO
