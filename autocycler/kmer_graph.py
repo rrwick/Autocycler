@@ -33,11 +33,22 @@ class Position(object):
         self.pos = pos  # 0-based indexing
 
         # Pointers to the preceding and following Position objects:
-        self.prev_kmer_position = None
-        self.next_kmer_position = None
+        self.prev = None
+        self.next = None
+
+        # Pointers to the associated unitig:
+        self.unitig = None
+        self.unitig_strand = None  # 1 for forward, -1 for reverse
+        self.unitig_start_end = None  # 0 for start, 1 for end
 
     def __repr__(self):
         return f'{self.seq_id}{"+" if self.strand == 1 else "-"}{self.pos}'
+
+    def on_unitig_start(self):
+        return self.unitig_start_end == 0
+
+    def on_unitig_end(self):
+        return self.unitig_start_end == 1
 
 
 class Kmer(object):
@@ -65,6 +76,21 @@ class KmerGraph(object):
         self.k_size = k_size
         self.kmers = {}
 
+    def add_assemblies(self, assemblies):
+        id_to_contig_info = {}
+        seq_id = 0
+        for assembly in assemblies:
+            print(f'\nAdding {assembly} to graph:')
+            for name, info, seq in iterate_fasta(assembly):
+                seq_id += 1
+                print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
+                self.add_sequence(seq, seq_id)
+                contig_header = name + ' ' + info if info else name
+                id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
+                print(' done')
+        print(f'\nGraph contains {len(self.kmers)} k-mers')
+        return id_to_contig_info
+
     def add_sequence(self, seq, seq_id):
         half_k = self.k_size // 2  # actually k_size/2 - 0.5, because k_size is odd
         for forward_pos in range(len(seq) - self.k_size + 1):
@@ -83,21 +109,6 @@ class KmerGraph(object):
 
             self.kmers[forward_seq].add_position(seq_id, 1, forward_centre_pos)
             self.kmers[reverse_seq].add_position(seq_id, -1, reverse_centre_pos)
-
-    def add_assemblies(self, assemblies):
-        id_to_contig_info = {}
-        seq_id = 0
-        for assembly in assemblies:
-            print(f'\nAdding {assembly} to graph:')
-            for name, info, seq in iterate_fasta(assembly):
-                seq_id += 1
-                print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
-                self.add_sequence(seq, seq_id)
-                contig_header = name + ' ' + info if info else name
-                id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
-                print(' done')
-        print(f'\nGraph contains {len(self.kmers)} k-mers')
-        return id_to_contig_info
 
     def next_kmers(self, kmer):
         """

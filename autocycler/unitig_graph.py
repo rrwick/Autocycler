@@ -52,6 +52,14 @@ class Unitig(object):
         """
         return len(self.forward_seq)
 
+    def get_seq(self, strand):
+        if strand == 1:
+            return self.forward_seq
+        elif strand == -1:
+            return self.reverse_seq
+        else:
+            assert False
+
     def add_kmer_to_end(self, forward_kmer, reverse_kmer):
         self.forward_kmers.append(forward_kmer)
         self.reverse_kmers.appendleft(reverse_kmer)
@@ -91,9 +99,23 @@ class Unitig(object):
         self.forward_end_positions = copy.deepcopy(self.forward_kmers[-1].positions)
         self.reverse_start_positions = copy.deepcopy(self.reverse_kmers[0].positions)
         self.reverse_end_positions = copy.deepcopy(self.reverse_kmers[-1].positions)
+        for p in self.forward_start_positions:
+            p.unitig = self
+            p.unitig_strand = 1
+            p.unitig_start_end = 0
         for p in self.forward_end_positions:
+            p.unitig = self
+            p.unitig_strand = 1
+            p.unitig_start_end = 1
             p.pos += 1
+        for p in self.reverse_start_positions:
+            p.unitig = self
+            p.unitig_strand = -1
+            p.unitig_start_end = 0
         for p in self.reverse_end_positions:
+            p.unitig = self
+            p.unitig_strand = -1
+            p.unitig_start_end = 1
             p.pos += 1
 
     def set_average_depth(self):
@@ -135,25 +157,25 @@ class Unitig(object):
         happens when an original sequence starts/ends in the middle of the unitig.
         """
         for start in self.forward_start_positions:
-            assert start.prev_kmer_position is None and start.next_kmer_position is None
+            assert start.prev is None and start.next is None
             matches = [end for end in self.forward_end_positions
                        if start.seq_id == end.seq_id and start.strand == end.strand and \
                        start.pos + self.length() == end.pos]
             assert len(matches) <= 1
             if len(matches) == 1:
                 end = matches[0]
-                start.next_kmer_position = end
-                end.prev_kmer_position = start
+                start.next = end
+                end.prev = start
         for start in self.reverse_start_positions:
-            assert start.prev_kmer_position is None and start.next_kmer_position is None
+            assert start.prev is None and start.next is None
             matches = [end for end in self.reverse_end_positions
                        if start.seq_id == end.seq_id and start.strand == end.strand and \
                        start.pos + self.length() == end.pos]
             assert len(matches) <= 1
             if len(matches) == 1:
                 end = matches[0]
-                start.next_kmer_position = end
-                end.prev_kmer_position = start
+                start.next = end
+                end.prev = start
 
 
 class UnitigGraph(object):
@@ -308,22 +330,57 @@ class UnitigGraph(object):
                 assert len(matches) <= 1
                 if len(matches) == 1:
                     match = matches[0]
-                    if a.next_kmer_position is None:
-                        a.next_kmer_position = match
+                    if a.next is None:
+                        a.next = match
                     else:
-                        assert a.next_kmer_position == match
-                    if match.prev_kmer_position is None:
-                        match.prev_kmer_position = a
+                        assert a.next == match
+                    if match.prev is None:
+                        match.prev = a
                     else:
-                        assert match.prev_kmer_position == a
+                        assert match.prev_kmer == a
 
     def reconstruct_original_sequences(self):
         """
-        Returns a list of the original sequences used to build the unitig graph.
+        Returns a dictionary of the original sequences used to build the unitig graph.
         """
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
+        return {i: self.reconstruct_original_sequence(i) for i in self.contig_ids}
+
+    def reconstruct_original_sequence(self, seq_id):
+        """
+        Returns the original sequence for the given sequence ID. Works by finding the first
+        forward-strand position for that sequence and then following the position-to-position
+        links through the unitig graph, building sequence as it goes.
+        """
+        total_length = self.contig_ids_to_seq_len[seq_id]
+        sequence = []
+        p = self.find_first_position(seq_id)
+        assert p.on_unitig_end()
+        sequence.append(p.unitig.get_seq(p.unitig_strand)[-p.pos:])
+        while p.next is not None:
+            p = p.next
+            assert p.on_unitig_start()
+            if p.next is not None:
+                p = p.next
+                assert p.on_unitig_end()
+                sequence.append(p.unitig.get_seq(p.unitig_strand))
+            else:
+                remaining_length = total_length - sum(len(s) for s in sequence)
+                assert remaining_length <= p.unitig.length()
+                sequence.append(p.unitig.get_seq(p.unitig_strand)[:remaining_length])
+        sequence = ''.join(sequence)
+        return ''.join(sequence)
+
+    def find_first_position(self, i):
+        """
+        This method looks through all of the unitig-end positions (both strands), looking for the
+        first instance of the positive strand for the given sequence ID.
+        """
+        best = None
+        for unitig in self.unitigs:
+            for p in unitig.forward_end_positions:
+                if p.seq_id == i and p.strand == 1 and (best is None or p.pos < best.pos):
+                    best = p
+            for p in unitig.reverse_end_positions:
+                if p.seq_id == i and p.strand == 1 and (best is None or p.pos < best.pos):
+                    best = p
+        return best
