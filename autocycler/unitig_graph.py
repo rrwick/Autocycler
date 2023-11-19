@@ -129,11 +129,16 @@ class Unitig(object):
         assert forward_depth == reverse_depth
         self.depth = forward_depth
 
-    def trim_overlaps(self, k_size):
+    def trim_overlaps(self, k_size, trim_start, trim_end):
         overlap = k_size // 2
         assert len(self.forward_seq) >= k_size
-        self.forward_seq = self.forward_seq[overlap:-overlap]
-        self.reverse_seq = self.reverse_seq[overlap:-overlap]
+        if trim_start:
+            self.forward_seq = self.forward_seq[overlap:]
+            self.reverse_seq = self.reverse_seq[:-overlap]
+        if trim_end:
+            self.forward_seq = self.forward_seq[:-overlap]
+            self.reverse_seq = self.reverse_seq[overlap:]
+        assert reverse_complement(self.forward_seq) == self.reverse_seq
         assert len(self.forward_seq) >= 1
 
     def gfa_segment_line(self):
@@ -299,8 +304,26 @@ class UnitigGraph(object):
         print(f'  {len(self.links)} links')
 
     def trim_overlaps(self):
+        """
+        Must be run after create_links, as dead-ends aren't trimmed.
+        """
+        dead_end_starts, dead_end_ends = set(), set()
         for unitig in self.unitigs:
-            unitig.trim_overlaps(self.k_size)
+            dead_end_starts.add(unitig.number)
+            dead_end_ends.add(unitig.number)
+        for a, a_strand, b, b_strand in self.links:
+            if a_strand == '+':
+                dead_end_ends.discard(a.number)
+            if a_strand == '-':
+                dead_end_starts.discard(a.number)
+            if b_strand == '+':
+                dead_end_starts.discard(b.number)
+            if b_strand == '-':
+                dead_end_ends.discard(b.number)
+        for unitig in self.unitigs:
+            trim_start = unitig.number not in dead_end_starts
+            trim_end = unitig.number not in dead_end_ends
+            unitig.trim_overlaps(self.k_size, trim_start, trim_end)
 
     def connect_positions(self):
         """
@@ -368,6 +391,7 @@ class UnitigGraph(object):
                 assert remaining_length <= p.unitig.length()
                 sequence.append(p.unitig.get_seq(p.unitig_strand)[:remaining_length])
         sequence = ''.join(sequence)
+        assert len(sequence) == total_length
         return ''.join(sequence)
 
     def find_first_position(self, i):
