@@ -93,7 +93,7 @@ class Unitig(object):
             upstream_seq = unitig.get_seq(strand) + upstream_seq
             if len(upstream_seq) >= amount:
                 break
-        return upstream_seq[:amount]
+        return upstream_seq[-amount:]
 
     def get_downstream_seq(self, strand, amount):
         downstream_seq = ''
@@ -433,7 +433,7 @@ class UnitigGraph(object):
         links through the unitig graph, building sequence as it goes.
         """
         total_length = self.contig_ids_to_seq_len[seq_id]
-        print(f'   {seq_id}: {total_length} bp')
+        print(f'  {seq_id}: {total_length} bp')
         sequence = []
         p = self.find_first_position(seq_id)
         assert p.on_unitig_end()
