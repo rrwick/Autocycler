@@ -22,7 +22,7 @@ class Position(object):
     """
     Position objects store the sequence, strand and position for contigs in the input assemblies.
     They are used:
-    * In KmerGraph objects, where each Kmer object has a single Position.
+    * In KmerGraph objects, where each Kmer object has one or more Position objects.
     * In UnitigGraph objects, where each Unitig has one or more starting and ending Position
       objects on both strands. These form a doubly linked list, tracing the input contig through
       the UnitigGraph.

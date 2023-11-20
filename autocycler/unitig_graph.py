@@ -32,12 +32,23 @@ class Unitig(object):
     """
     def __init__(self, number, forward_kmer, reverse_kmer):
         self.number = number
-        self.forward_kmers = collections.deque([forward_kmer])  # only used when building
-        self.reverse_kmers = collections.deque([reverse_kmer])  # only used when building
+
+        # These k-mer deques are used when building the unique (will be set to None afterward):
+        self.forward_kmers = collections.deque([forward_kmer])
+        self.reverse_kmers = collections.deque([reverse_kmer])
+
+        # After building is complete, only the unitig sequences are stored:
         self.forward_seq, self.reverse_seq = '', ''
+        self.depth = 0.0
+
+        # Position objects (connecting back to the original sequences) are stored for the start and
+        # end of both strands:
         self.forward_start_positions, self.forward_end_positions = [], []
         self.reverse_start_positions, self.reverse_end_positions = [], []
-        self.depth = 0.0
+
+        # Pointers to the preceding and following Unitig objects, along with their strand:
+        self.forward_next, self.forward_prev = [], []
+        self.reverse_next, self.reverse_prev = [], []
 
     def __repr__(self):
         if len(self.forward_seq) < 15:
@@ -129,9 +140,11 @@ class Unitig(object):
         assert forward_depth == reverse_depth
         self.depth = forward_depth
 
-    def trim_overlaps(self, k_size, trim_start, trim_end):
+    def trim_overlaps(self, k_size):
         overlap = k_size // 2
         assert len(self.forward_seq) >= k_size
+        trim_start = len(self.forward_prev) > 0
+        trim_end = len(self.forward_next) > 0
         if trim_start:
             self.forward_seq = self.forward_seq[overlap:]
             self.reverse_seq = self.reverse_seq[:-overlap]
@@ -190,7 +203,6 @@ class UnitigGraph(object):
     """
     def __init__(self, kmer_graph, id_to_contig_info):
         self.unitigs = []
-        self.links = []
         self.k_size = kmer_graph.k_size
 
         self.contig_ids = sorted(id_to_contig_info.keys())
@@ -212,10 +224,17 @@ class UnitigGraph(object):
             for i in self.contig_ids:
                 f.write(f'# {i}: {self.contig_ids_to_seq_len[i]} bp, '
                         f'{self.contig_ids_to_assembly[i]}, {self.contig_ids_to_header[i]}\n')
+            links = []
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
-            for a, a_strand, b, b_strand in self.links:
-                f.write(f'L\t{a.number}\t{a_strand}\t{b.number}\t{b_strand}\t0M\n')
+                for next_unitig, next_strand in unitig.forward_next:
+                    links.append((unitig.number, '+',
+                                  next_unitig.number, '+' if next_strand == 1 else '-'))
+                for next_unitig, next_strand in unitig.reverse_next:
+                    links.append((unitig.number, '-',
+                                  next_unitig.number, '+' if next_strand == 1 else '-'))
+            for a, a_strand, b, b_strand in links:
+                f.write(f'L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M\n')
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
@@ -270,60 +289,53 @@ class UnitigGraph(object):
         print(f'  {len(self.unitigs)} unitigs')
 
     def renumber_unitigs(self):
-        self.unitigs = sorted(self.unitigs, key=lambda u: u.length(), reverse=True)
+        overlap_size = self.k_size // 2
+        self.unitigs = sorted(self.unitigs,
+                              key=lambda u: (1.0/u.length(), u.forward_seq[overlap_size:]))
         unitig_number = 0
         for unitig in self.unitigs:
             unitig_number += 1
             unitig.number = unitig_number
 
     def create_links(self):
-        self.links = []
         piece_len = self.k_size - 1
 
-        # Index unitigs by their k-1 starting and ending sequences
+        # Index unitigs by their k-1 starting and ending sequences.
         starting_forward = collections.defaultdict(list)
         starting_reverse = collections.defaultdict(list)
         for unitig in self.unitigs:
             starting_forward[unitig.forward_seq[:piece_len]].append(unitig)
             starting_reverse[unitig.reverse_seq[:piece_len]].append(unitig)
 
-        # Use the indices to find connections between unitigs
+        # Use the indices to find connections between unitigs.
+        link_count = 0
         for unitig in self.unitigs:
             ending_forward_seq = unitig.forward_seq[-piece_len:]
             for next_unitig in starting_forward[ending_forward_seq]:
-                self.links.append((unitig, '+', next_unitig, '+'))
-                self.links.append((next_unitig, '-', unitig, '-'))
+                # unitig+ -> next_unitig+
+                unitig.forward_next.append((next_unitig, 1))
+                next_unitig.forward_prev.append((unitig, 1))
+                link_count += 1
+                # next_unitig- -> unitig-
+                next_unitig.reverse_next.append((unitig, -1))
+                unitig.reverse_prev.append((next_unitig, -1))
+                link_count += 1
             for next_unitig in starting_reverse[ending_forward_seq]:
-                self.links.append((unitig, '+', next_unitig, '-'))
+                # unitig+ -> next_unitig-
+                unitig.forward_next.append((next_unitig, -1))
+                next_unitig.reverse_prev.append((unitig, 1))
+                link_count += 1
             ending_reverse_seq = unitig.reverse_seq[-piece_len:]
             for next_unitig in starting_forward[ending_reverse_seq]:
-                self.links.append((unitig, '-', next_unitig, '+'))
-
-        self.links = sorted(self.links,
-                            key=lambda x: (sorted([x[0].number, x[2].number]), x[0].number))
-        print(f'  {len(self.links)} links')
+                # unitig- -> next_unitig+
+                unitig.reverse_next.append((next_unitig, 1))
+                next_unitig.forward_prev.append((unitig, -1))
+                link_count += 1
+        print(f'  {link_count} links')
 
     def trim_overlaps(self):
-        """
-        Must be run after create_links, as dead-ends aren't trimmed.
-        """
-        dead_end_starts, dead_end_ends = set(), set()
         for unitig in self.unitigs:
-            dead_end_starts.add(unitig.number)
-            dead_end_ends.add(unitig.number)
-        for a, a_strand, b, b_strand in self.links:
-            if a_strand == '+':
-                dead_end_ends.discard(a.number)
-            if a_strand == '-':
-                dead_end_starts.discard(a.number)
-            if b_strand == '+':
-                dead_end_starts.discard(b.number)
-            if b_strand == '-':
-                dead_end_ends.discard(b.number)
-        for unitig in self.unitigs:
-            trim_start = unitig.number not in dead_end_starts
-            trim_end = unitig.number not in dead_end_ends
-            unitig.trim_overlaps(self.k_size, trim_start, trim_end)
+            unitig.trim_overlaps(self.k_size)
 
     def connect_positions(self):
         """
@@ -335,14 +347,22 @@ class UnitigGraph(object):
         """
         for unitig in self.unitigs:
             unitig.connect_positions()
-        for a, a_strand, b, b_strand in self.links:
-            if a_strand == '+' and b_strand == '+':
+
+        links = []
+        for unitig in self.unitigs:
+            for next_unitig, next_strand in unitig.forward_next:
+                links.append((unitig, 1, next_unitig, next_strand))
+            for next_unitig, next_strand in unitig.reverse_next:
+                links.append((unitig, -1, next_unitig, next_strand))
+
+        for a, a_strand, b, b_strand in links:
+            if a_strand == 1 and b_strand == 1:
                 first, second = a.forward_end_positions, b.forward_start_positions
-            elif a_strand == '+' and b_strand == '-':
+            elif a_strand == 1 and b_strand == -1:
                 first, second = a.forward_end_positions, b.reverse_start_positions
-            elif a_strand == '-' and b_strand == '+':
+            elif a_strand == -1 and b_strand == 1:
                 first, second = a.reverse_end_positions, b.forward_start_positions
-            elif a_strand == '-' and b_strand == '-':
+            elif a_strand == -1 and b_strand == -1:
                 first, second = a.reverse_end_positions, b.reverse_start_positions
                 pass
             else:
