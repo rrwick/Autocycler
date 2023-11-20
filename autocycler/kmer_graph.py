@@ -16,39 +16,7 @@ see <https://www.gnu.org/licenses/>.
 """
 
 from .misc import reverse_complement, reverse_complement_position, iterate_fasta
-
-
-class Position(object):
-    """
-    Position objects store the sequence, strand and position for contigs in the input assemblies.
-    They are used:
-    * In KmerGraph objects, where each Kmer object has one or more Position objects.
-    * In UnitigGraph objects, where each Unitig has one or more starting and ending Position
-      objects on both strands. These form a doubly linked list, tracing the input contig through
-      the UnitigGraph.
-    """
-    def __init__(self, seq_id, strand, pos):
-        self.seq_id = seq_id
-        self.strand = strand  # 1 for forward strand, -1 for reverse strand
-        self.pos = pos  # 0-based indexing
-
-        # Pointers to the preceding and following Position objects:
-        self.prev = None
-        self.next = None
-
-        # Pointers to the associated unitig:
-        self.unitig = None
-        self.unitig_strand = None  # 1 for forward, -1 for reverse
-        self.unitig_start_end = None  # 0 for start, 1 for end
-
-    def __repr__(self):
-        return f'{self.seq_id}{"+" if self.strand == 1 else "-"}{self.pos}'
-
-    def on_unitig_start(self):
-        return self.unitig_start_end == 0
-
-    def on_unitig_end(self):
-        return self.unitig_start_end == 1
+from .position import Position
 
 
 class Kmer(object):
