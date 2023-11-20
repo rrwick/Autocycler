@@ -63,13 +63,50 @@ class Unitig(object):
         """
         return len(self.forward_seq)
 
-    def get_seq(self, strand):
+    def get_seq(self, strand, upstream=0, downstream=0):
+        """
+        This function returns the unitig's sequence on the given strand. It can also add on a bit
+        of upstream or downstream sequence, if available. Note that this only works up to the
+        overlap size, because this is the amount of upstream/downstream sequence that can be
+        reliably found, regardless of path.
+        """
         if strand == 1:
-            return self.forward_seq
+            seq = self.forward_seq
         elif strand == -1:
-            return self.reverse_seq
+            seq = self.reverse_seq
         else:
             assert False
+        if upstream:
+            seq = self.get_upstream_seq(strand, upstream) + seq
+        if downstream:
+            seq += self.get_downstream_seq(strand, downstream)
+        return seq
+
+    def get_upstream_seq(self, strand, amount):
+        upstream_seq = ''
+        unitig = self
+        while True:
+            prev_unitigs = unitig.forward_prev if strand == 1 else unitig.reverse_prev
+            if not prev_unitigs:
+                break
+            unitig, strand = prev_unitigs[0]
+            upstream_seq = unitig.get_seq(strand) + upstream_seq
+            if len(upstream_seq) >= amount:
+                break
+        return upstream_seq[:amount]
+
+    def get_downstream_seq(self, strand, amount):
+        downstream_seq = ''
+        unitig = self
+        while True:
+            next_unitigs = unitig.forward_next if strand == 1 else unitig.reverse_next
+            if not next_unitigs:
+                break
+            unitig, strand = next_unitigs[0]
+            downstream_seq += unitig.get_seq(strand)
+            if len(downstream_seq) >= amount:
+                break
+        return downstream_seq[:amount]
 
     def add_kmer_to_end(self, forward_kmer, reverse_kmer):
         self.forward_kmers.append(forward_kmer)
@@ -381,3 +418,55 @@ class UnitigGraph(object):
                         match.prev = a
                     else:
                         assert match.prev_kmer == a
+
+    def reconstruct_original_sequences(self):
+        """
+        Returns a dictionary of the original sequences used to build the unitig graph.
+        """
+        print(f'\nReconstructing input assemblies from unitig graph')
+        return {i: self.reconstruct_original_sequence(i) for i in self.contig_ids}
+
+    def reconstruct_original_sequence(self, seq_id):
+        """
+        Returns the original sequence for the given sequence ID. Works by finding the first
+        forward-strand position for that sequence and then following the position-to-position
+        links through the unitig graph, building sequence as it goes.
+        """
+        total_length = self.contig_ids_to_seq_len[seq_id]
+        print(f'   {seq_id}: {total_length} bp')
+        sequence = []
+        p = self.find_first_position(seq_id)
+        assert p.on_unitig_end()
+        starting_seq = p.unitig.get_seq(p.unitig_strand, upstream=self.k_size//2)
+        assert p.pos <= len(starting_seq)
+        sequence.append(starting_seq[-p.pos:])
+        while p.next is not None:
+            p = p.next
+            assert p.on_unitig_start()
+            if p.next is not None:
+                p = p.next
+                assert p.on_unitig_end()
+                sequence.append(p.unitig.get_seq(p.unitig_strand))
+            else:  # reached the last position
+                remaining_length = total_length - sum(len(s) for s in sequence)
+                final_seq = p.unitig.get_seq(p.unitig_strand, downstream=self.k_size//2)
+                assert remaining_length <= len(final_seq)
+                sequence.append(final_seq[:remaining_length])
+        sequence = ''.join(sequence)
+        assert len(sequence) == total_length
+        return ''.join(sequence)
+
+    def find_first_position(self, i):
+        """
+        This method looks through all of the unitig-end positions (both strands), looking for the
+        first instance of the positive strand for the given sequence ID.
+        """
+        best = None
+        for unitig in self.unitigs:
+            for p in unitig.forward_end_positions:
+                if p.seq_id == i and p.strand == 1 and (best is None or p.pos < best.pos):
+                    best = p
+            for p in unitig.reverse_end_positions:
+                if p.seq_id == i and p.strand == 1 and (best is None or p.pos < best.pos):
+                    best = p
+        return best
