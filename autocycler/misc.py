@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Copyright 2023 Ryan Wick (rrwick@gmail.com)
 https://github.com/rrwick/Autocycler
