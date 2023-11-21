@@ -42,9 +42,9 @@ class KmerGraph(object):
     def __init__(self, k_size):
         self.k_size = k_size
         self.kmers = {}
+        self.id_to_contig_info = {}
 
     def add_assemblies(self, assemblies):
-        id_to_contig_info = {}
         seq_id = 0
         for assembly in assemblies:
             print(f'\nAdding {assembly} to graph:')
@@ -53,10 +53,9 @@ class KmerGraph(object):
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
                 contig_header = name + ' ' + info if info else name
-                id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
+                self.id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
                 print(' done')
         print(f'\nGraph contains {len(self.kmers)} k-mers')
-        return id_to_contig_info
 
     def add_sequence(self, seq, seq_id):
         half_k = self.k_size // 2  # actually k_size/2 - 0.5, because k_size is odd

@@ -24,17 +24,17 @@ class UnitigGraph(object):
     This class builds a unitig graph from a k-mer graph, where all nonbranching paths are merged
     into unitigs. This simplifies things and saves memory.
     """
-    def __init__(self, kmer_graph, id_to_contig_info):
+    def __init__(self, k_graph):
         self.unitigs = []
-        self.k_size = kmer_graph.k_size
+        self.k_size = k_graph.k_size
 
-        self.contig_ids = sorted(id_to_contig_info.keys())
-        self.contig_ids_to_assembly = {i: id_to_contig_info[i][0] for i in self.contig_ids}
-        self.contig_ids_to_header = {i: id_to_contig_info[i][1] for i in self.contig_ids}
-        self.contig_ids_to_seq_len = {i: id_to_contig_info[i][2] for i in self.contig_ids}
+        self.contig_ids = sorted(k_graph.id_to_contig_info.keys())
+        self.contig_ids_to_assembly = {i: k_graph.id_to_contig_info[i][0]for i in self.contig_ids}
+        self.contig_ids_to_header = {i: k_graph.id_to_contig_info[i][1]for i in self.contig_ids}
+        self.contig_ids_to_seq_len = {i: k_graph.id_to_contig_info[i][2]for i in self.contig_ids}
 
         print('\nBuilding unitig graph from k-mer graph:')
-        self.build_unitigs_from_kmer_graph(kmer_graph)
+        self.build_unitigs_from_kmer_graph(k_graph)
         self.renumber_unitigs()
         self.create_links()
         self.trim_overlaps()
@@ -222,6 +222,7 @@ class UnitigGraph(object):
         print(f'  {seq_id}: {total_length} bp')
         sequence = []
         p = self.find_first_position(seq_id)
+        print(p, p.unitig, p.unitig_start_end)  # TEMP
         assert p.on_unitig_end()
         starting_seq = p.unitig.get_seq(p.unitig_strand, upstream=self.k_size//2)
         assert p.pos <= len(starting_seq)
