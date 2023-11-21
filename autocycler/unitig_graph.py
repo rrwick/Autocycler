@@ -40,6 +40,18 @@ class UnitigGraph(object):
         self.trim_overlaps()
         self.connect_positions()
 
+    def create_from_kmer_graph(self):
+        pass
+        # TODO
+        # TODO
+        # TODO
+
+    def create_from_gfa_file(self):
+        pass
+        # TODO
+        # TODO
+        # TODO
+
     def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
             f.write('H\tVN:Z:1.0\n')
@@ -62,6 +74,7 @@ class UnitigGraph(object):
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
         unitig_number = 0
+        half_k = self.k_size // 2
         for forward_kmer in kmer_graph.iterate_kmers():
             if forward_kmer in seen:
                 continue
@@ -86,6 +99,8 @@ class UnitigGraph(object):
                 if len(prev_kmers) != 1:
                     break
                 reverse_kmer = kmer_graph.reverse(forward_kmer)
+                if forward_kmer.first_position(half_k) or reverse_kmer.first_position(half_k):
+                    break
                 unitig.add_kmer_to_end(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
                 seen.add(reverse_kmer)
@@ -103,6 +118,8 @@ class UnitigGraph(object):
                 if len(next_kmers) != 1:
                     break
                 reverse_kmer = kmer_graph.reverse(forward_kmer)
+                if forward_kmer.first_position(half_k) or reverse_kmer.first_position(half_k):
+                    break
                 unitig.add_kmer_to_start(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
                 seen.add(reverse_kmer)
@@ -222,7 +239,6 @@ class UnitigGraph(object):
         print(f'  {seq_id}: {total_length} bp')
         sequence = []
         p = self.find_first_position(seq_id)
-        print(p, p.unitig, p.unitig_start_end)  # TEMP
         assert p.on_unitig_end()
         starting_seq = p.unitig.get_seq(p.unitig_strand, upstream=self.k_size//2)
         assert p.pos <= len(starting_seq)

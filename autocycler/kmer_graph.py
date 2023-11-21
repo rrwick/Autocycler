@@ -33,6 +33,17 @@ class Kmer(object):
     def count(self):
         return len(self.positions)
 
+    def first_position(self, half_k):
+        """
+        Returns True if the given k-mer contains a position that is at the beginning of an input
+        sequence. Used to ensure that input sequences don't start/end in the middle of a unitig.
+        Since positions refer to the middle of a k-mer, the first position is at k_size//2.
+        """
+        for p in self.positions:
+            if p.pos == half_k and p.strand == 1:
+                return True
+        return False
+
 
 class KmerGraph(object):
     """

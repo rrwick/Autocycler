@@ -62,10 +62,15 @@ def main(args=None):
     assemblies = find_all_assemblies(args.in_dir)
 
     kmer_graph = KmerGraph(args.kmer)
-    id_to_contig_info = kmer_graph.add_assemblies(assemblies)
+    kmer_graph.add_assemblies(assemblies)
 
-    unitig_graph = UnitigGraph(kmer_graph, id_to_contig_info)
+    unitig_graph = UnitigGraph(kmer_graph)
     unitig_graph.save_gfa(args.out_dir / f'001_unitig_graph.gfa')
+
+    seqs = unitig_graph.reconstruct_original_sequences()  # TEMP
+    with open(args.out_dir / 'reconstructed.fasta', 'wt') as f:  # TEMP
+        for name, seq in seqs.items():  # TEMP
+            f.write(f'>{name}\n{seq}\n')  # TEMP
 
 
 def check_args(args):
