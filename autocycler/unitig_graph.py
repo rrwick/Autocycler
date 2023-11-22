@@ -59,17 +59,30 @@ class UnitigGraph(object):
             for i in self.contig_ids:
                 f.write(f'# {i}: {self.contig_ids_to_seq_len[i]} bp, '
                         f'{self.contig_ids_to_assembly[i]}, {self.contig_ids_to_header[i]}\n')
-            links = []
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
-                for next_unitig, next_strand in unitig.forward_next:
-                    links.append((unitig.number, '+',
-                                  next_unitig.number, '+' if next_strand == 1 else '-'))
-                for next_unitig, next_strand in unitig.reverse_next:
-                    links.append((unitig.number, '-',
-                                  next_unitig.number, '+' if next_strand == 1 else '-'))
-            for a, a_strand, b, b_strand in links:
+            for a, a_strand, b, b_strand in self.get_links_for_gfa():
                 f.write(f'L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M\n')
+            for i in self.contig_ids:
+                f.write(self.get_gfa_path_line(i))
+
+    def get_links_for_gfa(self):
+        links = []
+        for unitig in self.unitigs:
+            for next_unitig, next_strand in unitig.forward_next:
+                links.append((unitig.number, '+',
+                              next_unitig.number, '+' if next_strand == 1 else '-'))
+            for next_unitig, next_strand in unitig.reverse_next:
+                links.append((unitig.number, '-',
+                              next_unitig.number, '+' if next_strand == 1 else '-'))
+        return links
+
+    def get_gfa_path_line(self, seq_id):
+        path_str = []
+        for unitig, strand in self.get_unitig_path_for_sequence(seq_id):
+            path_str.append(f'{unitig.number}{"+" if strand == 1 else "-"}')
+        path_str = ','.join(path_str)
+        return f'P\t{seq_id}\t{path_str}\t*\n'
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
@@ -275,17 +288,16 @@ class UnitigGraph(object):
         Returns the path of unitigs in the graph which traces out the given sequence ID.
         """
         total_length = self.contig_ids_to_seq_len[seq_id]
-        p = self.find_start_position(seq_id)
-        assert p.on_unitig_start()
-        unitigs = [(p.unitig, p.unitig_strand)]
         half_k = self.k_size // 2
+        unitigs = []
+        p = self.find_start_position(seq_id)
         while True:
+            assert p.on_unitig_start()
+            unitigs.append((p.unitig, p.unitig_strand))
             p = p.next
             assert p.on_unitig_end()
             if p.pos == total_length - half_k:
                 break
             assert p.next is not None
             p = p.next
-            assert p.on_unitig_start()
-            unitigs.append((p.unitig, p.unitig_strand))
         return unitigs

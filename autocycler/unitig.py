@@ -191,17 +191,8 @@ class Unitig(object):
         assert len(self.forward_seq) >= 1
 
     def gfa_segment_line(self):
-        forward_start_positions_str = ','.join(str(p) for p in self.forward_start_positions)
-        forward_end_positions_str = ','.join(str(p) for p in self.forward_end_positions)
-        reverse_start_positions_str = ','.join(str(p) for p in self.reverse_start_positions)
-        reverse_end_positions_str = ','.join(str(p) for p in self.reverse_end_positions)
-
         return f'S\t{self.number}\t{self.forward_seq}\t' \
-               f'DP:f:{self.depth:.2f}\t' \
-               f'FS:z:{forward_start_positions_str}\t' \
-               f'FE:z:{forward_end_positions_str}\t' \
-               f'RS:z:{reverse_start_positions_str}\t' \
-               f'RE:z:{reverse_end_positions_str}\n'
+               f'DP:f:{self.depth:.2f}\n'
 
     def connect_positions(self, k_size):
         """
