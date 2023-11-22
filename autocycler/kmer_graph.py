@@ -40,7 +40,7 @@ class Kmer(object):
         Since positions refer to the middle of a k-mer, the first position is at k_size//2.
         """
         for p in self.positions:
-            if p.pos == half_k and p.strand == 1:
+            if p.pos == half_k:
                 return True
         return False
 

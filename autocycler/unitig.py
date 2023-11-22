@@ -203,30 +203,28 @@ class Unitig(object):
                f'RS:z:{reverse_start_positions_str}\t' \
                f'RE:z:{reverse_end_positions_str}\n'
 
-    def connect_positions(self):
+    def connect_positions(self, k_size):
         """
         Connects the start and end positions for this unitig on both strands, when they line up.
-        For most unitigs, there will be a 1-to-1 relationship between starting and ending positions,
-        i.e. they will all get connections. But sometimes a position will remain unconnected - this
-        happens when an original sequence starts/ends in the middle of the unitig.
+        There should always be a 1-to-1 relationship between starting and ending positions, i.e.
+        every starting position will connect to an ending position.
         """
+        adjusted_length = self.length() - k_size + 1
         for start in self.forward_start_positions:
             assert start.prev is None and start.next is None
             matches = [end for end in self.forward_end_positions
                        if start.seq_id == end.seq_id and start.strand == end.strand and \
-                       start.pos + self.length() == end.pos]
-            assert len(matches) <= 1
-            if len(matches) == 1:
-                end = matches[0]
-                start.next = end
-                end.prev = start
+                       start.pos + adjusted_length == end.pos]
+            assert len(matches) == 1
+            end = matches[0]
+            start.next = end
+            end.prev = start
         for start in self.reverse_start_positions:
             assert start.prev is None and start.next is None
             matches = [end for end in self.reverse_end_positions
                        if start.seq_id == end.seq_id and start.strand == end.strand and \
-                       start.pos + self.length() == end.pos]
-            assert len(matches) <= 1
-            if len(matches) == 1:
-                end = matches[0]
-                start.next = end
-                end.prev = start
+                       start.pos + adjusted_length == end.pos]
+            assert len(matches) == 1
+            end = matches[0]
+            start.next = end
+            end.prev = start
