@@ -102,6 +102,8 @@ class UnitigGraph(object):
 
             # Extend unitig forward
             while True:
+                if reverse_kmer.first_position(half_k):
+                    break
                 next_kmers = kmer_graph.next_kmers(forward_kmer)
                 if len(next_kmers) != 1:
                     break
@@ -117,12 +119,12 @@ class UnitigGraph(object):
                 unitig.add_kmer_to_end(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
                 seen.add(reverse_kmer)
-                if reverse_kmer.first_position(half_k):
-                    break
 
             # Extend unitig backward
             forward_kmer = starting_kmer
             while True:
+                if forward_kmer.first_position(half_k):
+                    break
                 prev_kmers = kmer_graph.prev_kmers(forward_kmer)
                 if len(prev_kmers) != 1:
                     break
@@ -138,8 +140,6 @@ class UnitigGraph(object):
                 unitig.add_kmer_to_start(forward_kmer, reverse_kmer)
                 seen.add(forward_kmer)
                 seen.add(reverse_kmer)
-                if forward_kmer.first_position(half_k):
-                    break
 
             unitig.simplify_seqs()
             self.unitigs.append(unitig)
