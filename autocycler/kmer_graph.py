@@ -14,6 +14,8 @@ You should have received a copy of the GNU General Public License along with thi
 see <https://www.gnu.org/licenses/>.
 """
 
+import re
+
 from .misc import reverse_complement, reverse_complement_position, iterate_fasta
 from .position import Position
 
@@ -63,7 +65,7 @@ class KmerGraph(object):
                 seq_id += 1
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
-                contig_header = name + ' ' + info if info else name
+                contig_header = re.sub(r'\s+', ' ', name + ' ' + info if info else name)
                 self.id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
                 print(' done')
         print(f'\nGraph contains {len(self.kmers)} k-mers')

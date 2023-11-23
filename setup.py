@@ -30,7 +30,7 @@ exec(open('autocycler/version.py').read())
 
 setup(name='Autocycler',
       version=__version__,
-      description='Autocycler: a tool for producing consensus assemblies',
+      description='Autocycler: a tool for producing consensus bacterial genome assemblies',
       long_description=readme(),
       long_description_content_type='text/markdown',
       url='https://github.com/rrwick/Autocycler',

@@ -65,11 +65,7 @@ class UnitigGraph(object):
 
     def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
-            f.write('H\tVN:Z:1.0\n')
-            f.write(f'# Unitig graph built using {self.k_size}-mers from these sequences:\n')
-            for i in self.contig_ids:
-                f.write(f'# {i}: {self.contig_ids_to_seq_len[i]} bp, '
-                        f'{self.contig_ids_to_assembly[i]}, {self.contig_ids_to_header[i]}\n')
+            f.write(f'H\tVN:Z:1.0\tKM:i:{self.k_size}\n')
             for unitig in self.unitigs:
                 f.write(unitig.gfa_segment_line())
             for a, a_strand, b, b_strand in self.get_links_for_gfa():
@@ -93,7 +89,10 @@ class UnitigGraph(object):
         for unitig, strand in self.get_unitig_path_for_sequence(seq_id):
             path_str.append(f'{unitig.number}{"+" if strand == 1 else "-"}')
         path_str = ','.join(path_str)
-        return f'P\t{seq_id}\t{path_str}\t*\n'
+        return f'P\t{seq_id}\t{path_str}\t*\t' \
+               f'LN:i:{self.contig_ids_to_seq_len[seq_id]}\t' \
+               f'FN:Z:{self.contig_ids_to_assembly[seq_id]}\t' \
+               f'HD:Z:{self.contig_ids_to_header[seq_id]}\n'
 
     def build_unitigs_from_kmer_graph(self, kmer_graph):
         seen = set()
