@@ -15,16 +15,27 @@ see <https://www.gnu.org/licenses/>.
 """
 
 import collections
+import pathlib
 
+from .kmer_graph import KmerGraph
 from .unitig import Unitig
 
 
 class UnitigGraph(object):
-    """
-    This class builds a unitig graph from a k-mer graph, where all nonbranching paths are merged
-    into unitigs. This simplifies things and saves memory.
-    """
-    def __init__(self, k_graph):
+    def __init__(self, input):
+        self.unitigs = []
+        self.k_size = None
+        self.contig_ids = []
+        self.contig_ids_to_assembly = {}
+        self.contig_ids_to_header = {}
+        self.contig_ids_to_seq_len = {}
+
+        if isinstance(input, KmerGraph):
+            self.create_from_kmer_graph(input)
+        elif isinstance(input, pathlib.Path):
+            self.create_from_gfa_file(input)
+
+    def create_from_kmer_graph(self, k_graph):
         self.unitigs = []
         self.k_size = k_graph.k_size
 
@@ -40,14 +51,14 @@ class UnitigGraph(object):
         self.connect_positions()
         self.trim_overlaps()
 
-    def create_from_kmer_graph(self):
+    def create_from_gfa_file(self, gfa_filename):
         pass
         # TODO
         # TODO
         # TODO
-
-    def create_from_gfa_file(self):
-        pass
+        # TODO
+        # TODO
+        # TODO
         # TODO
         # TODO
         # TODO
