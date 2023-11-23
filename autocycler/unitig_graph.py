@@ -46,10 +46,10 @@ class UnitigGraph(object):
 
         print('\nBuilding unitig graph from k-mer graph:')
         self.build_unitigs_from_kmer_graph(k_graph)
-        self.renumber_unitigs()
         self.create_links()
         self.connect_positions()
         self.trim_overlaps()
+        self.renumber_unitigs()
 
     def create_from_gfa_file(self, gfa_filename):
         pass
@@ -156,9 +156,8 @@ class UnitigGraph(object):
         print(f'  {len(self.unitigs)} unitigs')
 
     def renumber_unitigs(self):
-        overlap_size = self.k_size // 2
         self.unitigs = sorted(self.unitigs,
-                              key=lambda u: (1.0/u.length(), u.forward_seq[overlap_size:]))
+                              key=lambda u: (1.0/u.length(), u.forward_seq, 1.0/u.depth))
         unitig_number = 0
         for unitig in self.unitigs:
             unitig_number += 1
