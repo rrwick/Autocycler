@@ -14,14 +14,20 @@ You should have received a copy of the GNU General Public License along with thi
 see <https://www.gnu.org/licenses/>.
 """
 
+import gzip
+
 from .unitig_graph import UnitigGraph
+
 
 def decompress(args):
     args.out_dir.mkdir(exist_ok=True)
     unitig_graph = UnitigGraph(args.in_gfa)
-    unitig_graph.save_gfa(args.out_dir / 'temp_test.gfa')  # TEMP
     seqs = unitig_graph.reconstruct_original_sequences()
-    # TODO: split output into separate files
-    with open(args.out_dir / 'reconstructed.fasta', 'wt') as f:
-        for name, seq in seqs.items():
-            f.write(f'>{name}\n{seq}\n')
+    for filename in seqs.keys():
+        if filename.endswith('.gz'):
+            open_func = gzip.open
+        else:  # plain text
+            open_func = open
+        with open_func(args.out_dir / filename, 'wt') as f:
+            for header, seq in seqs[filename]:
+                f.write(f'>{header}\n{seq}\n')

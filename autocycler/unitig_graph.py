@@ -344,11 +344,14 @@ class UnitigGraph(object):
                         assert match.prev_kmer == a
 
     def reconstruct_original_sequences(self):
-        """
-        Returns a dictionary of the original sequences used to build the unitig graph.
-        """
         print(f'\nReconstructing input assemblies from unitig graph')
-        return {i: self.reconstruct_original_sequence(i) for i in self.contig_ids}
+        original_seqs = collections.defaultdict(list)
+        for i in self.contig_ids:
+            filename = self.contig_ids_to_assembly[i]
+            header = self.contig_ids_to_header[i]
+            seq = self.reconstruct_original_sequence(i)
+            original_seqs[filename].append((header, seq))
+        return original_seqs
 
     def reconstruct_original_sequence(self, seq_id):
         """
