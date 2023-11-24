@@ -19,6 +19,7 @@ from .unitig_graph import UnitigGraph
 def decompress(args):
     args.out_dir.mkdir(exist_ok=True)
     unitig_graph = UnitigGraph(args.in_gfa)
+    unitig_graph.save_gfa(args.out_dir / 'temp_test.gfa')  # TEMP
     seqs = unitig_graph.reconstruct_original_sequences()
     # TODO: split output into separate files
     with open(args.out_dir / 'reconstructed.fasta', 'wt') as f:

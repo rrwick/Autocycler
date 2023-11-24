@@ -16,6 +16,7 @@ see <https://www.gnu.org/licenses/>.
 
 import collections
 import pathlib
+import sys
 
 from .kmer_graph import KmerGraph
 from .unitig import Unitig
@@ -52,12 +53,49 @@ class UnitigGraph(object):
         self.renumber_unitigs()
 
     def create_from_gfa_file(self, gfa_filename):
+        links = []
+        with open(gfa_filename, 'rt') as f:
+            for line in f:
+                parts = line.rstrip('\n').split('\t')
+                if parts[0] == 'H':
+                    self.read_gfa_header_line(parts)
+                if parts[0] == 'S':
+                    self.unitigs.append(Unitig(gfa_segment_line_parts=parts))
+                if parts[0] == 'L':
+                    seg_1, seg_2 = int(parts[1]), int(parts[3])
+                    strand_1, strand_2 = parts[2], parts[4]
+                    if parts[5] != '0M':
+                        sys.exit('Error: Non-zero overlap found on the GFA link line.\n'
+                                 'Are you sure this is an Autocycler-generated GFA file?')
+                    links.append((seg_1, strand_1, seg_2, strand_2))
+                if parts[0] == 'P':
+                    self.read_gfa_path_line(parts)
+        self.build_links_from_gfa(links)
+
+    def build_links_from_gfa(self, links):
+        unitig_index = {u.number: u for u in self.unitigs}
+        for seg_1, strand_1, seg_2, strand_2 in links:
+            strand_1 = 1 if strand_1 == '+' else -1
+            strand_2 = 1 if strand_2 == '+' else -1
+            if strand_1 == 1:
+                unitig_index[seg_1].forward_next.append((unitig_index[seg_2], strand_2))
+            elif strand_1 == -1:
+                unitig_index[seg_1].reverse_next.append((unitig_index[seg_2], strand_2))
+            if strand_2 == 1:
+                unitig_index[seg_2].forward_prev.append((unitig_index[seg_1], strand_1))
+            elif strand_2 == -1:
+                unitig_index[seg_1].reverse_prev.append((unitig_index[seg_1], strand_1))
+
+    def read_gfa_header_line(self, parts):
+        for p in parts:
+            if p.startswith('KM:i:'):
+                self.k_size = int(p[5:])
+        if self.k_size is None:
+            sys.exit('Error: could not find a k-mer tag (e.g. KM:i:91) in the GFA header line.\n'
+                     'Are you sure this is an Autocycler-generated GFA file?')
+
+    def read_gfa_path_line(self, parts):
         pass
-        # TODO
-        # TODO
-        # TODO
-        # TODO
-        # TODO
         # TODO
         # TODO
         # TODO

@@ -17,24 +17,19 @@ see <https://www.gnu.org/licenses/>.
 import collections
 import copy
 import statistics
+import sys
 
 from .misc import reverse_complement
 
 
 class Unitig(object):
-    """
-    Unitig objects are built in multiple stages:
-    1. Initialised with a starting k-mer (forward and reverse).
-    2. K-mers are added with add_kmer_to_end and add_kmer_to_start methods.
-    3. The simplify_seqs method combines the k-mers into forward and reverse sequences.
-    4. The trim_overlaps method removes overlapping sequences from both ends.
-    """
-    def __init__(self, number, forward_kmer, reverse_kmer):
-        self.number = number
+    def __init__(self, number=None, forward_kmer=None, reverse_kmer=None,
+                 gfa_segment_line_parts=None):
+        self.number = None
 
-        # These k-mer deques are used when building the unique (will be set to None afterward):
-        self.forward_kmers = collections.deque([forward_kmer])
-        self.reverse_kmers = collections.deque([reverse_kmer])
+        # Only used when building the unitig from k-mers (will be set to None afterward):
+        self.forward_kmers = None
+        self.reverse_kmers = None
 
         # After building is complete, only the unitig sequences are stored:
         self.forward_seq, self.reverse_seq = '', ''
@@ -49,6 +44,35 @@ class Unitig(object):
         self.forward_next, self.forward_prev = [], []
         self.reverse_next, self.reverse_prev = [], []
 
+        if number is not None:
+            self.create_from_kmers(number, forward_kmer, reverse_kmer)
+        else:
+            self.create_from_segment_line(gfa_segment_line_parts)
+
+    def create_from_kmers(self, number, forward_kmer, reverse_kmer):
+        """
+        Unitig objects are built from k-mers in multiple stages:
+        1. Initialised with a starting k-mer (forward and reverse).
+        2. K-mers are added with add_kmer_to_end and add_kmer_to_start methods.
+        3. The simplify_seqs method combines the k-mers into forward and reverse sequences.
+        4. The trim_overlaps method removes overlapping sequences from both ends.
+        """
+        self.number = number
+        self.forward_kmers = collections.deque([forward_kmer])
+        self.reverse_kmers = collections.deque([reverse_kmer])
+
+    def create_from_segment_line(self, parts):
+        self.number  = int(parts[1])
+        self.forward_seq = parts[2]
+        self.reverse_seq = reverse_complement(self.forward_seq)
+        self.depth = None
+        for p in parts:
+            if p.startswith('DP:f:'):
+                self.depth = float(p[5:])
+        if self.depth is None:
+            sys.exit('Error: could not find a depth tag (e.g. DP:f:10.00) in the GFA segment line.'
+                     '\nAre you sure this is an Autocycler-generated GFA file?')
+
     def __repr__(self):
         if len(self.forward_seq) < 15:
             seq = self.forward_seq
@@ -57,9 +81,6 @@ class Unitig(object):
         return f'unitig {self.number}: {seq}, {len(self.forward_seq)} bp, {self.depth:.2f}x'
 
     def length(self):
-        """
-        This method will only work after the unitig has been built (simplify_seqs has been run).
-        """
         return len(self.forward_seq)
 
     def get_seq(self, strand, upstream=0, downstream=0):
