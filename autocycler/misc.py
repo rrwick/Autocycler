@@ -22,12 +22,12 @@ import sys
 
 def find_all_assemblies(in_dir):
     print(f'\nLooking for assembly files in {in_dir}...', flush=True, end='')
-    all_assemblies = [str(x) for x in sorted(pathlib.Path(in_dir).glob('**/*'))
+    all_assemblies = [x for x in sorted(pathlib.Path(in_dir).glob('**/*'))
                       if x.is_file()]
     all_assemblies = [x for x in all_assemblies if
-                      x.endswith('.fasta') or x.endswith('.fasta.gz') or
-                      x.endswith('.fna') or x.endswith('.fna.gz') or
-                      x.endswith('.fa') or x.endswith('.fa.gz')]
+                      str(x).endswith('.fasta') or str(x).endswith('.fasta.gz') or
+                      str(x).endswith('.fna') or str(x).endswith('.fna.gz') or
+                      str(x).endswith('.fa') or str(x).endswith('.fa.gz')]
     # TODO: also look for GFA-format assemblies
     plural = 'assembly' if len(all_assemblies) == 1 else 'assemblies'
     print(f' found {len(all_assemblies)} {plural}')

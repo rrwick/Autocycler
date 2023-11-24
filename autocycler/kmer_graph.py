@@ -66,7 +66,7 @@ class KmerGraph(object):
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
                 contig_header = re.sub(r'\s+', ' ', name + ' ' + info if info else name)
-                self.id_to_contig_info[seq_id] = (assembly, contig_header, len(seq))
+                self.id_to_contig_info[seq_id] = (assembly.name, contig_header, len(seq))
                 print(' done')
         print(f'\nGraph contains {len(self.kmers)} k-mers')
 

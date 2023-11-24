@@ -23,7 +23,7 @@ class Position(object):
       objects on both strands. These form a doubly linked list, tracing the input contig through
       the UnitigGraph.
     """
-    def __init__(self, seq_id, strand, pos):
+    def __init__(self, seq_id, strand, pos, unitig=None, unitig_strand=None, unitig_start_end=None):
         self.seq_id = seq_id
         self.strand = strand  # 1 for forward strand, -1 for reverse strand
         self.pos = pos  # 0-based indexing
@@ -33,9 +33,9 @@ class Position(object):
         self.next = None
 
         # Pointers to the associated unitig:
-        self.unitig = None
-        self.unitig_strand = None  # 1 for forward, -1 for reverse
-        self.unitig_start_end = None  # 0 for start, 1 for end
+        self.unitig = unitig
+        self.unitig_strand = unitig_strand  # 1 for forward, -1 for reverse
+        self.unitig_start_end = unitig_start_end  # 0 for start, 1 for end
 
     def __repr__(self):
         return f'{self.seq_id}{"+" if self.strand == 1 else "-"}{self.pos}'

@@ -83,6 +83,15 @@ class Unitig(object):
     def length(self):
         return len(self.forward_seq)
 
+    def untrimmed_length(self, k_size):
+        half_k = k_size // 2
+        untrimmed_length = len(self.forward_seq)
+        if not self.dead_end_start(1):
+            untrimmed_length += half_k
+        if not self.dead_end_end(1):
+            untrimmed_length += half_k
+        return untrimmed_length
+
     def get_seq(self, strand, upstream=0, downstream=0):
         """
         This function returns the unitig's sequence on the given strand. It can also add on a bit
@@ -221,7 +230,7 @@ class Unitig(object):
         There should always be a 1-to-1 relationship between starting and ending positions, i.e.
         every starting position will connect to an ending position.
         """
-        adjusted_length = self.length() - k_size + 1
+        adjusted_length = self.untrimmed_length(k_size) - k_size + 1
         for start in self.forward_start_positions:
             assert start.prev is None and start.next is None
             matches = [end for end in self.forward_end_positions
@@ -240,3 +249,19 @@ class Unitig(object):
             end = matches[0]
             start.next = end
             end.prev = start
+
+    def dead_end_start(self, strand):
+        if strand == 1:
+            return len(self.forward_prev) == 0
+        elif strand == -1:
+            return len(self.reverse_prev) == 0
+        else:
+            assert False
+
+    def dead_end_end(self, strand):
+        if strand == 1:
+            return len(self.forward_next) == 0
+        elif strand == -1:
+            return len(self.reverse_next) == 0
+        else:
+            assert False

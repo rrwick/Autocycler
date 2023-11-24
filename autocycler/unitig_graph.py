@@ -19,6 +19,7 @@ import pathlib
 import sys
 
 from .kmer_graph import KmerGraph
+from .position import Position
 from .unitig import Unitig
 
 
@@ -53,7 +54,7 @@ class UnitigGraph(object):
         self.renumber_unitigs()
 
     def create_from_gfa_file(self, gfa_filename):
-        links = []
+        link_lines, path_lines = [], []
         with open(gfa_filename, 'rt') as f:
             for line in f:
                 parts = line.rstrip('\n').split('\t')
@@ -62,29 +63,13 @@ class UnitigGraph(object):
                 if parts[0] == 'S':
                     self.unitigs.append(Unitig(gfa_segment_line_parts=parts))
                 if parts[0] == 'L':
-                    seg_1, seg_2 = int(parts[1]), int(parts[3])
-                    strand_1, strand_2 = parts[2], parts[4]
-                    if parts[5] != '0M':
-                        sys.exit('Error: Non-zero overlap found on the GFA link line.\n'
-                                 'Are you sure this is an Autocycler-generated GFA file?')
-                    links.append((seg_1, strand_1, seg_2, strand_2))
+                    link_lines.append(parts)
                 if parts[0] == 'P':
-                    self.read_gfa_path_line(parts)
-        self.build_links_from_gfa(links)
-
-    def build_links_from_gfa(self, links):
+                    path_lines.append(parts)
         unitig_index = {u.number: u for u in self.unitigs}
-        for seg_1, strand_1, seg_2, strand_2 in links:
-            strand_1 = 1 if strand_1 == '+' else -1
-            strand_2 = 1 if strand_2 == '+' else -1
-            if strand_1 == 1:
-                unitig_index[seg_1].forward_next.append((unitig_index[seg_2], strand_2))
-            elif strand_1 == -1:
-                unitig_index[seg_1].reverse_next.append((unitig_index[seg_2], strand_2))
-            if strand_2 == 1:
-                unitig_index[seg_2].forward_prev.append((unitig_index[seg_1], strand_1))
-            elif strand_2 == -1:
-                unitig_index[seg_1].reverse_prev.append((unitig_index[seg_1], strand_1))
+        self.build_links_from_gfa(link_lines, unitig_index)
+        self.build_paths_from_gfa(path_lines, unitig_index)
+        self.connect_positions()
 
     def read_gfa_header_line(self, parts):
         for p in parts:
@@ -94,12 +79,84 @@ class UnitigGraph(object):
             sys.exit('Error: could not find a k-mer tag (e.g. KM:i:91) in the GFA header line.\n'
                      'Are you sure this is an Autocycler-generated GFA file?')
 
-    def read_gfa_path_line(self, parts):
-        pass
-        # TODO
-        # TODO
-        # TODO
-        # TODO
+    def build_links_from_gfa(self, link_lines, unitig_index):
+        for parts in link_lines:
+            seg_1, seg_2 = int(parts[1]), int(parts[3])
+            strand_1, strand_2 = parts[2], parts[4]
+            if parts[5] != '0M':
+                sys.exit('Error: Non-zero overlap found on the GFA link line.\n'
+                         'Are you sure this is an Autocycler-generated GFA file?')
+            strand_1 = 1 if strand_1 == '+' else -1
+            strand_2 = 1 if strand_2 == '+' else -1
+            if strand_1 == 1:
+                unitig_index[seg_1].forward_next.append((unitig_index[seg_2], strand_2))
+            elif strand_1 == -1:
+                unitig_index[seg_1].reverse_next.append((unitig_index[seg_2], strand_2))
+            if strand_2 == 1:
+                unitig_index[seg_2].forward_prev.append((unitig_index[seg_1], strand_1))
+            elif strand_2 == -1:
+                unitig_index[seg_2].reverse_prev.append((unitig_index[seg_1], strand_1))
+
+    def build_paths_from_gfa(self, path_lines, unitig_index):
+        for parts in path_lines:
+            seq_id = int(parts[1])
+            length, filename, header = None, None, None
+            for p in parts:
+                if p.startswith('LN:i:'):
+                    length = int(p[5:])
+                if p.startswith('FN:Z:'):
+                    filename = p[5:]
+                if p.startswith('HD:Z:'):
+                    header = p[5:]
+            if length is None:
+                sys.exit('Error: could not find a length tag (e.g. LN:i:12345) in the GFA path '
+                        'line.\nAre you sure this is an Autocycler-generated GFA file?')
+            if filename is None:
+                sys.exit('Error: could not find a filename tag (e.g. FN:Z:assembly.fasta) in the '
+                        'GFA path line.\nAre you sure this is an Autocycler-generated GFA file?')
+            if header is None:
+                sys.exit('Error: could not find a header tag (e.g. HD:Z:contig_1) in the GFA path '
+                        'line.\nAre you sure this is an Autocycler-generated GFA file?')
+            self.contig_ids.append(seq_id)
+            self.contig_ids_to_assembly[seq_id] = filename
+            self.contig_ids_to_header[seq_id] = header
+            self.contig_ids_to_seq_len[seq_id] = length
+            forward_path = UnitigGraph.parse_unitig_path(parts[2])
+            reverse_path = UnitigGraph.reverse_path(forward_path)
+            self.add_positions_from_path(forward_path, 1, seq_id, unitig_index, length)
+            self.add_positions_from_path(reverse_path, -1, seq_id, unitig_index, length)
+
+    def add_positions_from_path(self, path, path_strand, seq_id, unitig_index, length):
+        half_k = self.k_size // 2
+        pos = half_k
+        for unitig_num, unitig_strand in path:
+            u = unitig_index[unitig_num]
+            starts = u.forward_start_positions if unitig_strand == 1 else u.reverse_start_positions
+            ends = u.forward_end_positions if unitig_strand == 1 else u.reverse_end_positions
+            starts.append(Position(seq_id, path_strand, pos, u, unitig_strand, 0))
+            pos += u.length()
+            if u.dead_end_start(unitig_strand):
+                pos -= half_k
+            if u.dead_end_end(unitig_strand):
+                pos -= half_k
+            ends.append(Position(seq_id, path_strand, pos, u, unitig_strand, 1))
+        assert pos + half_k == length
+
+    @staticmethod
+    def parse_unitig_path(path_str):
+        unitigs = []
+        for u in path_str.split(','):
+            if u.endswith('+'):
+                unitigs.append((int(u[:-1]), 1))
+            elif u.endswith('-'):
+                unitigs.append((int(u[:-1]), -1))
+            else:
+                assert False
+        return unitigs
+
+    @staticmethod
+    def reverse_path(path):
+        return [(p[0], -p[1]) for p in path[::-1]]
 
     def save_gfa(self, gfa_filename):
         with open(gfa_filename, 'wt') as f:
@@ -328,7 +385,6 @@ class UnitigGraph(object):
                     start_positions.append(p)
         assert len(start_positions) == 1
         return start_positions[0]
-
 
     def get_unitig_path_for_sequence(self, seq_id):
         """
