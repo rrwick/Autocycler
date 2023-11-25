@@ -1,21 +1,59 @@
-// Copyright 2021 Ryan Wick (rrwick@gmail.com)
-// https://github.com/rrwick/Polypolish
+// Copyright 2023 Ryan Wick (rrwick@gmail.com)
+// https://github.com/rrwick/Autocycler
 
-// This file is part of Polypolish. Polypolish is free software: you can redistribute it and/or
+// This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as published by the Free Software
-// Foundation, either version 3 of the License, or (at your option) any later version. Polypolish
+// Foundation, either version 3 of the License, or (at your option) any later version. Autocycler
 // is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
 // implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details. You should have received a copy of the GNU General Public
-// License along with Polypolish. If not, see <http://www.gnu.org/licenses/>.
+// License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use flate2::read::GzDecoder;
 
 use std::collections::HashSet;
-use std::fs::File;
+use std::fs::{File, read_dir};
 use std::io;
 use std::io::{prelude::*, BufReader};
 use std::path::{Path, PathBuf};
+
+
+pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
+    eprint!("\nLooking for assembly files in {}...", in_dir.display());
+
+    let paths = match read_dir(in_dir) {
+        Ok(paths) => paths,
+        Err(_) => {
+            quit_with_error(&format!("unable to read directory {}", in_dir.display()));
+            return Vec::new();  // unreachable
+        },
+    };
+
+    let mut all_assemblies: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        let path = path.unwrap().path();
+        if path.is_file() && 
+           (path.extension().unwrap_or_default() == "fasta" ||
+            path.extension().unwrap_or_default() == "fna" ||
+            path.extension().unwrap_or_default() == "fa" ||
+            path.extension().unwrap_or_default() == "gz" &&
+            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fasta") ||
+            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fna") ||
+            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fa")) {
+                all_assemblies.push(path);
+        }
+    }
+
+    all_assemblies.sort_unstable();
+    let plural = if all_assemblies.len() == 1 { "assembly" } else { "assemblies" };
+    eprintln!(" found {} {}", all_assemblies.len(), plural);
+
+    if all_assemblies.is_empty() {
+        quit_with_error(&format!("Error: no assemblies found in {}", in_dir.display()));
+    }
+
+    all_assemblies
+}
 
 
 pub fn check_if_file_exists(filename: &PathBuf) {

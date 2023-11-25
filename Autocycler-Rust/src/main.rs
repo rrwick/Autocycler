@@ -1,15 +1,19 @@
-// Copyright 2021 Ryan Wick (rrwick@gmail.com)
-// https://github.com/rrwick/Polypolish
+// Copyright 2023 Ryan Wick (rrwick@gmail.com)
+// https://github.com/rrwick/Autocycler
 
-// This file is part of Polypolish. Polypolish is free software: you can redistribute it and/or
+// This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as published by the Free Software
-// Foundation, either version 3 of the License, or (at your option) any later version. Polypolish
+// Foundation, either version 3 of the License, or (at your option) any later version. Autocycler
 // is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
 // implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
 // Public License for more details. You should have received a copy of the GNU General Public
-// License along with Polypolish. If not, see <http://www.gnu.org/licenses/>.
+// License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+mod compress;
+mod decompress;
+mod log;
 mod misc;
+mod resolve;
 
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -64,7 +68,7 @@ enum Commands {
 
         /// Directory where decompressed assemblies will be saved (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
-        out_gfa: PathBuf,
+        out_dir: PathBuf,
     },
 
     /// cresolve De Bruijn graph to a consensus assembly
@@ -75,7 +79,7 @@ enum Commands {
 
         /// Directory where resolved assembly graphs will be saved (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
-        out_gfa: PathBuf,
+        out_dir: PathBuf,
     },
 }
 
@@ -85,26 +89,14 @@ fn main() {
 
     match cli.command {
         Some(Commands::Compress { in_dir, out_gfa, kmer }) => {
-            compress_subcommand(in_dir, out_gfa, kmer);
+            compress::compress(in_dir, out_gfa, kmer);
         },
-        Some(Commands::Decompress { in_gfa, out_gfa }) => {
-            decompress_subcommand(in_gfa, out_gfa);
+        Some(Commands::Decompress { in_gfa, out_dir }) => {
+            decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Resolve { in_gfa, out_gfa }) => {
-            resolve_subcommand(in_gfa, out_gfa);
+        Some(Commands::Resolve { in_gfa, out_dir }) => {
+            resolve::resolve(in_gfa, out_dir);
         },
         None => {}
     }
-}
-
-
-// TEMP
-fn compress_subcommand(in_dir: PathBuf, out_gfa: PathBuf, kmer: u32) {
-    println!("Autocycler compress: {:?} {:?} {}", in_dir, out_gfa, kmer);
-}
-fn decompress_subcommand(in_gfa: PathBuf, out_gfa: PathBuf) {
-    println!("Autocycler decompress: {:?} {:?}", in_gfa, out_gfa);
-}
-fn resolve_subcommand(in_gfa: PathBuf, out_gfa: PathBuf) {
-    println!("Autocycler resolve: {:?} {:?}", in_gfa, out_gfa);
 }
