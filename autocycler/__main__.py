@@ -84,7 +84,7 @@ def compress_subparser(subparsers):
                                help='Filename of output assembly graph')
 
     setting_args = group.add_argument_group('Settings')
-    setting_args.add_argument('-k', '--kmer', type=int, default=91,
+    setting_args.add_argument('-k', '--kmer', type=int, default=51,
                               help='K-mer size for De Bruijn graph (default: DEFAULT)')
     setting_args.add_argument('-t', '--threads', type=int, default=get_default_thread_count(),
                               help='Number of CPU threads (default: DEFAULT)')
@@ -147,8 +147,8 @@ def resolve_subparser(subparsers):
 
 
 def check_compress_args(args):
-    if args.kmer < 11:
-        sys.exit('Error: --kmer must be 11 or greater')
+    if args.kmer < 21:
+        sys.exit('Error: --kmer must be 21 or greater')
     if args.kmer % 2 == 0:
         sys.exit('Error: --kmer must be odd')
 

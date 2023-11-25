@@ -76,7 +76,7 @@ class UnitigGraph(object):
             if p.startswith('KM:i:'):
                 self.k_size = int(p[5:])
         if self.k_size is None:
-            sys.exit('Error: could not find a k-mer tag (e.g. KM:i:91) in the GFA header line.\n'
+            sys.exit('Error: could not find a k-mer tag (e.g. KM:i:51) in the GFA header line.\n'
                      'Are you sure this is an Autocycler-generated GFA file?')
 
     def build_links_from_gfa(self, link_lines, unitig_index):
