@@ -44,6 +44,9 @@ class Unitig(object):
         self.forward_next, self.forward_prev = [], []
         self.reverse_next, self.reverse_prev = [], []
 
+        # Stores whether or not this unitig has had its overlaps trimmed off.
+        self.trimmed = False
+
         if number is not None:
             self.create_from_kmers(number, forward_kmer, reverse_kmer)
         else:
@@ -65,6 +68,7 @@ class Unitig(object):
         self.number  = int(parts[1])
         self.forward_seq = parts[2]
         self.reverse_seq = reverse_complement(self.forward_seq)
+        self.trimmed = True
         self.depth = None
         for p in parts:
             if p.startswith('DP:f:'):
@@ -219,6 +223,7 @@ class Unitig(object):
             self.reverse_seq = self.reverse_seq[overlap:]
         assert reverse_complement(self.forward_seq) == self.reverse_seq
         assert len(self.forward_seq) >= 1
+        self.trimmed = True
 
     def gfa_segment_line(self):
         return f'S\t{self.number}\t{self.forward_seq}\t' \
@@ -230,7 +235,10 @@ class Unitig(object):
         There should always be a 1-to-1 relationship between starting and ending positions, i.e.
         every starting position will connect to an ending position.
         """
-        adjusted_length = self.untrimmed_length(k_size) - k_size + 1
+        if self.trimmed:
+            adjusted_length = self.untrimmed_length(k_size) - k_size + 1
+        else:
+            adjusted_length = self.length() - k_size + 1
         for start in self.forward_start_positions:
             assert start.prev is None and start.next is None
             matches = [end for end in self.forward_end_positions
