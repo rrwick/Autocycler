@@ -1,0 +1,20 @@
+[package]
+name = "autocycler"
+version = "0.0.0"
+authors = ["Ryan Wick <rrwick@gmail.com>"]
+edition = "2021"
+description = "a tool for producing consensus bacterial genome assemblies"
+rust-version = "1.74"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4"
+clap = { version = "4.0", features = ["derive", "cargo", "wrap_help"] }
+colored = "2.0"
+flate2 = "1.0"
+lazy_static = "1.4.0"
+num-format = "0.4"
+regex = "1"
+term_size = "0.3"
+textwrap = "0.14"
