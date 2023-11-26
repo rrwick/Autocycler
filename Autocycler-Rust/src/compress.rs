@@ -11,6 +11,8 @@
 
 use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies};
+use crate::kmer_graph::Kmer;
+use crate::position::Position;
 
 use std::path::PathBuf;
 
@@ -24,6 +26,12 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, kmer: u32) {
     print_settings(&in_dir, &out_gfa, &kmer);
 
     let assemblies = find_all_assemblies(&in_dir);
+
+    // let kmer_graph = KmerGraph::new(&kmer);
+    // kmer_graph.add_assemblies(&assemblies);
+
+    // let unitig_graph = UnitigGraph::new(&kmer_graph);
+    // unitig_graph.save_gfa(&out_gfa);
 }
 
 
