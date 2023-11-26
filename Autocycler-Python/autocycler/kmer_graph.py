@@ -62,6 +62,8 @@ class KmerGraph(object):
         for assembly in assemblies:
             print(f'\nAdding {assembly} to graph:')
             for name, info, seq in iterate_fasta(assembly):
+                if len(seq) < self.k_size:
+                    continue
                 seq_id += 1
                 print(f'  {seq_id}: {name} ({len(seq)} bp)...', flush=True, end='')
                 self.add_sequence(seq, seq_id)
