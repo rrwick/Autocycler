@@ -14,6 +14,9 @@ You should have received a copy of the GNU General Public License along with thi
 see <https://www.gnu.org/licenses/>.
 """
 
+from typing import Optional
+
+
 class Position(object):
     """
     Position objects store the sequence, strand and position for contigs in the input assemblies.
@@ -23,7 +26,9 @@ class Position(object):
       objects on both strands. These form a doubly linked list, tracing the input contig through
       the UnitigGraph.
     """
-    def __init__(self, seq_id, strand, pos, unitig=None, unitig_strand=None, unitig_start_end=None):
+    def __init__(self, seq_id: int, strand: int, pos: int,
+                 unitig=None, unitig_strand: Optional[int]=None,
+                 unitig_start_end: Optional[int]=None):
         self.seq_id = seq_id
         self.strand = strand  # 1 for forward strand, -1 for reverse strand
         self.pos = pos  # 0-based indexing

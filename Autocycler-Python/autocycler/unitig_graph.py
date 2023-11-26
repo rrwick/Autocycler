@@ -17,6 +17,7 @@ see <https://www.gnu.org/licenses/>.
 import collections
 import pathlib
 import sys
+from typing import Optional, Union
 
 from .kmer_graph import KmerGraph
 from .position import Position
@@ -24,9 +25,9 @@ from .unitig import Unitig
 
 
 class UnitigGraph(object):
-    def __init__(self, input):
+    def __init__(self, input: Union[KmerGraph, pathlib.Path]):
         self.unitigs = []
-        self.k_size = None
+        self.k_size: Optional[int] = None
         self.contig_ids = []
         self.contig_ids_to_assembly = {}
         self.contig_ids_to_header = {}
@@ -37,7 +38,7 @@ class UnitigGraph(object):
         elif isinstance(input, pathlib.Path):
             self.create_from_gfa_file(input)
 
-    def create_from_kmer_graph(self, k_graph):
+    def create_from_kmer_graph(self, k_graph: KmerGraph):
         self.unitigs = []
         self.k_size = k_graph.k_size
 
@@ -53,7 +54,7 @@ class UnitigGraph(object):
         self.trim_overlaps()
         self.renumber_unitigs()
 
-    def create_from_gfa_file(self, gfa_filename):
+    def create_from_gfa_file(self, gfa_filename: pathlib.Path):
         link_lines, path_lines = [], []
         with open(gfa_filename, 'rt') as f:
             for line in f:

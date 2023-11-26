@@ -21,7 +21,7 @@ from .position import Position
 
 
 class Kmer(object):
-    def __init__(self, seq):
+    def __init__(self, seq: str):
         self.seq = seq
         self.positions = []
 
@@ -29,13 +29,13 @@ class Kmer(object):
         positions = ','.join([str(p) for p in sorted(self.positions)])
         return f'{self.seq}:{positions}'
 
-    def add_position(self, seq_id, strand, pos):
+    def add_position(self, seq_id: int, strand: int, pos: int):
         self.positions.append(Position(seq_id, strand, pos))
 
     def count(self):
         return len(self.positions)
 
-    def first_position(self, half_k):
+    def first_position(self, half_k: int):
         """
         Returns True if the given k-mer contains a position that is at the beginning of an input
         sequence. Used to ensure that input sequences don't start/end in the middle of a unitig.
