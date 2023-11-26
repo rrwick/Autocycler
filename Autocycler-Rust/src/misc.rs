@@ -73,7 +73,7 @@ pub fn quit_with_error(text: &str) {
 
 /// This function loads a FASTA file and runs a few checks on the result. If everything looks good,
 /// it returns a vector of name+sequence tuples.
-pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String)> {
+pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
     let load_result = if is_file_gzipped(&filename) {
         load_fasta_gzipped(&filename)
     } else {
@@ -91,11 +91,11 @@ pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String)> {
 
 /// This function looks at the result of the load_fasta function and does some checks to make sure
 /// everything looks okay. If any problems are found, it will quit with an error message.
-fn check_load_fasta(fasta_seqs: &Vec<(String, String)>, filename: &PathBuf) {
+fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathBuf) {
     if fasta_seqs.len() == 0 {
         quit_with_error(&format!("{:?} contains no sequences", filename));
     }
-    for (name, sequence) in fasta_seqs {
+    for (name, _, sequence) in fasta_seqs {
         if name.len() == 0 {
             quit_with_error(&format!("{:?} has an unnamed sequence", filename));
         }
@@ -104,7 +104,7 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String)>, filename: &PathBuf) {
         }
     }
     let mut set = HashSet::new();
-    for (name, _) in fasta_seqs {
+    for (name, _, _) in fasta_seqs {
         set.insert(name);
     }
     if set.len() < fasta_seqs.len() {
@@ -137,11 +137,12 @@ fn is_file_gzipped(filename: &PathBuf) -> bool {
 }
 
 
-fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)>> {
+fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
     let file = File::open(&filename)?;
     let reader = BufReader::new(file);
     let mut name = String::new();
+    let mut info = String::new();
     let mut sequence = String::new();
     for line in reader.lines() {
         let text = line?;
@@ -149,9 +150,10 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)
         if text.starts_with('>') {
             if name.len() > 0 {
                 sequence.make_ascii_uppercase();
-                fasta_seqs.push((name, sequence));
+                fasta_seqs.push((name, info, sequence));
                 sequence = String::new();
             }
+            info = (&text[1..]).to_string();
             let first_piece = text[1..].split_whitespace().next();
             match first_piece {
                 Some(_) => (),
@@ -167,17 +169,18 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)
     }
     if name.len() > 0 {
         sequence.make_ascii_uppercase();
-        fasta_seqs.push((name, sequence));
+        fasta_seqs.push((name, info, sequence));
     }
     Ok(fasta_seqs)
 }
 
 
-fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)>> {
+fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
     let file = File::open(&filename)?;
     let reader = BufReader::new(GzDecoder::new(file));
     let mut name = String::new();
+    let mut info = String::new();
     let mut sequence = String::new();
     for line in reader.lines() {
         let text = line?;
@@ -185,10 +188,11 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)>> {
         if text.starts_with('>') {
             if name.len() > 0 {
                 sequence.make_ascii_uppercase();
-                fasta_seqs.push((name, sequence));
+                fasta_seqs.push((name, info, sequence));
                 sequence = String::new();
             }
-            let first_piece = text[1..].split_whitespace().next();
+            info = (&text[1..]).to_string();
+            let first_piece = info.split_whitespace().next();
             match first_piece {
                 Some(_) => (),
                 None    => quit_with_error(&format!("{:?} is not correctly formatted", filename)),
@@ -203,7 +207,7 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String)>> {
     }
     if name.len() > 0 {
         sequence.make_ascii_uppercase();
-        fasta_seqs.push((name, sequence));
+        fasta_seqs.push((name, info, sequence));
     }
     Ok(fasta_seqs)
 }
