@@ -11,27 +11,30 @@
 
 use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies};
-use crate::kmer_graph::Kmer;
+use crate::kmer_graph::{Kmer, KmerGraph};
 use crate::position::Position;
 
 use std::path::PathBuf;
 
 
-pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, kmer: u32) {
+pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     section_header("Starting autocycler compress");
     explanation("This command will find all assemblies in the given input directory and compress \
                  them into a compacted De Bruijn graph. This graph can then be used to recover \
                  the assemblies (with autocycler decompress) or generate a consensus assembly \
                  (with autocycler resolve).");
-    print_settings(&in_dir, &out_gfa, &kmer);
+    print_settings(&in_dir, &out_gfa, &k_size);
 
     let assemblies = find_all_assemblies(&in_dir);
 
-    // let kmer_graph = KmerGraph::new(&kmer);
-    // kmer_graph.add_assemblies(&assemblies);
+    let mut kmer_graph = KmerGraph::new(k_size);
+    kmer_graph.add_assemblies(assemblies);
 
     // let unitig_graph = UnitigGraph::new(&kmer_graph);
     // unitig_graph.save_gfa(&out_gfa);
+
+
+
 }
 
 
