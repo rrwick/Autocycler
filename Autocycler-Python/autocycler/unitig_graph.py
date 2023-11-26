@@ -330,7 +330,7 @@ class UnitigGraph(object):
                 assert False
             for a in first:
                 matches = [b for b in second
-                        if a.seq_id == b.seq_id and a.strand == b.strand and a.pos == b.pos]
+                           if a.seq_id == b.seq_id and a.strand == b.strand and a.pos == b.pos]
                 assert len(matches) <= 1
                 if len(matches) == 1:
                     match = matches[0]
