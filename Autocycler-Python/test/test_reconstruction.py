@@ -14,6 +14,7 @@ details. You should have received a copy of the GNU General Public License along
 If not, see <https://www.gnu.org/licenses/>.
 """
 
+import filecmp
 import pathlib
 import random
 import tempfile
@@ -83,10 +84,11 @@ def rotate(seq):
 
 def change_circularisation(seq, gap_chance, max_gap_size, overlap_chance, max_overlap_size):
     rand_float = random.random()
-    if rand_float < gap_chance:
+    if rand_float < gap_chance and max_gap_size > 0:
+        max_gap_size = min(len(seq) - 1, max_gap_size)
         gap = random.randint(1, max_gap_size)
         return seq[:-gap]
-    elif rand_float < gap_chance + overlap_chance:
+    elif rand_float < gap_chance + overlap_chance and max_overlap_size > 0:
         overlap = random.randint(1, max_overlap_size)
         return seq + seq[:overlap]
     else:
@@ -94,9 +96,9 @@ def change_circularisation(seq, gap_chance, max_gap_size, overlap_chance, max_ov
 
 
 def add_junk_to_ends(seq, junk_chance, max_junk_size):
-    if random.random() < junk_chance:
+    if random.random() < junk_chance and max_junk_size > 0:
         seq = seq + get_random_seq(random.randint(1, max_junk_size))
-    if random.random() < junk_chance:
+    if random.random() < junk_chance and max_junk_size > 0:
         seq = get_random_seq(random.randint(1, max_junk_size)) + seq
     return seq
 
@@ -145,6 +147,7 @@ def full_test_protocol(seed = 0, kmer = 51,
     * Reconstructs the sequences from the unitig graph and checks they match the originals
     * Loads the unitig graph from file
     * Reconstructs the sequences from the loaded unitig graph and checks they match the originals
+    * Saves the loaded unitig graph to file and checks that it's identical to the first graph file
     """
     seqs = generate_random_genomes(seed, seq_count, seq_length, repeat_count, repeat_length,
                                    repeat_multiplicity, sub_chance, indel_chance, gap_chance,
@@ -168,6 +171,10 @@ def full_test_protocol(seed = 0, kmer = 51,
         reconstructed_seqs = loaded_graph.reconstruct_original_sequences()
         reconstructed_seqs = {x[0][0]: x[0][1] for _, x in reconstructed_seqs.items()}
         assert original_seqs == reconstructed_seqs
+
+        gfa_filename_2 = tmp_dir / 'graph2.gfa'
+        loaded_graph.save_gfa(gfa_filename_2)
+        assert filecmp.cmp(gfa_filename, gfa_filename_2)
 
 
 def test_k11():
