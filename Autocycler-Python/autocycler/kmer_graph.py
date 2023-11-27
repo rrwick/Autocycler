@@ -26,7 +26,7 @@ class Kmer(object):
         self.positions = []
 
     def __repr__(self):
-        positions = ','.join([str(p) for p in sorted(self.positions)])
+        positions = ','.join([str(p) for p in self.positions])
         return f'{self.seq}:{positions}'
 
     def add_position(self, seq_id: int, strand: int, pos: int):
