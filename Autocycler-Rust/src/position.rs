@@ -21,7 +21,7 @@ use std::fmt;
 pub struct Position {
     seq_id: u32,
     strand: i32, // 1 for forward strand, -1 for reverse strand
-    pub pos: u32, // 0-based indexing
+    pub pos: usize, // 0-based indexing
     prev: Option<Box<Position>>,
     next: Option<Box<Position>>,
     unitig: Option<i32>,  // TODO: change to Unitig
@@ -30,7 +30,7 @@ pub struct Position {
 }
 
 impl Position {
-    pub fn new(seq_id: u32, strand: i32, pos: u32, unitig: Option<i32>, 
+    pub fn new(seq_id: u32, strand: i32, pos: usize, unitig: Option<i32>,
            unitig_strand: Option<i32>, unitig_start_end: Option<u32>) -> Position {
         Position {
             seq_id,

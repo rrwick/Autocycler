@@ -25,20 +25,20 @@ use crate::sequence::Sequence;
 // &str more for efficiency. I might be able to do this by saving the loaded sequences into
 // the KmerGraph object, so I can continue to reference into them as long as that object lives.
 
-pub struct Kmer {
-    seq: String,
+pub struct Kmer<'a> {
+    seq: &'a str,
     positions: Vec<Position>,
 }
 
-impl Kmer {
-    pub fn new(seq: String) -> Kmer {
+impl<'a> Kmer<'a> {
+    pub fn new(seq: &str) -> Kmer {
         Kmer {
             seq,
             positions: Vec::new(),
         }
     }
 
-    pub fn add_position(&mut self, seq_id: u32, strand: i32, pos: u32) {
+    pub fn add_position(&mut self, seq_id: u32, strand: i32, pos: usize) {
         let position = Position::new(seq_id, strand, pos, None, None, None);
         self.positions.push(position);
     }
@@ -47,12 +47,12 @@ impl Kmer {
         self.positions.len()
     }
 
-    pub fn first_position(&self, half_k: u32) -> bool {
+    pub fn first_position(&self, half_k: usize) -> bool {
         self.positions.iter().any(|p| p.pos == half_k)
     }
 }
 
-impl fmt::Display for Kmer {
+impl<'a> fmt::Display for Kmer<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let positions = self.positions.iter()
                                       .map(|p| p.to_string())
@@ -63,20 +63,25 @@ impl fmt::Display for Kmer {
 }
 
 
-pub struct KmerGraph {
+pub struct KmerGraph<'a> {
     pub k_size: u32,
-    pub kmers: HashMap<String, Kmer>,
+    pub kmers: HashMap<&'a str, Kmer<'a>>,
 }
 
-impl KmerGraph {
-    pub fn new(k_size: u32) -> KmerGraph {
+impl<'a> KmerGraph<'a> {
+    pub fn new(k_size: u32) -> KmerGraph<'a> {
         KmerGraph {
             k_size,
             kmers: HashMap::new(),
         }
     }
+    pub fn add_sequences(&mut self, seqs: &'a Vec<Sequence>) {
+        for seq in seqs {
+            self.add_sequence(seq)
+        }
+    }
 
-    pub fn add_sequence(&mut self, seq: &Sequence) {
+    pub fn add_sequence(&mut self, seq: &'a Sequence) {
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
         for forward_pos in 0..seq.length - k_size + 1 {
@@ -85,14 +90,11 @@ impl KmerGraph {
             let forward_k = &seq.forward_seq[forward_pos..forward_pos + k_size];
             let reverse_k = &seq.reverse_seq[reverse_pos..reverse_pos + k_size];
 
-            self.kmers.entry(forward_k.to_string()).or_insert_with(|| Kmer::new(forward_k.to_string()));
-            self.kmers.entry(reverse_k.to_string()).or_insert_with(|| Kmer::new(reverse_k.to_string()));
+            self.kmers.entry(forward_k).or_insert_with(|| Kmer::new(forward_k));
+            self.kmers.entry(reverse_k).or_insert_with(|| Kmer::new(reverse_k));
 
-            let forward_centre_pos = forward_pos + half_k;
-            let reverse_centre_pos = reverse_pos + half_k;
-
-            self.kmers.get_mut(forward_k).unwrap().add_position(seq.id, 1, forward_centre_pos as u32);
-            self.kmers.get_mut(reverse_k).unwrap().add_position(seq.id, -1, reverse_centre_pos as u32);
+            self.kmers.get_mut(forward_k).unwrap().add_position(seq.id, 1, forward_pos + half_k);
+            self.kmers.get_mut(reverse_k).unwrap().add_position(seq.id, -1, reverse_pos + half_k);
         }
     }
 }

@@ -28,12 +28,9 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
                  (with autocycler resolve).");
     print_settings(&in_dir, &out_gfa, k_size);
     let sequences = load_sequences(&in_dir, k_size);
-
     let mut kmer_graph = KmerGraph::new(k_size);
     eprintln!("\nAdding k-mers to graph...");
-    for seq in sequences {
-        kmer_graph.add_sequence(&seq);
-    }
+    kmer_graph.add_sequences(&sequences);
     eprintln!("Graph contains {} k-mers", kmer_graph.kmers.len());
 
     // let unitig_graph = UnitigGraph::new(&kmer_graph);
