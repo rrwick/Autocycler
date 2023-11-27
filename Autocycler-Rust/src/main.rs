@@ -9,6 +9,9 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::path::PathBuf;
+use clap::{Parser, Subcommand, crate_version};
+
 mod compress;
 mod decompress;
 mod kmer_graph;
@@ -17,14 +20,6 @@ mod misc;
 mod position;
 mod sequence;
 mod resolve;
-
-use std::path::PathBuf;
-use std::collections::HashMap;
-use std::time::Instant;
-use std::fs::File;
-use std::io::prelude::*;
-use clap::{Parser, ArgGroup, Subcommand, crate_version};
-use num_format::{Locale, ToFormattedString};
 
 
 #[derive(Parser)]

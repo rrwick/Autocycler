@@ -1,9 +1,15 @@
-// Position objects store the sequence, strand and position for contigs in the input assemblies.
-// They are used:
-// * In KmerGraph objects, where each Kmer object has one or more KmerPos objects.
-// * In UnitigGraph objects, where each Unitig has one or more starting and ending UnitigPos
-//   objects on both strands. These form a doubly linked list, tracing the input contig through
-//   the UnitigGraph.
+// This file defines structs which store the sequence, strand and position for contigs in the input
+// assemblies:
+// * KmerPos objects:
+//   * Hold just sequence, strand and position.
+//   * Are used for every k-mer in the input assemblies (so there a lot of them).
+//   * For this reason, I keep them as small as possible to save memory.
+// * UnitigPos objects:
+//   * In addition to sequence, strand and position, they also store a reference to their Unitig
+//     (including the strand and whether they are on the start or end of the Unitig) and links to 
+//     the next and previous UnitigPos objects (forming a doubly-linked list).
+//   * Are used only at the start/end of each Unitig (so there are fewer of them).
+//   * For this reason, memory efficiency matters less.
 
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
@@ -21,11 +27,11 @@ use std::fmt;
 
 pub struct KmerPos {
     pub pos: u32,
-    seq_id_and_strand: u16,
+    seq_id_and_strand: u16, // seq_id (15 bits) and strand (1 bit) are packed into a u16
 }
 
 impl KmerPos {
-    const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000; // Use the highest bit to store the strand
+    const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000; // highest bit stores the strand
 
     pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPos {
         let mut seq_id_and_strand = seq_id;

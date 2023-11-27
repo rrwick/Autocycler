@@ -19,8 +19,6 @@ use std::path::{Path, PathBuf};
 
 
 pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
-    eprint!("\nLooking for assembly files in {}...", in_dir.display());
-
     let paths = match read_dir(in_dir) {
         Ok(paths) => paths,
         Err(_) => {

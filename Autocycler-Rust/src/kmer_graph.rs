@@ -1,3 +1,5 @@
+// This file defines structs for building a k-mer De Bruijn graph from the input assemblies.
+
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
@@ -12,7 +14,6 @@
 use fxhash::FxHashMap;  // a bit faster than Rust's built-in HashMap
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::io::{self, BufRead};
 
 use crate::position::KmerPos;
 use crate::sequence::Sequence;
@@ -27,7 +28,7 @@ impl<'a> Kmer<'a> {
     pub fn new(seq: &str, assembly_count: usize) -> Kmer {
         Kmer {
             seq,
-            positions: Vec::with_capacity(assembly_count),
+            positions: Vec::with_capacity(assembly_count), // most k-mers occur once per assembly
         }
     }
 
