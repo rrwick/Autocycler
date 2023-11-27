@@ -13,6 +13,7 @@ chrono = "0.4"
 clap = { version = "4.0", features = ["derive", "cargo", "wrap_help"] }
 colored = "2.0"
 flate2 = "1.0"
+fxhash = "0.2"
 lazy_static = "1.4.0"
 num-format = "0.4"
 regex = "1"

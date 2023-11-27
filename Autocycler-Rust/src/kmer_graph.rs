@@ -9,15 +9,13 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use fxhash::FxHashMap;  // a bit faster than Rust's built-in HashMap
 use std::collections::hash_map::Entry;
 use std::fmt;
 use std::io::{self, BufRead};
 
 use crate::position::KmerPos;
 use crate::sequence::Sequence;
-
-
 
 
 pub struct Kmer<'a> {
@@ -60,14 +58,14 @@ impl<'a> fmt::Display for Kmer<'a> {
 
 pub struct KmerGraph<'a> {
     pub k_size: u32,
-    pub kmers: HashMap<&'a str, Kmer<'a>>,
+    pub kmers: FxHashMap<&'a str, Kmer<'a>>,
 }
 
 impl<'a> KmerGraph<'a> {
     pub fn new(k_size: u32) -> KmerGraph<'a> {
         KmerGraph {
             k_size,
-            kmers: HashMap::new(),
+            kmers: FxHashMap::default(),
         }
     }
 
