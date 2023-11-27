@@ -26,10 +26,10 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
                  (with autocycler resolve).");
     print_settings(&in_dir, &out_gfa, k_size);
 
-    let sequences = load_sequences(&in_dir, k_size);
+    let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
     let mut kmer_graph = KmerGraph::new(k_size);
     eprintln!("\nAdding k-mers to graph...");
-    kmer_graph.add_sequences(&sequences);
+    kmer_graph.add_sequences(&sequences, assembly_count);
     eprintln!("Graph contains {} k-mers", kmer_graph.kmers.len());
 
     // let unitig_graph = UnitigGraph::new(&kmer_graph);
@@ -37,13 +37,13 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
 }
 
 
-fn load_sequences(in_dir: &PathBuf, k_size: u32) -> Vec<Sequence> {
+fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     let mut seq_id = 0u16;
     let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
     let assemblies = find_all_assemblies(in_dir);
     eprintln!("\nLoading sequences:");
-    for assembly in assemblies {
+    for assembly in &assemblies {
         for (name, info, seq) in load_fasta(&assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize {
@@ -57,7 +57,7 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> Vec<Sequence> {
             sequences.push(Sequence::new(seq_id, seq, filename, contig_header, seq_len));
         }
     }
-    sequences
+    (sequences, assemblies.len())
 }
 
 fn print_settings(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {

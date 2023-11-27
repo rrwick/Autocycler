@@ -20,24 +20,36 @@ use std::fmt;
 
 
 pub struct KmerPos {
-    seq_id: u16,
-    strand: bool, // true for forward strand, false for reverse strand
-    pub pos: u32, // 0-based indexing
+    pub pos: u32,
+    seq_id_and_strand: u16,
 }
 
 impl KmerPos {
+    const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000; // Use the highest bit to store the strand
+
     pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPos {
-        KmerPos {
-            seq_id,
-            strand,
-            pos: pos as u32,
+        let mut seq_id_and_strand = seq_id;
+        if strand {
+            seq_id_and_strand |= KmerPos::STRAND_BIT_MASK; // Set the strand bit
         }
+        KmerPos {
+            pos: pos as u32,
+            seq_id_and_strand,
+        }
+    }
+
+    pub fn seq_id(&self) -> u16 {
+        self.seq_id_and_strand & !KmerPos::STRAND_BIT_MASK // Mask out the strand bit
+    }
+
+    pub fn strand(&self) -> bool {
+        (self.seq_id_and_strand & KmerPos::STRAND_BIT_MASK) != 0
     }
 }
 
 impl fmt::Display for KmerPos {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
+        write!(f, "{}{}{}", self.seq_id(), if self.strand() { "+" } else { "-" }, self.pos)
     }
 }
 

@@ -24,10 +24,10 @@ pub struct Kmer<'a> {
 }
 
 impl<'a> Kmer<'a> {
-    pub fn new(seq: &str) -> Kmer {
+    pub fn new(seq: &str, assembly_count: usize) -> Kmer {
         Kmer {
             seq,
-            positions: Vec::new(),
+            positions: Vec::with_capacity(assembly_count),
         }
     }
 
@@ -69,13 +69,13 @@ impl<'a> KmerGraph<'a> {
         }
     }
 
-    pub fn add_sequences(&mut self, seqs: &'a Vec<Sequence>) {
+    pub fn add_sequences(&mut self, seqs: &'a Vec<Sequence>, assembly_count: usize) {
         for seq in seqs {
-            self.add_sequence(seq)
+            self.add_sequence(seq, assembly_count)
         }
     }
 
-    pub fn add_sequence(&mut self, seq: &'a Sequence) {
+    pub fn add_sequence(&mut self, seq: &'a Sequence, assembly_count: usize) {
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
         for forward_pos in 0..seq.length - k_size + 1 {
@@ -89,7 +89,7 @@ impl<'a> KmerGraph<'a> {
                     entry.get_mut().add_position(seq.id, true, forward_pos + half_k);
                 },
                 Entry::Vacant(entry) => {
-                    let mut kmer = Kmer::new(forward_k);
+                    let mut kmer = Kmer::new(forward_k, assembly_count);
                     kmer.add_position(seq.id, true, forward_pos + half_k);
                     entry.insert(kmer);
                 }
@@ -100,7 +100,7 @@ impl<'a> KmerGraph<'a> {
                     entry.get_mut().add_position(seq.id, false, reverse_pos + half_k);
                 },
                 Entry::Vacant(entry) => {
-                    let mut kmer = Kmer::new(reverse_k);
+                    let mut kmer = Kmer::new(reverse_k, assembly_count);
                     kmer.add_position(seq.id, false, reverse_pos + half_k);
                     entry.insert(kmer);
                 }
