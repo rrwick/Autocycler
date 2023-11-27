@@ -44,10 +44,6 @@ impl Position {
         }
     }
 
-    fn repr(&self) -> String {
-        format!("{}{}{}", self.seq_id, if self.strand == 1 { "+" } else { "-" }, self.pos)
-    }
-
     fn on_unitig_start(&self) -> bool {
         self.unitig_start_end == Some(0)
     }

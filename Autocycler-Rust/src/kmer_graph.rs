@@ -11,12 +11,12 @@
 
 use regex::Regex;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-use crate::position::Position;
 use crate::misc::{load_fasta, reverse_complement};
 use crate::sequence::Sequence;
 
@@ -25,9 +25,32 @@ use crate::sequence::Sequence;
 // &str more for efficiency. I might be able to do this by saving the loaded sequences into
 // the KmerGraph object, so I can continue to reference into them as long as that object lives.
 
+pub struct KmerPosition {
+    seq_id: u32,
+    strand: bool, // true for forward strand, false for reverse strand
+    pub pos: usize, // 0-based indexing
+}
+
+impl KmerPosition {
+    pub fn new(seq_id: u32, strand: bool, pos: usize) -> KmerPosition {
+        KmerPosition {
+            seq_id,
+            strand,
+            pos,
+        }
+    }
+}
+
+impl fmt::Display for KmerPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
+    }
+}
+
+
 pub struct Kmer<'a> {
     seq: &'a str,
-    positions: Vec<Position>,
+    positions: Vec<KmerPosition>,
 }
 
 impl<'a> Kmer<'a> {
@@ -38,8 +61,8 @@ impl<'a> Kmer<'a> {
         }
     }
 
-    pub fn add_position(&mut self, seq_id: u32, strand: i32, pos: usize) {
-        let position = Position::new(seq_id, strand, pos, None, None, None);
+    pub fn add_position(&mut self, seq_id: u32, strand: bool, pos: usize) {
+        let position = KmerPosition::new(seq_id, strand, pos);
         self.positions.push(position);
     }
 
@@ -90,11 +113,27 @@ impl<'a> KmerGraph<'a> {
             let forward_k = &seq.forward_seq[forward_pos..forward_pos + k_size];
             let reverse_k = &seq.reverse_seq[reverse_pos..reverse_pos + k_size];
 
-            self.kmers.entry(forward_k).or_insert_with(|| Kmer::new(forward_k));
-            self.kmers.entry(reverse_k).or_insert_with(|| Kmer::new(reverse_k));
+            match self.kmers.entry(forward_k) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().add_position(seq.id, true, forward_pos + half_k);
+                },
+                Entry::Vacant(entry) => {
+                    let mut kmer = Kmer::new(forward_k);
+                    kmer.add_position(seq.id, true, forward_pos + half_k);
+                    entry.insert(kmer);
+                }
+            }
 
-            self.kmers.get_mut(forward_k).unwrap().add_position(seq.id, 1, forward_pos + half_k);
-            self.kmers.get_mut(reverse_k).unwrap().add_position(seq.id, -1, reverse_pos + half_k);
+            match self.kmers.entry(reverse_k) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().add_position(seq.id, false, reverse_pos + half_k);
+                },
+                Entry::Vacant(entry) => {
+                    let mut kmer = Kmer::new(reverse_k);
+                    kmer.add_position(seq.id, false, reverse_pos + half_k);
+                    entry.insert(kmer);
+                }
+            }
         }
     }
 }
