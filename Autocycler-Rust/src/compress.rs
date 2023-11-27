@@ -39,7 +39,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
 
 
 fn load_sequences(in_dir: &PathBuf, k_size: u32) -> Vec<Sequence> {
-    let mut seq_id = 0u32;
+    let mut seq_id = 0u16;
     let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
     let assemblies = find_all_assemblies(in_dir);

@@ -13,7 +13,7 @@ use crate::misc::reverse_complement;
 
 
 pub struct Sequence {
-    pub id: u32,
+    pub id: u16,
     pub forward_seq: String,
     pub reverse_seq: String,
     pub filename: String,
@@ -22,7 +22,7 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(id: u32, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
+    pub fn new(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
         Sequence {
             id,
             reverse_seq: reverse_complement(&seq),

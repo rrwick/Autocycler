@@ -26,17 +26,17 @@ use crate::sequence::Sequence;
 // the KmerGraph object, so I can continue to reference into them as long as that object lives.
 
 pub struct KmerPosition {
-    seq_id: u32,
+    seq_id: u16,
     strand: bool, // true for forward strand, false for reverse strand
-    pub pos: usize, // 0-based indexing
+    pub pos: u32, // 0-based indexing
 }
 
 impl KmerPosition {
-    pub fn new(seq_id: u32, strand: bool, pos: usize) -> KmerPosition {
+    pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPosition {
         KmerPosition {
             seq_id,
             strand,
-            pos,
+            pos: pos as u32,
         }
     }
 }
@@ -61,7 +61,7 @@ impl<'a> Kmer<'a> {
         }
     }
 
-    pub fn add_position(&mut self, seq_id: u32, strand: bool, pos: usize) {
+    pub fn add_position(&mut self, seq_id: u16, strand: bool, pos: usize) {
         let position = KmerPosition::new(seq_id, strand, pos);
         self.positions.push(position);
     }
@@ -71,7 +71,7 @@ impl<'a> Kmer<'a> {
     }
 
     pub fn first_position(&self, half_k: usize) -> bool {
-        self.positions.iter().any(|p| p.pos == half_k)
+        self.positions.iter().any(|p| p.pos as usize == half_k)
     }
 }
 
