@@ -18,39 +18,15 @@ use std::io::{self, BufRead};
 use std::path::PathBuf;
 
 use crate::misc::{load_fasta, reverse_complement};
+use crate::position::KmerPos;
 use crate::sequence::Sequence;
 
-// TODO: this file currently uses String a lot instead of &str. This keeps things simple (no
-// lifetimes needed) but increases the time and memory to run. It would be great if I could use
-// &str more for efficiency. I might be able to do this by saving the loaded sequences into
-// the KmerGraph object, so I can continue to reference into them as long as that object lives.
 
-pub struct KmerPosition {
-    seq_id: u16,
-    strand: bool, // true for forward strand, false for reverse strand
-    pub pos: u32, // 0-based indexing
-}
-
-impl KmerPosition {
-    pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPosition {
-        KmerPosition {
-            seq_id,
-            strand,
-            pos: pos as u32,
-        }
-    }
-}
-
-impl fmt::Display for KmerPosition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
-    }
-}
 
 
 pub struct Kmer<'a> {
     seq: &'a str,
-    positions: Vec<KmerPosition>,
+    positions: Vec<KmerPos>,
 }
 
 impl<'a> Kmer<'a> {
@@ -62,7 +38,7 @@ impl<'a> Kmer<'a> {
     }
 
     pub fn add_position(&mut self, seq_id: u16, strand: bool, pos: usize) {
-        let position = KmerPosition::new(seq_id, strand, pos);
+        let position = KmerPos::new(seq_id, strand, pos);
         self.positions.push(position);
     }
 

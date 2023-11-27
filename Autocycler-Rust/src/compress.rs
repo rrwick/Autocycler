@@ -12,7 +12,6 @@
 use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies, load_fasta};
 use crate::kmer_graph::{Kmer, KmerGraph};
-use crate::position::Position;
 use crate::sequence::Sequence;
 
 use regex::Regex;

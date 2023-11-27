@@ -14,25 +14,50 @@ use std::fmt;
 
 // Position objects store the sequence, strand and position for contigs in the input assemblies.
 // They are used:
-// * In KmerGraph objects, where each Kmer object has one or more Position objects.
-// * In UnitigGraph objects, where each Unitig has one or more starting and ending Position
+// * In KmerGraph objects, where each Kmer object has one or more KmerPos objects.
+// * In UnitigGraph objects, where each Unitig has one or more starting and ending UnitigPos
 //   objects on both strands. These form a doubly linked list, tracing the input contig through
 //   the UnitigGraph.
-pub struct Position {
+
+
+pub struct KmerPos {
+    seq_id: u16,
+    strand: bool, // true for forward strand, false for reverse strand
+    pub pos: u32, // 0-based indexing
+}
+
+impl KmerPos {
+    pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPos {
+        KmerPos {
+            seq_id,
+            strand,
+            pos: pos as u32,
+        }
+    }
+}
+
+impl fmt::Display for KmerPos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
+    }
+}
+
+
+pub struct UnitigPos {
     seq_id: u32,
     strand: i32, // 1 for forward strand, -1 for reverse strand
     pub pos: usize, // 0-based indexing
-    prev: Option<Box<Position>>,
-    next: Option<Box<Position>>,
+    prev: Option<Box<UnitigPos>>,
+    next: Option<Box<UnitigPos>>,
     unitig: Option<i32>,  // TODO: change to Unitig
     unitig_strand: Option<i32>, // 1 for forward, -1 for reverse
     unitig_start_end: Option<u32>, // 0 for start, 1 for end
 }
 
-impl Position {
+impl UnitigPos {
     pub fn new(seq_id: u32, strand: i32, pos: usize, unitig: Option<i32>,
-           unitig_strand: Option<i32>, unitig_start_end: Option<u32>) -> Position {
-        Position {
+           unitig_strand: Option<i32>, unitig_start_end: Option<u32>) -> UnitigPos {
+        UnitigPos {
             seq_id,
             strand,
             pos,
@@ -53,7 +78,7 @@ impl Position {
     }
 }
 
-impl fmt::Display for Position {
+impl fmt::Display for UnitigPos {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}{}", self.seq_id, if self.strand == 1 { "+" } else { "-" }, self.pos)
     }
