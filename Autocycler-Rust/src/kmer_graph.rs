@@ -52,7 +52,7 @@ impl Kmer {
     }
 }
 
-impl<'a> fmt::Display for Kmer {
+impl fmt::Display for Kmer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let positions = self.positions.iter()
                                       .map(|p| p.to_string())
@@ -79,13 +79,11 @@ impl KmerGraph {
     pub fn add_sequence(&mut self, seq: &Sequence) {
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
-        let forward_seq = &seq.seq;
-        let reverse_seq = reverse_complement(&forward_seq);
         for forward_pos in 0..seq.length - k_size + 1 {
             let reverse_pos = seq.length - forward_pos - k_size;
 
-            let forward_k = &forward_seq[forward_pos..forward_pos + k_size];
-            let reverse_k = &reverse_seq[reverse_pos..reverse_pos + k_size];
+            let forward_k = &seq.forward_seq[forward_pos..forward_pos + k_size];
+            let reverse_k = &seq.reverse_seq[reverse_pos..reverse_pos + k_size];
 
             self.kmers.entry(forward_k.to_string()).or_insert_with(|| Kmer::new(forward_k.to_string()));
             self.kmers.entry(reverse_k.to_string()).or_insert_with(|| Kmer::new(reverse_k.to_string()));

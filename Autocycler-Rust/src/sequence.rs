@@ -9,9 +9,13 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::misc::reverse_complement;
+
+
 pub struct Sequence {
     pub id: u32,
-    pub seq: String,
+    pub forward_seq: String,
+    pub reverse_seq: String,
     pub filename: String,
     pub contig_header: String,
     pub length: usize,
@@ -21,7 +25,8 @@ impl Sequence {
     pub fn new(id: u32, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
         Sequence {
             id,
-            seq,
+            reverse_seq: reverse_complement(&seq),
+            forward_seq: seq,
             filename,
             contig_header,
             length,
