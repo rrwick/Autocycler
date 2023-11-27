@@ -49,6 +49,7 @@ impl KmerPos {
     }
 
     pub fn strand(&self) -> bool {
+        // true for forward strand, false for reverse strand
         (self.seq_id_and_strand & KmerPos::STRAND_BIT_MASK) != 0
     }
 }
@@ -62,18 +63,18 @@ impl fmt::Display for KmerPos {
 
 pub struct UnitigPos {
     seq_id: u32,
-    strand: i32, // 1 for forward strand, -1 for reverse strand
+    strand: bool, // true for forward strand, false for reverse strand
     pub pos: usize, // 0-based indexing
     prev: Option<Box<UnitigPos>>,
     next: Option<Box<UnitigPos>>,
     unitig: Option<i32>,  // TODO: change to Unitig
-    unitig_strand: Option<i32>, // 1 for forward, -1 for reverse
+    unitig_strand: Option<bool>, // true for forward strand, false for reverse strand
     unitig_start_end: Option<u32>, // 0 for start, 1 for end
 }
 
 impl UnitigPos {
-    pub fn new(seq_id: u32, strand: i32, pos: usize, unitig: Option<i32>,
-           unitig_strand: Option<i32>, unitig_start_end: Option<u32>) -> UnitigPos {
+    pub fn new(seq_id: u32, strand: bool, pos: usize, unitig: Option<i32>,
+           unitig_strand: Option<bool>, unitig_start_end: Option<u32>) -> UnitigPos {
         UnitigPos {
             seq_id,
             strand,
@@ -97,6 +98,6 @@ impl UnitigPos {
 
 impl fmt::Display for UnitigPos {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}", self.seq_id, if self.strand == 1 { "+" } else { "-" }, self.pos)
+        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
     }
 }
