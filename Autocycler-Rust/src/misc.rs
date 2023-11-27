@@ -1,3 +1,5 @@
+// This file contains miscellaneous functions used by various parts of Autocycler.
+
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
@@ -43,8 +45,6 @@ pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
     }
 
     all_assemblies.sort_unstable();
-    let plural = if all_assemblies.len() == 1 { "assembly" } else { "assemblies" };
-    eprintln!(" found {} {}", all_assemblies.len(), plural);
 
     if all_assemblies.is_empty() {
         quit_with_error(&format!("Error: no assemblies found in {}", in_dir.display()));
@@ -235,34 +235,12 @@ pub fn reverse_complement(seq: &str) -> String {
 }
 
 
-
 pub fn format_duration(duration: std::time::Duration) -> String {
     let microseconds = duration.as_micros() % 1000000;
     let seconds =      duration.as_micros() / 1000000 % 60;
     let minutes =      duration.as_micros() / 1000000 / 60 % 60;
     let hours =        duration.as_micros() / 1000000 / 60 / 60;
     format!("{}:{:02}:{:02}.{:06}", hours, minutes, seconds, microseconds)
-}
-
-
-/// This function implements banker's rounding (i.e. round-half-to-even) for positive numbers. I
-/// wrote it so I could replicate Python's rounding behaviour, because Rust's round function has
-/// round-half-up behaviour. I had tried using math::round::half_to_even, but that didn't seem to
-/// work correctly (rounded 42.55 to 42).
-pub fn bankers_rounding(float: f64) -> u32 {
-    let fractional_part = float - float.floor();
-    let rounded_down = float as u32;
-    if fractional_part < 0.5 {
-        return rounded_down;
-    } else if fractional_part > 0.5 {
-        return rounded_down + 1;
-    } else {  // fractional_part == 0.5
-        if rounded_down % 2 == 0 {  // is even
-            return rounded_down;
-        } else {
-            return rounded_down + 1;
-        }
-    }
 }
 
 
@@ -278,25 +256,6 @@ mod tests {
         assert_eq!(format_duration(d1), "0:02:03.456789");
         assert_eq!(format_duration(d2), "1:01:01.000001");
         assert_eq!(format_duration(d3), "100:15:59.000001");
-    }
-
-    #[test]
-    fn test_bankers_rounding() {
-        assert_eq!(bankers_rounding(0.0), 0);
-        assert_eq!(bankers_rounding(123.0), 123);
-        assert_eq!(bankers_rounding(98765.0), 98765);
-
-        assert_eq!(bankers_rounding(0.4999), 0);
-        assert_eq!(bankers_rounding(0.5),    0);
-        assert_eq!(bankers_rounding(0.5001), 1);
-
-        assert_eq!(bankers_rounding(42.45), 42);
-        assert_eq!(bankers_rounding(42.5),  42);
-        assert_eq!(bankers_rounding(42.55), 43);
-
-        assert_eq!(bankers_rounding(12345.4998), 12345);
-        assert_eq!(bankers_rounding(12345.5),    12346);
-        assert_eq!(bankers_rounding(12345.5002), 12346);
     }
 
     #[test]

@@ -1,3 +1,5 @@
+// This file contains the code for the autocycler compress subcommand.
+
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
@@ -28,6 +30,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     finished_message(start_time, out_gfa);
 }
 
+
 fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
     section_header("Starting autocycler compress");
     explanation("This command will find all assemblies in the given input directory and compress \
@@ -41,15 +44,13 @@ fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
     eprintln!();
 }
 
+
 fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("All contigs in the input assemblies are now loaded and given a unique integer \
                  ID.");
-
-    eprint!("Looking for assembly files in {}...", in_dir.display());
+    eprintln!("Loading sequences:");
     let assemblies = find_all_assemblies(in_dir);
-
-    eprintln!("\nLoading sequences:");
     let mut seq_id = 0u16;
     let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
@@ -71,6 +72,7 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     (sequences, assemblies.len())
 }
 
+
 fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence>) -> KmerGraph {
     section_header("Building k-mer De Bruijn graph");
     explanation("All k-mers in the input sequences are now hashed to make a De Bruijn graph.");
@@ -82,6 +84,7 @@ fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence
     kmer_graph
 }
 
+
 fn build_unitig_graph(kmer_graph: KmerGraph, out_gfa: &PathBuf) {
     section_header("Building compacted unitig graph");
     explanation("All non-branching paths are now collapsed to form a compacted De Bruijn graph, \
@@ -90,6 +93,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph, out_gfa: &PathBuf) {
     // unitig_graph.save_gfa(&out_gfa);
     eprintln!();
 }
+
 
 fn finished_message(start_time: Instant, out_gfa: PathBuf) {
     section_header("Finished!");

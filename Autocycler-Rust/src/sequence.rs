@@ -1,3 +1,5 @@
+// This file defines a struct for storing the input assembly sequences and relevant information.
+
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
