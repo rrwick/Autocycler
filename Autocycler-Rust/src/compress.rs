@@ -11,11 +11,10 @@
 
 use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies, load_fasta};
-use crate::kmer_graph::{Kmer, KmerGraph};
+use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 
 use regex::Regex;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 
@@ -26,6 +25,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
                  the assemblies (with autocycler decompress) or generate a consensus assembly \
                  (with autocycler resolve).");
     print_settings(&in_dir, &out_gfa, k_size);
+
     let sequences = load_sequences(&in_dir, k_size);
     let mut kmer_graph = KmerGraph::new(k_size);
     eprintln!("\nAdding k-mers to graph...");

@@ -1,3 +1,10 @@
+// Position objects store the sequence, strand and position for contigs in the input assemblies.
+// They are used:
+// * In KmerGraph objects, where each Kmer object has one or more KmerPos objects.
+// * In UnitigGraph objects, where each Unitig has one or more starting and ending UnitigPos
+//   objects on both strands. These form a doubly linked list, tracing the input contig through
+//   the UnitigGraph.
+
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
@@ -10,14 +17,6 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
-
-
-// Position objects store the sequence, strand and position for contigs in the input assemblies.
-// They are used:
-// * In KmerGraph objects, where each Kmer object has one or more KmerPos objects.
-// * In UnitigGraph objects, where each Unitig has one or more starting and ending UnitigPos
-//   objects on both strands. These form a doubly linked list, tracing the input contig through
-//   the UnitigGraph.
 
 
 pub struct KmerPos {

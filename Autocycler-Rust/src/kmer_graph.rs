@@ -9,15 +9,11 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use regex::Regex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::fs::File;
 use std::io::{self, BufRead};
-use std::path::PathBuf;
 
-use crate::misc::{load_fasta, reverse_complement};
 use crate::position::KmerPos;
 use crate::sequence::Sequence;
 
@@ -74,6 +70,7 @@ impl<'a> KmerGraph<'a> {
             kmers: HashMap::new(),
         }
     }
+
     pub fn add_sequences(&mut self, seqs: &'a Vec<Sequence>) {
         for seq in seqs {
             self.add_sequence(seq)
