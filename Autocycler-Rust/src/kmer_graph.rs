@@ -18,7 +18,12 @@ use std::path::PathBuf;
 
 use crate::position::Position;
 use crate::misc::{load_fasta, reverse_complement};
+use crate::sequence::Sequence;
 
+// TODO: this file currently uses String a lot instead of &str. This keeps things simple (no
+// lifetimes needed) but increases the time and memory to run. It would be great if I could use
+// &str more for efficiency. I might be able to do this by saving the loaded sequences into
+// the KmerGraph object, so I can continue to reference into them as long as that object lives.
 
 pub struct Kmer {
     seq: String,
@@ -58,11 +63,9 @@ impl<'a> fmt::Display for Kmer {
 }
 
 
-
 pub struct KmerGraph {
-    k_size: u32,
-    kmers: HashMap<String, Kmer>,
-    id_to_contig_info: HashMap<u32, (String, String, usize)>,
+    pub k_size: u32,
+    pub kmers: HashMap<String, Kmer>,
 }
 
 impl KmerGraph {
@@ -70,55 +73,28 @@ impl KmerGraph {
         KmerGraph {
             k_size,
             kmers: HashMap::new(),
-            id_to_contig_info: HashMap::new(),
         }
     }
 
-    pub fn add_assemblies(&mut self, assemblies: Vec<PathBuf>) -> io::Result<()> {
-        let mut seq_id = 0u32;
-        let whitespace_re = Regex::new(r"\s+").unwrap();
-
-        for assembly in assemblies {
-            println!("\nAdding {:?} to graph:", assembly);
-            let fasta = load_fasta(&assembly);
-            for (name, info, seq) in &fasta {
-                if seq.len() < self.k_size as usize {
-                    continue;
-                }
-                seq_id += 1;
-                println!("  {}: {} ({} bp)", seq_id, name, seq.len());
-
-                self.add_sequence(&seq, seq_id);
-
-                let contig_header = name.to_string() + " " + &info;
-                let contig_header = whitespace_re.replace_all(&contig_header, " ");
-                let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-                self.id_to_contig_info.insert(seq_id, (filename, contig_header.into_owned(), seq.len()));
-            }
-        }
-
-        println!("\nGraph contains {} k-mers", self.kmers.len());
-        Ok(())
-    }
-
-    fn add_sequence(&mut self, seq: &str, seq_id: u32) {
+    pub fn add_sequence(&mut self, seq: &Sequence) {
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
-        let rev_seq = reverse_complement(seq);
-        for forward_pos in 0..seq.len() - k_size + 1 {
-            let reverse_pos = seq.len() - forward_pos - k_size;
+        let forward_seq = &seq.seq;
+        let reverse_seq = reverse_complement(&forward_seq);
+        for forward_pos in 0..seq.length - k_size + 1 {
+            let reverse_pos = seq.length - forward_pos - k_size;
 
-            let forward_seq = &seq[forward_pos..forward_pos + k_size];
-            let reverse_seq = &rev_seq[reverse_pos..reverse_pos + k_size];
+            let forward_k = &forward_seq[forward_pos..forward_pos + k_size];
+            let reverse_k = &reverse_seq[reverse_pos..reverse_pos + k_size];
 
-            self.kmers.entry(forward_seq.to_string()).or_insert_with(|| Kmer::new(forward_seq.to_string()));
-            self.kmers.entry(reverse_seq.to_string()).or_insert_with(|| Kmer::new(reverse_seq.to_string()));
+            self.kmers.entry(forward_k.to_string()).or_insert_with(|| Kmer::new(forward_k.to_string()));
+            self.kmers.entry(reverse_k.to_string()).or_insert_with(|| Kmer::new(reverse_k.to_string()));
 
             let forward_centre_pos = forward_pos + half_k;
             let reverse_centre_pos = reverse_pos + half_k;
 
-            self.kmers.get_mut(forward_seq).unwrap().add_position(seq_id, 1, forward_centre_pos as u32);
-            self.kmers.get_mut(reverse_seq).unwrap().add_position(seq_id, -1, reverse_centre_pos as u32);
+            self.kmers.get_mut(forward_k).unwrap().add_position(seq.id, 1, forward_centre_pos as u32);
+            self.kmers.get_mut(reverse_k).unwrap().add_position(seq.id, -1, reverse_centre_pos as u32);
         }
     }
 }

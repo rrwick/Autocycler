@@ -15,6 +15,7 @@ mod kmer_graph;
 mod log;
 mod misc;
 mod position;
+mod sequence;
 mod resolve;
 
 use std::path::PathBuf;
