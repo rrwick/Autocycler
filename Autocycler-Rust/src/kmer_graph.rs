@@ -20,12 +20,12 @@ use crate::sequence::Sequence;
 
 
 pub struct Kmer<'a> {
-    seq: &'a str,
+    seq: &'a [u8],
     positions: Vec<KmerPos>,
 }
 
 impl<'a> Kmer<'a> {
-    pub fn new(seq: &str, assembly_count: usize) -> Kmer {
+    pub fn new(seq: &[u8], assembly_count: usize) -> Kmer {
         Kmer {
             seq,
             positions: Vec::with_capacity(assembly_count), // most k-mers occur once per assembly
@@ -48,18 +48,19 @@ impl<'a> Kmer<'a> {
 
 impl<'a> fmt::Display for Kmer<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let seq = std::str::from_utf8(self.seq).unwrap();
         let positions = self.positions.iter()
                                       .map(|p| p.to_string())
                                       .collect::<Vec<String>>()
                                       .join(",");
-        write!(f, "{}:{}", self.seq, positions)
+        write!(f, "{}:{}", seq, positions)
     }
 }
 
 
 pub struct KmerGraph<'a> {
     pub k_size: u32,
-    pub kmers: FxHashMap<&'a str, Kmer<'a>>,
+    pub kmers: FxHashMap<&'a [u8], Kmer<'a>>,
 }
 
 impl<'a> KmerGraph<'a> {

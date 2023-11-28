@@ -16,8 +16,8 @@ use crate::misc::reverse_complement;
 
 pub struct Sequence {
     pub id: u16,
-    pub forward_seq: String,
-    pub reverse_seq: String,
+    pub forward_seq: Vec<u8>,
+    pub reverse_seq: Vec<u8>,
     pub filename: String,
     pub contig_header: String,
     pub length: usize,
@@ -27,8 +27,8 @@ impl Sequence {
     pub fn new(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
         Sequence {
             id,
-            reverse_seq: reverse_complement(&seq),
-            forward_seq: seq,
+            reverse_seq: reverse_complement(&seq).into_bytes(),
+            forward_seq: seq.into_bytes(),
             filename,
             contig_header,
             length,
