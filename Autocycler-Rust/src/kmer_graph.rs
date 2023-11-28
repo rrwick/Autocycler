@@ -20,8 +20,8 @@ use crate::sequence::Sequence;
 
 
 pub struct Kmer<'a> {
-    seq: &'a [u8],
-    positions: Vec<KmerPos>,
+    pub seq: &'a [u8],
+    pub positions: Vec<KmerPos>,
 }
 
 impl<'a> Kmer<'a> {

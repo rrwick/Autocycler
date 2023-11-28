@@ -235,6 +235,30 @@ pub fn reverse_complement(seq: &str) -> String {
 }
 
 
+fn complement_base_u8(base: u8) -> u8 {
+    match base {
+        b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G',
+        b'a' => b't', b't' => b'a', b'g' => b'c', b'c' => b'g',
+        b'N' => b'N', b'n' => b'n',
+        b'R' => b'Y', b'Y' => b'R', b'S' => b'S', b'W' => b'W', b'K' => b'M', b'M' => b'K',
+        b'B' => b'V', b'V' => b'B', b'D' => b'H', b'H' => b'D',
+        b'r' => b'y', b'y' => b'r', b's' => b's', b'w' => b'w', b'k' => b'm', b'm' => b'k',
+        b'b' => b'v', b'v' => b'b', b'd' => b'h', b'h' => b'd',
+        b'.' => b'.', b'-' => b'-', b'?' => b'?',
+        _ => b'N'
+    }
+}
+
+
+pub fn reverse_complement_u8(seq: &[u8]) -> Vec<u8> {
+    let mut rev_seq: Vec<u8> = Vec::with_capacity(seq.len());
+    for &b in seq.iter().rev() {
+        rev_seq.push(complement_base_u8(b));
+    }
+    rev_seq
+}
+
+
 pub fn format_duration(duration: std::time::Duration) -> String {
     let microseconds = duration.as_micros() % 1000000;
     let seconds =      duration.as_micros() / 1000000 % 60;
@@ -264,5 +288,13 @@ mod tests {
         assert_eq!(reverse_complement("GGGGaaaaaaaatttatatat"), "atatataaattttttttCCCC");
         assert_eq!(reverse_complement("atatataaattttttttCCCC"), "GGGGaaaaaaaatttatatat");
         assert_eq!(reverse_complement("ACGT123"), "NNNACGT");
+    }
+
+    #[test]
+    fn test_reverse_complement_u8() {
+        assert_eq!(reverse_complement_u8(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
+        assert_eq!(reverse_complement_u8(b"GGGGaaaaaaaatttatatat"), b"atatataaattttttttCCCC");
+        assert_eq!(reverse_complement_u8(b"atatataaattttttttCCCC"), b"GGGGaaaaaaaatttatatat");
+        assert_eq!(reverse_complement_u8(b"ACGT123"), b"NNNACGT");
     }
 }

@@ -23,6 +23,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
+use crate::unitig::Unitig;
 
 
 pub struct KmerPos {
@@ -62,37 +63,37 @@ impl fmt::Display for KmerPos {
 
 
 pub struct UnitigPos {
-    seq_id: u32,
+    seq_id: u16,
     strand: bool, // true for forward strand, false for reverse strand
-    pub pos: usize, // 0-based indexing
+    pub pos: u32,
     prev: Option<Box<UnitigPos>>,
     next: Option<Box<UnitigPos>>,
-    unitig: Option<i32>,  // TODO: change to Unitig
-    unitig_strand: Option<bool>, // true for forward strand, false for reverse strand
-    unitig_start_end: Option<u32>, // 0 for start, 1 for end
+    unitig_num: u32,
+    unitig_strand: bool, // true for forward strand, false for reverse strand
+    unitig_start_end: bool, // true for start, false for end
 }
 
 impl UnitigPos {
-    pub fn new(seq_id: u32, strand: bool, pos: usize, unitig: Option<i32>,
-           unitig_strand: Option<bool>, unitig_start_end: Option<u32>) -> UnitigPos {
+    pub fn new(kmer_pos: &KmerPos, unitig_num: u32, unitig_strand: bool,
+               unitig_start_end: bool) -> UnitigPos {
         UnitigPos {
-            seq_id,
-            strand,
-            pos,
+            seq_id: kmer_pos.seq_id(),
+            strand: kmer_pos.strand(),
+            pos: kmer_pos.pos,
             prev: None,
             next: None,
-            unitig,
+            unitig_num,
             unitig_strand,
             unitig_start_end,
         }
     }
 
     fn on_unitig_start(&self) -> bool {
-        self.unitig_start_end == Some(0)
+        self.unitig_start_end
     }
 
     fn on_unitig_end(&self) -> bool {
-        self.unitig_start_end == Some(1)
+        !self.unitig_start_end
     }
 }
 

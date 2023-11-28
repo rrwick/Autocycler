@@ -21,8 +21,10 @@ mod kmer_graph;
 mod log;
 mod misc;
 mod position;
-mod sequence;
 mod resolve;
+mod sequence;
+mod unitig;
+mod unitig_graph;
 
 
 #[derive(Parser)]

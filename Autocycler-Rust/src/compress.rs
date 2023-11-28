@@ -19,6 +19,7 @@ use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies, load_fasta, format_duration, quit_with_error};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
+use crate::unitig::Unitig;  // TEMP
 
 
 pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {

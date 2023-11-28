@@ -65,7 +65,7 @@ class Unitig(object):
         self.reverse_kmers = collections.deque([reverse_kmer])
 
     def create_from_segment_line(self, parts):
-        self.number  = int(parts[1])
+        self.number = int(parts[1])
         self.forward_seq = parts[2]
         self.reverse_seq = reverse_complement(self.forward_seq)
         self.trimmed = True
