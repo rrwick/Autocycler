@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{find_all_assemblies, load_fasta, format_duration};
+use crate::misc::{find_all_assemblies, load_fasta, format_duration, quit_with_error};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 
@@ -51,7 +51,7 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
                  ID.");
     eprintln!("Loading sequences:");
     let assemblies = find_all_assemblies(in_dir);
-    let mut seq_id = 0u16;
+    let mut seq_id = 0usize;
     let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
     for assembly in &assemblies {
@@ -62,10 +62,13 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
             }
             seq_id += 1;
             eprintln!("  {:>2}: {} {} ({} bp)", seq_id, assembly.display(), name, seq_len);
+            if seq_id > 32767 {
+                quit_with_error("no more than 32767 input sequences are allowed");
+            }
             let contig_header = name.to_string() + " " + &info;
             let contig_header = whitespace_re.replace_all(&contig_header, " ").to_string();
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-            sequences.push(Sequence::new(seq_id, seq, filename, contig_header, seq_len));
+            sequences.push(Sequence::new(seq_id as u16, seq, filename, contig_header, seq_len));
         }
     }
     eprintln!();
