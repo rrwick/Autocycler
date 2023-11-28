@@ -116,4 +116,14 @@ mod tests {
         assert_eq!(format!("{}", p2), "2-456");
         assert_eq!(format!("{}", p3), "32767+4294967295");
     }
+
+    #[test]
+    fn test_unitigpos() {
+        let p1 = UnitigPos::new(1, true, 123, None, None, None);
+        let p2 = UnitigPos::new(2, false, 456, None, None, None);
+        let p3 = UnitigPos::new(32767, true, 4294967295, None, None, None);
+        assert_eq!(format!("{}", p1), "1+123");
+        assert_eq!(format!("{}", p2), "2-456");
+        assert_eq!(format!("{}", p3), "32767+4294967295");
+    }
 }

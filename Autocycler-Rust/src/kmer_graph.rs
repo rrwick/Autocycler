@@ -110,3 +110,27 @@ impl<'a> KmerGraph<'a> {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kmer() {
+        let seq = String::from("ACGACTGACATCAGCACTGA").into_bytes();
+        let mut k = Kmer::new(&seq[0..4], 2);
+        k.add_position(1, true, 123);
+        k.add_position(2, false, 456);
+        assert_eq!(format!("{}", k), "ACGA:1+123,2-456");
+    }
+
+    #[test]
+    fn test_kmer_graph() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+        assert_eq!(kmer_graph.kmers.len(), 28);
+    }
+}
