@@ -101,3 +101,19 @@ impl fmt::Display for UnitigPos {
         write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kmerpos() {
+        let p1 = KmerPos::new(1, true, 123);
+        let p2 = KmerPos::new(2, false, 456);
+        let p3 = KmerPos::new(32767, true, 4294967295);  // max values for sed_id and pos
+        assert_eq!(format!("{}", p1), "1+123");
+        assert_eq!(format!("{}", p2), "2-456");
+        assert_eq!(format!("{}", p3), "32767+4294967295");
+    }
+}
