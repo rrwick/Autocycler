@@ -20,25 +20,25 @@ use crate::position::UnitigPos;
 use crate::sequence::Sequence;
 
 
-pub struct Unitig<'a> {
+pub struct Unitig {
     number: u32,
     forward_kmers: VecDeque<Kmer>,
     reverse_kmers: VecDeque<Kmer>,
     pub forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
     depth: f64,
-    forward_start_positions: Vec<UnitigPos<'a>>,
-    forward_end_positions: Vec<UnitigPos<'a>>,
-    reverse_start_positions: Vec<UnitigPos<'a>>,
-    reverse_end_positions: Vec<UnitigPos<'a>>,
-    forward_next: Vec<(*mut Unitig<'a>, bool)>,
-    forward_prev: Vec<(*mut Unitig<'a>, bool)>,
-    reverse_next: Vec<(*mut Unitig<'a>, bool)>,
-    reverse_prev: Vec<(*mut Unitig<'a>, bool)>,
+    forward_start_positions: Vec<UnitigPos>,
+    forward_end_positions: Vec<UnitigPos>,
+    reverse_start_positions: Vec<UnitigPos>,
+    reverse_end_positions: Vec<UnitigPos>,
+    forward_next: Vec<(*mut Unitig, bool)>,
+    forward_prev: Vec<(*mut Unitig, bool)>,
+    reverse_next: Vec<(*mut Unitig, bool)>,
+    reverse_prev: Vec<(*mut Unitig, bool)>,
     trimmed: bool,
 }
 
-impl<'a> Unitig<'a> {
+impl Unitig {
     pub fn from_kmers(number: u32, forward_kmer: Kmer, reverse_kmer: Kmer) -> Self {
         // This constructor is for Unitig objects built from k-mers. Happens in multiple stages:
         // 1. Initialised with a starting k-mer (forward and reverse).
@@ -240,7 +240,7 @@ impl<'a> Unitig<'a> {
     }
 }
 
-impl<'a> fmt::Display for Unitig<'a> {
+impl fmt::Display for Unitig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let display_seq = if self.forward_seq.len() < 15 {
             String::from_utf8_lossy(&self.forward_seq).to_string()

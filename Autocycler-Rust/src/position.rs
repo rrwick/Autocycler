@@ -64,20 +64,20 @@ impl fmt::Display for KmerPos {
 }
 
 
-pub struct UnitigPos<'a> {
+pub struct UnitigPos {
     pub seq_id: u16,
     pub strand: bool, // true for forward strand, false for reverse strand
     pub pos: u32,
-    pub prev: *mut UnitigPos<'a>,
-    pub next: *mut UnitigPos<'a>,
+    pub prev: *mut UnitigPos,
+    pub next: *mut UnitigPos,
     unitig_num: u32,
     unitig_strand: bool, // true for forward strand, false for reverse strand
     unitig_start_end: bool, // true for start, false for end
 }
 
-impl<'a> UnitigPos<'a> {
+impl UnitigPos {
     pub fn new(kmer_pos: &KmerPos, unitig_num: u32, unitig_strand: bool,
-               unitig_start_end: bool) -> UnitigPos<'a> {
+               unitig_start_end: bool) -> UnitigPos {
         UnitigPos {
             seq_id: kmer_pos.seq_id(),
             strand: kmer_pos.strand(),
@@ -99,7 +99,7 @@ impl<'a> UnitigPos<'a> {
     }
 }
 
-impl<'a> fmt::Display for UnitigPos<'a> {
+impl fmt::Display for UnitigPos {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
     }
