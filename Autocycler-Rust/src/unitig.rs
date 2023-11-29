@@ -17,13 +17,14 @@ use std::fmt;
 use crate::kmer_graph::Kmer;
 use crate::misc::{reverse_complement_u8, quit_with_error};
 use crate::position::UnitigPos;
+use crate::sequence::Sequence;
 
 
 pub struct Unitig<'a> {
     number: u32,
     forward_kmers: VecDeque<Kmer<'a>>,
     reverse_kmers: VecDeque<Kmer<'a>>,
-    forward_seq: Vec<u8>,
+    pub forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
     depth: f64,
     forward_start_positions: Vec<UnitigPos<'a>>,
@@ -120,10 +121,18 @@ impl<'a> Unitig<'a> {
     }
 
     fn combine_kmers_into_sequences(&mut self) {
-        self.forward_seq = self.forward_kmers.iter()
-            .flat_map(|k| k.seq).copied().collect();
-        self.reverse_seq = self.reverse_kmers.iter()
-            .flat_map(|k| k.seq).copied().collect();
+        if let Some(first_kmer) = self.forward_kmers.front() {
+            self.forward_seq = first_kmer.seq.to_vec();
+            self.forward_kmers.iter().skip(1).for_each(|kmer| {
+                self.forward_seq.push(*kmer.seq.last().unwrap());
+            });
+        }
+        if let Some(first_kmer) = self.reverse_kmers.front() {
+            self.reverse_seq = first_kmer.seq.to_vec();
+            self.reverse_kmers.iter().skip(1).for_each(|kmer| {
+                self.reverse_seq.push(*kmer.seq.last().unwrap());
+            });
+        }
     }
 
     fn set_start_end_positions(&mut self) {
@@ -190,6 +199,10 @@ impl<'a> Unitig<'a> {
         }
     }
 
+    pub fn length(&self) -> u32 {
+        self.forward_seq.len() as u32
+    }
+
     pub fn untrimmed_length(&self, k_size: usize) -> u32 {
         let half_k = k_size / 2;
         let mut untrimmed_length = self.forward_seq.len();
@@ -252,5 +265,36 @@ mod tests {
 
         let u1 = Unitig::from_segment_line("S\t321\tATCGACTACGACTACGACATCG\tDP:f:6.54");
         assert_eq!(format!("{}", u1), "unitig 321: ATCGAC...ACATCG, 22 bp, 6.54x");
+    }
+
+    #[test]
+    fn test_from_kmers() {
+        let seq = Sequence::new(1, "ACGCATAGCACTAGCTACGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+
+        let forward_k1 = Kmer::new(&seq.forward_seq[4..9], 1);
+        let reverse_k1 = Kmer::new(&seq.reverse_seq[11..16], 1);
+
+        let forward_k2 = Kmer::new(&seq.forward_seq[5..10], 1);
+        let reverse_k2 = Kmer::new(&seq.reverse_seq[10..15], 1);
+
+        let forward_k3 = Kmer::new(&seq.forward_seq[6..11], 1);
+        let reverse_k3 = Kmer::new(&seq.reverse_seq[9..14], 1);
+
+        let mut u = Unitig::from_kmers(123, forward_k2, reverse_k2);
+        u.add_kmer_to_start(forward_k1, reverse_k1);
+        u.add_kmer_to_end(forward_k3, reverse_k3);
+        u.simplify_seqs();
+
+        assert_eq!(u.length(), 7 as u32);
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");
+
+        u.trim_overlaps(5);  // no trimming because the unitig has dead-ends
+        assert_eq!(u.length(), 7 as u32);
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");
+
+        assert_eq!(u.untrimmed_length(5), 7 as u32);
     }
 }
