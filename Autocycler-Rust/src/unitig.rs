@@ -153,6 +153,42 @@ impl<'a> Unitig<'a> {
         assert_eq!(forward_avg, reverse_avg);
         self.depth = forward_avg;
     }
+
+    pub fn trim_overlaps(&mut self, k_size: usize) {
+        let overlap = k_size / 2;
+        assert!(self.forward_seq.len() >= k_size);
+        let trim_start = !self.forward_prev.is_empty();
+        let trim_end = !self.forward_next.is_empty();
+        if trim_start {
+            self.forward_seq = self.forward_seq[overlap..].to_vec();
+            self.reverse_seq = self.reverse_seq[..self.reverse_seq.len() - overlap].to_vec();
+        }
+        if trim_end {
+            self.forward_seq = self.forward_seq[..self.forward_seq.len() - overlap].to_vec();
+            self.reverse_seq = self.reverse_seq[overlap..].to_vec();
+        }
+        assert!(self.forward_seq.len() >= 1);
+        self.trimmed = true;
+    }
+
+    pub fn gfa_segment_line(&self) -> String {
+        let seq_str = String::from_utf8_lossy(&self.forward_seq);
+        format!("S\t{}\t{}\tDP:f:{:.2}\n", self.number, seq_str, self.depth)
+    }
+
+    pub fn dead_end_start(&self, strand: bool) -> bool {
+        match strand {
+            true => self.forward_prev.is_empty(),
+            false => self.reverse_prev.is_empty(),
+        }
+    }
+
+    pub fn dead_end_end(&self, strand: bool) -> bool {
+        match strand {
+            true => self.forward_next.is_empty(),
+            false => self.reverse_next.is_empty(),
+        }
+    }
 }
 
 impl<'a> fmt::Display for Unitig<'a> {
