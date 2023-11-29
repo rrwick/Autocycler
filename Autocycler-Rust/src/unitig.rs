@@ -17,7 +17,6 @@ use std::fmt;
 use crate::kmer_graph::Kmer;
 use crate::misc::{reverse_complement_u8, quit_with_error};
 use crate::position::UnitigPos;
-use crate::sequence::Sequence;
 
 
 pub struct Unitig {
@@ -258,6 +257,7 @@ impl fmt::Display for Unitig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sequence::Sequence;
 
     #[test]
     fn test_from_segment_line() {
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
         assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");
 
-        u.trim_overlaps(5);  // no trimming because the unitig has dead-ends
+        u.trim_overlaps(5);  // trimming does nothing because the unitig has dead-ends
         assert_eq!(u.length(), 7 as u32);
         assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
         assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");

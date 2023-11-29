@@ -19,7 +19,7 @@ use crate::log::{section_header, explanation};
 use crate::misc::{find_all_assemblies, load_fasta, format_duration, quit_with_error};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
-use crate::unitig::Unitig;  // TEMP
+use crate::unitig_graph::UnitigGraph;
 
 
 pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
@@ -27,7 +27,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     starting_message(&in_dir, &out_gfa, k_size);
     let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
-    let unitig_graph = build_unitig_graph(kmer_graph, &out_gfa);
+    let unitig_graph = build_unitig_graph(kmer_graph, &sequences, &out_gfa);
     finished_message(start_time, out_gfa);
 
     // let mut keys: Vec<_> = kmer_graph.kmers.keys().collect();
@@ -64,7 +64,7 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
     for assembly in &assemblies {
-        for (name, info, seq) in load_fasta(&assembly) {
+        for (name, header, seq) in load_fasta(&assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize {
                 continue;
@@ -74,8 +74,7 @@ fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
             if seq_id > 32767 {
                 quit_with_error("no more than 32767 input sequences are allowed");
             }
-            let contig_header = name.to_string() + " " + &info;
-            let contig_header = whitespace_re.replace_all(&contig_header, " ").to_string();
+            let contig_header = whitespace_re.replace_all(&header, " ").to_string();
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
             sequences.push(Sequence::new(seq_id as u16, seq, filename, contig_header, seq_len));
         }
@@ -97,12 +96,12 @@ fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence
 }
 
 
-fn build_unitig_graph(kmer_graph: KmerGraph, out_gfa: &PathBuf) {
+fn build_unitig_graph(kmer_graph: KmerGraph, sequences: &Vec<Sequence>, out_gfa: &PathBuf) {
     section_header("Building compacted unitig graph");
     explanation("All non-branching paths are now collapsed to form a compacted De Bruijn graph, \
                  a.k.a. a unitig graph.");
-    // let unitig_graph = UnitigGraph::new(&kmer_graph);
-    // unitig_graph.save_gfa(&out_gfa);
+    let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
+    unitig_graph.save_gfa(&out_gfa, &sequences);
     eprintln!();
 }
 
