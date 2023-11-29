@@ -22,8 +22,8 @@ use crate::sequence::Sequence;
 
 pub struct Unitig<'a> {
     number: u32,
-    forward_kmers: VecDeque<Kmer<'a>>,
-    reverse_kmers: VecDeque<Kmer<'a>>,
+    forward_kmers: VecDeque<Kmer>,
+    reverse_kmers: VecDeque<Kmer>,
     pub forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
     depth: f64,
@@ -39,7 +39,7 @@ pub struct Unitig<'a> {
 }
 
 impl<'a> Unitig<'a> {
-    pub fn from_kmers(number: u32, forward_kmer: Kmer<'a>, reverse_kmer: Kmer<'a>) -> Self {
+    pub fn from_kmers(number: u32, forward_kmer: Kmer, reverse_kmer: Kmer) -> Self {
         // This constructor is for Unitig objects built from k-mers. Happens in multiple stages:
         // 1. Initialised with a starting k-mer (forward and reverse).
         // 2. K-mers are then added with add_kmer_to_end and add_kmer_to_start methods.
@@ -102,12 +102,12 @@ impl<'a> Unitig<'a> {
         }
     }
 
-    pub fn add_kmer_to_end(&mut self, forward_kmer: Kmer<'a>, reverse_kmer: Kmer<'a>) {
+    pub fn add_kmer_to_end(&mut self, forward_kmer: Kmer, reverse_kmer: Kmer) {
         self.forward_kmers.push_back(forward_kmer);
         self.reverse_kmers.push_front(reverse_kmer);
     }
 
-    pub fn add_kmer_to_start(&mut self, forward_kmer: Kmer<'a>, reverse_kmer: Kmer<'a>) {
+    pub fn add_kmer_to_start(&mut self, forward_kmer: Kmer, reverse_kmer: Kmer) {
         self.forward_kmers.push_front(forward_kmer);
         self.reverse_kmers.push_back(reverse_kmer);
     }
@@ -122,15 +122,15 @@ impl<'a> Unitig<'a> {
 
     fn combine_kmers_into_sequences(&mut self) {
         if let Some(first_kmer) = self.forward_kmers.front() {
-            self.forward_seq = first_kmer.seq.to_vec();
+            self.forward_seq = first_kmer.seq().to_vec();
             self.forward_kmers.iter().skip(1).for_each(|kmer| {
-                self.forward_seq.push(*kmer.seq.last().unwrap());
+                self.forward_seq.push(*kmer.seq().last().unwrap());
             });
         }
         if let Some(first_kmer) = self.reverse_kmers.front() {
-            self.reverse_seq = first_kmer.seq.to_vec();
+            self.reverse_seq = first_kmer.seq().to_vec();
             self.reverse_kmers.iter().skip(1).for_each(|kmer| {
-                self.reverse_seq.push(*kmer.seq.last().unwrap());
+                self.reverse_seq.push(*kmer.seq().last().unwrap());
             });
         }
     }
@@ -271,15 +271,17 @@ mod tests {
     fn test_from_kmers() {
         let seq = Sequence::new(1, "ACGCATAGCACTAGCTACGA".to_string(),
                                 "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let forward_raw = seq.forward_seq.as_ptr();
+        let reverse_raw = seq.reverse_seq.as_ptr();
 
-        let forward_k1 = Kmer::new(&seq.forward_seq[4..9], 1);
-        let reverse_k1 = Kmer::new(&seq.reverse_seq[11..16], 1);
+        let forward_k1 = Kmer::new(forward_raw, 4, 5, 1);
+        let reverse_k1 = Kmer::new(reverse_raw, 11, 5, 1);
 
-        let forward_k2 = Kmer::new(&seq.forward_seq[5..10], 1);
-        let reverse_k2 = Kmer::new(&seq.reverse_seq[10..15], 1);
+        let forward_k2 = Kmer::new(forward_raw, 5, 5, 1);
+        let reverse_k2 = Kmer::new(reverse_raw, 10, 5, 1);
 
-        let forward_k3 = Kmer::new(&seq.forward_seq[6..11], 1);
-        let reverse_k3 = Kmer::new(&seq.reverse_seq[9..14], 1);
+        let forward_k3 = Kmer::new(forward_raw, 6, 5, 1);
+        let reverse_k3 = Kmer::new(reverse_raw, 9, 5, 1);
 
         let mut u = Unitig::from_kmers(123, forward_k2, reverse_k2);
         u.add_kmer_to_start(forward_k1, reverse_k1);
