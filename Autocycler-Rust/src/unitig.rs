@@ -275,14 +275,14 @@ mod tests {
         let forward_raw = seq.forward_seq.as_ptr();
         let reverse_raw = seq.reverse_seq.as_ptr();
 
-        let forward_k1 = Kmer::new(forward_raw, 4, 5, 1);
-        let reverse_k1 = Kmer::new(reverse_raw, 11, 5, 1);
+        let forward_k1 = Kmer::new(unsafe{forward_raw.add(4)}, 5, 1);
+        let reverse_k1 = Kmer::new(unsafe{reverse_raw.add(11)}, 5, 1);
 
-        let forward_k2 = Kmer::new(forward_raw, 5, 5, 1);
-        let reverse_k2 = Kmer::new(reverse_raw, 10, 5, 1);
+        let forward_k2 = Kmer::new(unsafe{forward_raw.add(5)}, 5, 1);
+        let reverse_k2 = Kmer::new(unsafe{reverse_raw.add(10)}, 5, 1);
 
-        let forward_k3 = Kmer::new(forward_raw, 6, 5, 1);
-        let reverse_k3 = Kmer::new(reverse_raw, 9, 5, 1);
+        let forward_k3 = Kmer::new(unsafe{forward_raw.add(6)}, 5, 1);
+        let reverse_k3 = Kmer::new(unsafe{reverse_raw.add(9)}, 5, 1);
 
         let mut u = Unitig::from_kmers(123, forward_k2, reverse_k2);
         u.add_kmer_to_start(forward_k1, reverse_k1);
