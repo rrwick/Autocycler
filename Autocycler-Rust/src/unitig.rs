@@ -20,12 +20,12 @@ use crate::position::UnitigPos;
 
 
 pub struct Unitig {
-    number: u32,
+    pub number: u32,
     forward_kmers: VecDeque<Kmer>,
     reverse_kmers: VecDeque<Kmer>,
     pub forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
-    depth: f64,
+    pub depth: f64,
     forward_start_positions: Vec<UnitigPos>,
     forward_end_positions: Vec<UnitigPos>,
     reverse_start_positions: Vec<UnitigPos>,

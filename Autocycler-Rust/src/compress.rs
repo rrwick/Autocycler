@@ -29,14 +29,6 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let unitig_graph = build_unitig_graph(kmer_graph, &sequences, &out_gfa);
     finished_message(start_time, out_gfa);
-
-    // let mut keys: Vec<_> = kmer_graph.kmers.keys().collect();
-    // keys.sort();
-    // for key in keys {
-    //     if let Some(value) = kmer_graph.kmers.get(key) {
-    //         println!("{}", value);
-    //     }
-    // }
 }
 
 
