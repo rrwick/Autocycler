@@ -70,13 +70,13 @@ pub struct UnitigPos {
     pub pos: u32,
     pub prev: *mut UnitigPos,
     pub next: *mut UnitigPos,
-    unitig_num: u32,
+    unitig: *mut Unitig,
     unitig_strand: bool, // true for forward strand, false for reverse strand
     unitig_start_end: bool, // true for start, false for end
 }
 
 impl UnitigPos {
-    pub fn new(kmer_pos: &KmerPos, unitig_num: u32, unitig_strand: bool,
+    pub fn new(kmer_pos: &KmerPos, unitig: *mut Unitig, unitig_strand: bool,
                unitig_start_end: bool) -> UnitigPos {
         UnitigPos {
             seq_id: kmer_pos.seq_id(),
@@ -84,7 +84,7 @@ impl UnitigPos {
             pos: kmer_pos.pos,
             prev: ptr::null_mut(),
             next: ptr::null_mut(),
-            unitig_num,
+            unitig,
             unitig_strand,
             unitig_start_end,
         }
@@ -125,9 +125,9 @@ mod tests {
         let k1 = KmerPos::new(1, true, 123);
         let k2 = KmerPos::new(2, false, 456);
         let k3 = KmerPos::new(32767, true, 4294967295);
-        let p1 = UnitigPos::new(&k1, 1, true, true);
-        let p2 = UnitigPos::new(&k2, 2, true, false);
-        let p3 = UnitigPos::new(&k3, 3, false, true);
+        let p1 = UnitigPos::new(&k1, ptr::null_mut(), true, true);
+        let p2 = UnitigPos::new(&k2, ptr::null_mut(), true, false);
+        let p3 = UnitigPos::new(&k3, ptr::null_mut(), false, true);
         assert_eq!(format!("{}", p1), "1+123");
         assert_eq!(format!("{}", p2), "2-456");
         assert_eq!(format!("{}", p3), "32767+4294967295");

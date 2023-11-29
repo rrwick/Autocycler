@@ -136,21 +136,22 @@ impl Unitig {
     }
 
     fn set_start_end_positions(&mut self) {
+        let raw_self = self as *mut Self;
         if let Some(front_kmer) = self.forward_kmers.front() {
             self.forward_start_positions = front_kmer.positions.iter()
-                .map(|kp| UnitigPos::new(kp, self.number, true, true)).collect();
+                .map(|kp| UnitigPos::new(kp, raw_self, true, true)).collect();
         }
         if let Some(back_kmer) = self.forward_kmers.back() {
             self.forward_end_positions = back_kmer.positions.iter()
-                .map(|kp| UnitigPos::new(kp, self.number, true, false)).collect();
+                .map(|kp| UnitigPos::new(kp, raw_self, true, false)).collect();
         }
         if let Some(front_kmer) = self.reverse_kmers.front() {
             self.reverse_start_positions = front_kmer.positions.iter()
-                .map(|kp| UnitigPos::new(kp, self.number, false, true)).collect();
+                .map(|kp| UnitigPos::new(kp, raw_self, false, true)).collect();
         }
         if let Some(back_kmer) = self.reverse_kmers.back() {
             self.reverse_end_positions = back_kmer.positions.iter()
-                .map(|kp| UnitigPos::new(kp, self.number, false, false)).collect();
+                .map(|kp| UnitigPos::new(kp, raw_self, false, false)).collect();
         }
     }
 
