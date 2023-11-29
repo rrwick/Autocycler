@@ -23,6 +23,8 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
+use std::ptr;
+
 use crate::unitig::Unitig;
 
 
@@ -62,26 +64,26 @@ impl fmt::Display for KmerPos {
 }
 
 
-pub struct UnitigPos {
-    seq_id: u16,
-    strand: bool, // true for forward strand, false for reverse strand
+pub struct UnitigPos<'a> {
+    pub seq_id: u16,
+    pub strand: bool, // true for forward strand, false for reverse strand
     pub pos: u32,
-    prev: Option<Box<UnitigPos>>,
-    next: Option<Box<UnitigPos>>,
+    pub prev: *mut UnitigPos<'a>,
+    pub next: *mut UnitigPos<'a>,
     unitig_num: u32,
     unitig_strand: bool, // true for forward strand, false for reverse strand
     unitig_start_end: bool, // true for start, false for end
 }
 
-impl UnitigPos {
+impl<'a> UnitigPos<'a> {
     pub fn new(kmer_pos: &KmerPos, unitig_num: u32, unitig_strand: bool,
-               unitig_start_end: bool) -> UnitigPos {
+               unitig_start_end: bool) -> UnitigPos<'a> {
         UnitigPos {
             seq_id: kmer_pos.seq_id(),
             strand: kmer_pos.strand(),
             pos: kmer_pos.pos,
-            prev: None,
-            next: None,
+            prev: ptr::null_mut(),
+            next: ptr::null_mut(),
             unitig_num,
             unitig_strand,
             unitig_start_end,
@@ -97,7 +99,7 @@ impl UnitigPos {
     }
 }
 
-impl fmt::Display for UnitigPos {
+impl<'a> fmt::Display for UnitigPos<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
     }

@@ -26,14 +26,14 @@ pub struct Unitig<'a> {
     forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
     depth: f64,
-    forward_start_positions: Vec<UnitigPos>,
-    forward_end_positions: Vec<UnitigPos>,
-    reverse_start_positions: Vec<UnitigPos>,
-    reverse_end_positions: Vec<UnitigPos>,
-    forward_next: Vec<(Box<Unitig<'a>>, bool)>,
-    forward_prev: Vec<(Box<Unitig<'a>>, bool)>,
-    reverse_next: Vec<(Box<Unitig<'a>>, bool)>,
-    reverse_prev: Vec<(Box<Unitig<'a>>, bool)>,
+    forward_start_positions: Vec<UnitigPos<'a>>,
+    forward_end_positions: Vec<UnitigPos<'a>>,
+    reverse_start_positions: Vec<UnitigPos<'a>>,
+    reverse_end_positions: Vec<UnitigPos<'a>>,
+    forward_next: Vec<(*mut Unitig<'a>, bool)>,
+    forward_prev: Vec<(*mut Unitig<'a>, bool)>,
+    reverse_next: Vec<(*mut Unitig<'a>, bool)>,
+    reverse_prev: Vec<(*mut Unitig<'a>, bool)>,
     trimmed: bool,
 }
 
@@ -187,6 +187,42 @@ impl<'a> Unitig<'a> {
         match strand {
             true => self.forward_next.is_empty(),
             false => self.reverse_next.is_empty(),
+        }
+    }
+
+    pub fn untrimmed_length(&self, k_size: usize) -> u32 {
+        let half_k = k_size / 2;
+        let mut untrimmed_length = self.forward_seq.len();
+        if !self.dead_end_start(true) {
+            untrimmed_length += half_k;
+        }
+        if !self.dead_end_end(true) {
+            untrimmed_length += half_k;
+        }
+        untrimmed_length as u32
+    }
+
+    pub fn connect_positions(&mut self, k_size: usize) {
+        let adjusted_length = if self.trimmed {
+            self.untrimmed_length(k_size) - k_size as u32 + 1
+        } else {
+            self.forward_seq.len() as u32 - k_size as u32 + 1
+        };
+        for start_pos in self.forward_start_positions.iter_mut() {
+            if let Some(end_pos) = self.forward_end_positions.iter_mut().find(|end_pos| {
+                start_pos.seq_id == end_pos.seq_id && start_pos.strand == end_pos.strand && start_pos.pos + adjusted_length == end_pos.pos
+            }) {
+                start_pos.next = end_pos as *mut _;
+                end_pos.prev = start_pos as *mut _;
+            }
+        }
+        for start_pos in self.reverse_start_positions.iter_mut() {
+            if let Some(end_pos) = self.reverse_end_positions.iter_mut().find(|end_pos| {
+                start_pos.seq_id == end_pos.seq_id && start_pos.strand == end_pos.strand && start_pos.pos + adjusted_length == end_pos.pos
+            }) {
+                start_pos.next = end_pos as *mut _;
+                end_pos.prev = start_pos as *mut _;
+            }
         }
     }
 }
