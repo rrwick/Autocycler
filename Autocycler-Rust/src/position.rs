@@ -122,9 +122,12 @@ mod tests {
 
     #[test]
     fn test_unitigpos() {
-        let p1 = UnitigPos::new(1, true, 123, None, None, None);
-        let p2 = UnitigPos::new(2, false, 456, None, None, None);
-        let p3 = UnitigPos::new(32767, true, 4294967295, None, None, None);
+        let k1 = KmerPos::new(1, true, 123);
+        let k2 = KmerPos::new(2, false, 456);
+        let k3 = KmerPos::new(32767, true, 4294967295);
+        let p1 = UnitigPos::new(&k1, 1, true, true);
+        let p2 = UnitigPos::new(&k2, 2, true, false);
+        let p3 = UnitigPos::new(&k3, 3, false, true);
         assert_eq!(format!("{}", p1), "1+123");
         assert_eq!(format!("{}", p2), "2-456");
         assert_eq!(format!("{}", p3), "32767+4294967295");
