@@ -24,16 +24,16 @@ pub struct Unitig {
     forward_kmers: VecDeque<*const Kmer>,
     reverse_kmers: VecDeque<*const Kmer>,
     pub forward_seq: Vec<u8>,
-    reverse_seq: Vec<u8>,
+    pub reverse_seq: Vec<u8>,
     pub depth: f64,
     forward_start_positions: Vec<UnitigPos>,
     forward_end_positions: Vec<UnitigPos>,
     reverse_start_positions: Vec<UnitigPos>,
     reverse_end_positions: Vec<UnitigPos>,
-    forward_next: Vec<(*mut Unitig, bool)>,
-    forward_prev: Vec<(*mut Unitig, bool)>,
-    reverse_next: Vec<(*mut Unitig, bool)>,
-    reverse_prev: Vec<(*mut Unitig, bool)>,
+    pub forward_next: Vec<(*mut Unitig, bool)>,
+    pub forward_prev: Vec<(*mut Unitig, bool)>,
+    pub reverse_next: Vec<(*mut Unitig, bool)>,
+    pub reverse_prev: Vec<(*mut Unitig, bool)>,
     trimmed: bool,
 }
 
@@ -197,6 +197,10 @@ impl Unitig {
             true => self.forward_next.is_empty(),
             false => self.reverse_next.is_empty(),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.forward_seq.len()
     }
 
     pub fn length(&self) -> u32 {

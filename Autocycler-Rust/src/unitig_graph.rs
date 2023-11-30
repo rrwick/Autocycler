@@ -12,7 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Reverse;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
@@ -25,6 +25,7 @@ use crate::unitig::Unitig;
 pub struct UnitigGraph {
     pub unitigs: Vec<Unitig>,
     k_size: u32,
+    pub link_count: usize,
 }
 
 impl UnitigGraph {
@@ -32,6 +33,7 @@ impl UnitigGraph {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: k_graph.k_size,
+            link_count: 0,
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
         u_graph.create_links();
@@ -45,6 +47,7 @@ impl UnitigGraph {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,
+            link_count: 0,
         };
         let file = File::open(gfa_filename).unwrap();
         let reader = BufReader::new(file);
@@ -99,7 +102,7 @@ impl UnitigGraph {
             if seen.contains(forward_kmer.seq()) {
                 continue;
             }
-            let mut reverse_kmer = k_graph.reverse(forward_kmer);
+            let reverse_kmer = k_graph.reverse(forward_kmer);
             unitig_number += 1;
             let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, &reverse_kmer);
             seen.insert(forward_kmer.seq());
@@ -147,12 +150,67 @@ impl UnitigGraph {
     }
 
     fn create_links(&mut self) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        let piece_len = self.k_size as usize - 1;
+
+        // Index unitigs by their k-1 starting sequences.
+        let mut forward_starts = HashMap::new();
+        let mut reverse_starts = HashMap::new();
+        for (i, unitig) in self.unitigs.iter().enumerate() {
+            let forward_key = unitig.forward_seq[..piece_len].to_vec();
+            let reverse_key = unitig.reverse_seq[..piece_len].to_vec();
+            forward_starts.entry(forward_key).or_insert_with(Vec::new).push(i);
+            reverse_starts.entry(reverse_key).or_insert_with(Vec::new).push(i);
+        }
+
+        // Use the indices to find connections between unitigs.
+        self.link_count = 0;
+        for i in 0..self.unitigs.len() {
+            unsafe {
+                let unitig_a = self.unitigs.get_unchecked_mut(i) as *mut Unitig;
+                let ending_forward_seq = self.unitigs[i].forward_seq[self.unitigs[i].len() - piece_len..].to_vec();
+                let ending_reverse_seq = self.unitigs[i].reverse_seq[self.unitigs[i].len() - piece_len..].to_vec();
+
+                if let Some(next_idxs) = forward_starts.get(&ending_forward_seq) {
+                    for &j in next_idxs {
+                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+
+                        // unitig+ -> next_unitig+
+                        (*unitig_a).forward_next.push((unitig_b, true));
+                        (*unitig_b).forward_prev.push((unitig_a, true));
+                        self.link_count += 1;
+
+                        // next_unitig- -> unitig-
+                        (*unitig_b).reverse_next.push((unitig_a, false));
+                        (*unitig_a).reverse_prev.push((unitig_b, false));
+                        self.link_count += 1;
+                    }
+                }
+
+                if let Some(next_idxs) = reverse_starts.get(&ending_forward_seq) {
+                    for &j in next_idxs {
+                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+
+                        // unitig+ -> next_unitig-
+                        (*unitig_a).forward_next.push((unitig_b, false));
+                        (*unitig_b).reverse_prev.push((unitig_a, true));
+                        self.link_count += 1;
+                    }
+                }
+
+                if let Some(next_idxs) = forward_starts.get(&ending_reverse_seq) {
+                    for &j in next_idxs {
+                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+
+                        // unitig- -> next_unitig+
+                        (*unitig_a).reverse_next.push((unitig_b, true));
+                        (*unitig_b).forward_prev.push((unitig_a, false));
+                        self.link_count += 1;
+                    }
+                }
+            }
+        }
     }
+
 
     fn connect_positions(&mut self) {
         // TODO
@@ -163,11 +221,9 @@ impl UnitigGraph {
     }
 
     fn trim_overlaps(&mut self) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        for unitig in &mut self.unitigs {
+            unitig.trim_overlaps(self.k_size as usize);
+        }
     }
 
     fn renumber_unitigs(&mut self) {
