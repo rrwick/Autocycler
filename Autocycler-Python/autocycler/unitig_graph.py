@@ -262,7 +262,7 @@ class UnitigGraph(object):
     def create_links(self):
         piece_len = self.k_size - 1
 
-        # Index unitigs by their k-1 starting and ending sequences.
+        # Index unitigs by their k-1 starting sequences.
         starting_forward = collections.defaultdict(list)
         starting_reverse = collections.defaultdict(list)
         for unitig in self.unitigs:
