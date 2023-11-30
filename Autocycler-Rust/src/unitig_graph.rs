@@ -174,12 +174,12 @@ impl UnitigGraph {
                     for &j in next_idxs {
                         let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
 
-                        // unitig+ -> next_unitig+
+                        // unitig_a+ -> unitig_b+
                         (*unitig_a).forward_next.push((unitig_b, true));
                         (*unitig_b).forward_prev.push((unitig_a, true));
                         self.link_count += 1;
 
-                        // next_unitig- -> unitig-
+                        // unitig_b- -> unitig_a-
                         (*unitig_b).reverse_next.push((unitig_a, false));
                         (*unitig_a).reverse_prev.push((unitig_b, false));
                         self.link_count += 1;
@@ -190,7 +190,7 @@ impl UnitigGraph {
                     for &j in next_idxs {
                         let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
 
-                        // unitig+ -> next_unitig-
+                        // unitig_a+ -> unitig_b-
                         (*unitig_a).forward_next.push((unitig_b, false));
                         (*unitig_b).reverse_prev.push((unitig_a, true));
                         self.link_count += 1;
@@ -201,7 +201,7 @@ impl UnitigGraph {
                     for &j in next_idxs {
                         let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
 
-                        // unitig- -> next_unitig+
+                        // unitig_a- -> unitig_b+
                         (*unitig_a).reverse_next.push((unitig_b, true));
                         (*unitig_b).forward_prev.push((unitig_a, false));
                         self.link_count += 1;
@@ -255,11 +255,22 @@ impl UnitigGraph {
 
     fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
         let mut links = Vec::new();
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        for a in &self.unitigs {
+            unsafe {
+                for &(b_ptr, b_strand) in &a.forward_next {
+                    if let Some(b) = b_ptr.as_ref() {
+                        links.push((a.number.to_string(), "+".to_string(), b.number.to_string(),
+                                   (if b_strand {"+"} else {"-"}).to_string()));
+                    }
+                }
+                for &(b_ptr, b_strand) in &a.reverse_next {
+                    if let Some(b) = b_ptr.as_ref() {
+                        links.push((a.number.to_string(), "-".to_string(), b.number.to_string(),
+                                   (if b_strand {"+"} else {"-"}).to_string()));
+                    }
+                }
+            }
+        }
         links
     }
 
