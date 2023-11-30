@@ -16,6 +16,7 @@ use std::collections::hash_map::Entry;
 use std::fmt;
 use std::slice::from_raw_parts;
 
+use crate::misc::reverse_complement_u8;
 use crate::position::KmerPos;
 use crate::sequence::Sequence;
 
@@ -126,6 +127,79 @@ impl<'a> KmerGraph<'a> {
             }
         }
     }
+
+    pub fn next_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+        let mut next_kmers = Vec::new();
+        let mut next_kmer = kmer[1..].to_vec();
+        next_kmer.push(b'N');
+        let bases = [b'A', b'C', b'G', b'T'];
+        for &base in &bases {
+            *next_kmer.last_mut().unwrap() = base;
+            if let Some(k) = self.kmers.get(next_kmer.as_slice()) {
+                next_kmers.push(k);
+            }
+        }
+        debug_assert!(next_kmers.len() <= 4);
+        next_kmers
+    }
+
+    pub fn prev_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+        let mut prev_kmers = Vec::new();
+        let mut prev_kmer = vec![b'N'];
+        prev_kmer.extend_from_slice(&kmer[..kmer.len() - 1]);
+        let bases = [b'A', b'C', b'G', b'T'];
+        for &base in &bases {
+            *prev_kmer.first_mut().unwrap() = base;
+            if let Some(k) = self.kmers.get(prev_kmer.as_slice()) {
+                prev_kmers.push(k);
+            }
+        }
+        debug_assert!(prev_kmers.len() <= 4);
+        prev_kmers
+    }
+
+    pub fn next_kmer_count(&self, kmer: &[u8]) -> usize {
+        // Like next_kmer, but just returns the count, not a vector.
+        let mut count = 0;
+        let mut next_kmer = kmer[1..].to_vec();
+        next_kmer.push(b'N');
+        let bases = [b'A', b'C', b'G', b'T'];
+        for &base in &bases {
+            *next_kmer.last_mut().unwrap() = base;
+            if let Some(k) = self.kmers.get(next_kmer.as_slice()) {
+                count += 1;
+            }
+        }
+        debug_assert!(count <= 4);
+        count
+    }
+
+    pub fn prev_kmer_count(&self, kmer: &[u8]) -> usize {
+        // Like prev_kmer, but just returns the count, not a vector.
+        let mut count = 0;
+        let mut prev_kmer = vec![b'N'];
+        prev_kmer.extend_from_slice(&kmer[..kmer.len() - 1]);
+        let bases = [b'A', b'C', b'G', b'T'];
+        for &base in &bases {
+            *prev_kmer.first_mut().unwrap() = base;
+            if let Some(k) = self.kmers.get(prev_kmer.as_slice()) {
+                count += 1;
+            }
+        }
+        debug_assert!(count <= 4);
+        count
+    }
+
+    pub fn iterate_kmers(&self) -> impl Iterator<Item = &Kmer> {
+        let mut sorted_keys: Vec<&&[u8]> = self.kmers.keys().collect();
+        sorted_keys.sort_unstable();
+        sorted_keys.into_iter().map(move |&k| self.kmers.get(k).unwrap())
+    }
+
+    pub fn reverse(&self, kmer: &Kmer) -> &Kmer{
+        let reverse_seq: &[u8] = &reverse_complement_u8(kmer.seq());
+        self.kmers.get(reverse_seq).unwrap()
+    }
 }
 
 
@@ -149,6 +223,83 @@ mod tests {
         let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
                                 "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         kmer_graph.add_sequence(&seq, 1);
+        // Graph contains these 28 4-mers:
+        // ACAT ACGA ACTG AGCA AGTC AGTG ATCA ATGT CACT CAGC CAGT CATC CGAC CTGA
+        // GACA GACT GATG GCAC GCTG GTCA GTCG GTGC TCAG TCGT TGAC TGAT TGCT TGTC
         assert_eq!(kmer_graph.kmers.len(), 28);
+    }
+
+    #[test]
+    fn test_next_kmers() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+
+        let next = kmer_graph.next_kmers(b"ACAT");
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].seq(), b"CATC".as_slice());
+
+        let next = kmer_graph.next_kmers(b"AGTC");
+        assert_eq!(next.len(), 2);
+        assert_eq!(next[0].seq(), b"GTCA".as_slice());
+        assert_eq!(next[1].seq(), b"GTCG".as_slice());
+
+        let next = kmer_graph.next_kmers(b"CTGA");
+        assert_eq!(next.len(), 2);
+        assert_eq!(next[0].seq(), b"TGAC".as_slice());
+        assert_eq!(next[1].seq(), b"TGAT".as_slice());
+
+        let next = kmer_graph.next_kmers(b"AAAA");
+        assert_eq!(next.len(), 0);
+    }
+
+    #[test]
+    fn test_prev_kmers() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+
+        let prev = kmer_graph.prev_kmers(b"ACAT");
+        assert_eq!(prev.len(), 1);
+        assert_eq!(prev[0].seq(), b"GACA".as_slice());
+
+        let prev = kmer_graph.prev_kmers(b"CTGA");
+        assert_eq!(prev.len(), 2);
+        assert_eq!(prev[0].seq(), b"ACTG".as_slice());
+        assert_eq!(prev[1].seq(), b"GCTG".as_slice());
+
+        let prev = kmer_graph.prev_kmers(b"GACA");
+        assert_eq!(prev.len(), 2);
+        assert_eq!(prev[0].seq(), b"CGAC".as_slice());
+        assert_eq!(prev[1].seq(), b"TGAC".as_slice());
+
+        let prev = kmer_graph.prev_kmers(b"ACGA");
+        assert_eq!(prev.len(), 0);
+    }
+
+    #[test]
+    fn test_next_kmer_count() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+        assert_eq!(kmer_graph.next_kmer_count(b"ACAT"), 1);
+        assert_eq!(kmer_graph.next_kmer_count(b"AGTC"), 2);
+        assert_eq!(kmer_graph.next_kmer_count(b"CTGA"), 2);
+        assert_eq!(kmer_graph.next_kmer_count(b"AAAA"), 0);
+    }
+
+    #[test]
+    fn test_prev_kmer_count() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+        assert_eq!(kmer_graph.prev_kmer_count(b"ACAT"), 1);
+        assert_eq!(kmer_graph.prev_kmer_count(b"CTGA"), 2);
+        assert_eq!(kmer_graph.prev_kmer_count(b"GACA"), 2);
+        assert_eq!(kmer_graph.prev_kmer_count(b"ACGA"), 0);
     }
 }
