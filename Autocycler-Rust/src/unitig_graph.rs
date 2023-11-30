@@ -12,6 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
@@ -91,11 +92,58 @@ impl UnitigGraph {
     }
 
     fn build_unitigs_from_kmer_graph(&mut self, k_graph: &KmerGraph) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        let mut seen: HashSet<&[u8]> = HashSet::new();
+        let mut unitig_number = 0;
+        let half_k = self.k_size as usize / 2;
+        for forward_kmer in k_graph.iterate_kmers() {
+            if seen.contains(forward_kmer.seq()) {
+                continue;
+            }
+            let mut reverse_kmer = k_graph.reverse(forward_kmer);
+            unitig_number += 1;
+            let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, &reverse_kmer);
+            seen.insert(forward_kmer.seq());
+            seen.insert(reverse_kmer.seq());
+            let starting_kmer = forward_kmer;
+
+            // Extend unitig forward
+            let mut for_k = forward_kmer;
+            let mut rev_k = reverse_kmer;
+            loop {
+                if rev_k.first_position(half_k) { break; }
+                let next_kmers = k_graph.next_kmers(for_k.seq());
+                if next_kmers.len() != 1 { break; }
+                for_k = &next_kmers[0];
+                if seen.contains(for_k.seq()) { break; }
+                let prev_kmers = k_graph.prev_kmers(for_k.seq());
+                if prev_kmers.len() != 1 { break; }
+                rev_k = k_graph.reverse(for_k);
+                if for_k.first_position(half_k) { break; }
+                unitig.add_kmer_to_end(for_k, rev_k);
+                seen.insert(for_k.seq());
+                seen.insert(rev_k.seq());
+            }
+
+            // Extend unitig backward
+            let mut for_k = forward_kmer;
+            let mut rev_k = reverse_kmer;
+            loop {
+                if for_k.first_position(half_k) { break; }
+                let prev_kmers = k_graph.prev_kmers(for_k.seq());
+                if prev_kmers.len() != 1 { break; }
+                for_k = &prev_kmers[0];
+                if seen.contains(for_k.seq()) { break; }
+                let next_kmers = k_graph.next_kmers(for_k.seq());
+                if next_kmers.len() != 1 { break; }
+                rev_k = k_graph.reverse(for_k);
+                if rev_k.first_position(half_k) { break; }
+                unitig.add_kmer_to_start(for_k, rev_k);
+                seen.insert(for_k.seq());
+                seen.insert(rev_k.seq());
+            }
+            unitig.simplify_seqs();
+            self.unitigs.push(unitig);
+        }
     }
 
     fn create_links(&mut self) {

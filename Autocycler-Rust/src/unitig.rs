@@ -38,7 +38,7 @@ pub struct Unitig {
 }
 
 impl Unitig {
-    pub fn from_kmers(number: u32, forward_kmer: Kmer, reverse_kmer: Kmer) -> Self {
+    pub fn from_kmers(number: u32, forward_kmer: &Kmer, reverse_kmer: &Kmer) -> Self {
         // This constructor is for Unitig objects built from k-mers. Happens in multiple stages:
         // 1. Initialised with a starting k-mer (forward and reverse).
         // 2. K-mers are then added with add_kmer_to_end and add_kmer_to_start methods.
@@ -46,8 +46,8 @@ impl Unitig {
         // 4. The trim_overlaps method removes overlapping sequences from both ends.
         Unitig {
             number: number,
-            forward_kmers: VecDeque::from(vec![&forward_kmer as *const Kmer]),
-            reverse_kmers: VecDeque::from(vec![&reverse_kmer as *const Kmer]),
+            forward_kmers: VecDeque::from(vec![forward_kmer as *const Kmer]),
+            reverse_kmers: VecDeque::from(vec![reverse_kmer as *const Kmer]),
             forward_seq: Vec::new(),
             reverse_seq: Vec::new(),
             depth: 0.0,
@@ -182,7 +182,7 @@ impl Unitig {
 
     pub fn gfa_segment_line(&self) -> String {
         let seq_str = String::from_utf8_lossy(&self.forward_seq);
-        format!("S\t{}\t{}\tDP:f:{:.2}\n", self.number, seq_str, self.depth)
+        format!("S\t{}\t{}\tDP:f:{:.2}", self.number, seq_str, self.depth)
     }
 
     pub fn dead_end_start(&self, strand: bool) -> bool {
@@ -284,7 +284,7 @@ mod tests {
         let forward_k3 = Kmer::new(unsafe{forward_raw.add(6)}, 5, 1);
         let reverse_k3 = Kmer::new(unsafe{reverse_raw.add(9)}, 5, 1);
 
-        let mut u = Unitig::from_kmers(123, forward_k2, reverse_k2);
+        let mut u = Unitig::from_kmers(123, &forward_k2, &reverse_k2);
         u.add_kmer_to_start(&forward_k1, &reverse_k1);
         u.add_kmer_to_end(&forward_k3, &reverse_k3);
         u.simplify_seqs();

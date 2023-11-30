@@ -94,6 +94,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph, sequences: &Vec<Sequence>, out_gfa:
                  a.k.a. a unitig graph.");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
     unitig_graph.save_gfa(&out_gfa, &sequences);
+    eprintln!("{} unititgs", unitig_graph.unitigs.len());
     eprintln!();
 }
 
