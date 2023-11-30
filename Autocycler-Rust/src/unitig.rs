@@ -21,8 +21,8 @@ use crate::position::UnitigPos;
 
 pub struct Unitig {
     pub number: u32,
-    forward_kmers: VecDeque<Kmer>,
-    reverse_kmers: VecDeque<Kmer>,
+    forward_kmers: VecDeque<*const Kmer>,
+    reverse_kmers: VecDeque<*const Kmer>,
     pub forward_seq: Vec<u8>,
     reverse_seq: Vec<u8>,
     pub depth: f64,
@@ -46,8 +46,8 @@ impl Unitig {
         // 4. The trim_overlaps method removes overlapping sequences from both ends.
         Unitig {
             number: number,
-            forward_kmers: VecDeque::from(vec![forward_kmer]),
-            reverse_kmers: VecDeque::from(vec![reverse_kmer]),
+            forward_kmers: VecDeque::from(vec![&forward_kmer as *const Kmer]),
+            reverse_kmers: VecDeque::from(vec![&reverse_kmer as *const Kmer]),
             forward_seq: Vec::new(),
             reverse_seq: Vec::new(),
             depth: 0.0,
@@ -101,12 +101,12 @@ impl Unitig {
         }
     }
 
-    pub fn add_kmer_to_end(&mut self, forward_kmer: Kmer, reverse_kmer: Kmer) {
+    pub fn add_kmer_to_end(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
         self.forward_kmers.push_back(forward_kmer);
         self.reverse_kmers.push_front(reverse_kmer);
     }
 
-    pub fn add_kmer_to_start(&mut self, forward_kmer: Kmer, reverse_kmer: Kmer) {
+    pub fn add_kmer_to_start(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
         self.forward_kmers.push_front(forward_kmer);
         self.reverse_kmers.push_back(reverse_kmer);
     }
@@ -121,15 +121,15 @@ impl Unitig {
 
     fn combine_kmers_into_sequences(&mut self) {
         if let Some(first_kmer) = self.forward_kmers.front() {
-            self.forward_seq = first_kmer.seq().to_vec();
+            self.forward_seq = unsafe{&**first_kmer}.seq().to_vec();
             self.forward_kmers.iter().skip(1).for_each(|kmer| {
-                self.forward_seq.push(*kmer.seq().last().unwrap());
+                self.forward_seq.push(*unsafe{&**kmer}.seq().last().unwrap());
             });
         }
         if let Some(first_kmer) = self.reverse_kmers.front() {
-            self.reverse_seq = first_kmer.seq().to_vec();
+            self.reverse_seq = unsafe{&**first_kmer}.seq().to_vec();
             self.reverse_kmers.iter().skip(1).for_each(|kmer| {
-                self.reverse_seq.push(*kmer.seq().last().unwrap());
+                self.reverse_seq.push(*unsafe{&**kmer}.seq().last().unwrap());
             });
         }
     }
@@ -137,26 +137,26 @@ impl Unitig {
     fn set_start_end_positions(&mut self) {
         let raw_self = self as *mut Self;
         if let Some(front_kmer) = self.forward_kmers.front() {
-            self.forward_start_positions = front_kmer.positions.iter()
+            self.forward_start_positions = unsafe{&**front_kmer}.positions.iter()
                 .map(|kp| UnitigPos::new(kp, raw_self, true, true)).collect();
         }
         if let Some(back_kmer) = self.forward_kmers.back() {
-            self.forward_end_positions = back_kmer.positions.iter()
+            self.forward_end_positions = unsafe{&**back_kmer}.positions.iter()
                 .map(|kp| UnitigPos::new(kp, raw_self, true, false)).collect();
         }
         if let Some(front_kmer) = self.reverse_kmers.front() {
-            self.reverse_start_positions = front_kmer.positions.iter()
+            self.reverse_start_positions = unsafe{&**front_kmer}.positions.iter()
                 .map(|kp| UnitigPos::new(kp, raw_self, false, true)).collect();
         }
         if let Some(back_kmer) = self.reverse_kmers.back() {
-            self.reverse_end_positions = back_kmer.positions.iter()
+            self.reverse_end_positions = unsafe{&**back_kmer}.positions.iter()
                 .map(|kp| UnitigPos::new(kp, raw_self, false, false)).collect();
         }
     }
 
     fn set_average_depth(&mut self) {
-        let for_depths: Vec<f64> = self.forward_kmers.iter().map(|k| k.count() as f64).collect();
-        let rev_depths: Vec<f64> = self.reverse_kmers.iter().map(|k| k.count() as f64).collect();
+        let for_depths: Vec<f64> = self.forward_kmers.iter().map(|k| unsafe{&**k}.count() as f64).collect();
+        let rev_depths: Vec<f64> = self.reverse_kmers.iter().map(|k| unsafe{&**k}.count() as f64).collect();
         let forward_avg = for_depths.iter().sum::<f64>() / for_depths.len() as f64;
         let reverse_avg = rev_depths.iter().sum::<f64>() / rev_depths.len() as f64;
         assert_eq!(forward_avg, reverse_avg);
@@ -285,8 +285,8 @@ mod tests {
         let reverse_k3 = Kmer::new(unsafe{reverse_raw.add(9)}, 5, 1);
 
         let mut u = Unitig::from_kmers(123, forward_k2, reverse_k2);
-        u.add_kmer_to_start(forward_k1, reverse_k1);
-        u.add_kmer_to_end(forward_k3, reverse_k3);
+        u.add_kmer_to_start(&forward_k1, &reverse_k1);
+        u.add_kmer_to_end(&forward_k3, &reverse_k3);
         u.simplify_seqs();
 
         assert_eq!(u.length(), 7 as u32);
