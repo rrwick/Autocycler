@@ -302,4 +302,21 @@ mod tests {
         assert_eq!(kmer_graph.prev_kmer_count(b"GACA"), 2);
         assert_eq!(kmer_graph.prev_kmer_count(b"ACGA"), 0);
     }
+
+    #[test]
+    fn test_iterate_kmers() {
+        let mut kmer_graph = KmerGraph::new(4);
+        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        kmer_graph.add_sequence(&seq, 1);
+        let expected_kmers = vec![
+            "ACAT", "ACGA", "ACTG", "AGCA", "AGTC", "AGTG", "ATCA",
+            "ATGT", "CACT", "CAGC", "CAGT", "CATC", "CGAC", "CTGA",
+            "GACA", "GACT", "GATG", "GCAC", "GCTG", "GTCA", "GTCG",
+            "GTGC", "TCAG", "TCGT", "TGAC", "TGAT", "TGCT", "TGTC"
+        ];
+        let expected_kmers: Vec<&[u8]> = expected_kmers.iter().map(|s| s.as_bytes()).collect();
+        let actual_kmers: Vec<&[u8]> = kmer_graph.iterate_kmers().map(|kmer| kmer.seq()).collect();
+        assert_eq!(expected_kmers, actual_kmers);
+    }
 }
