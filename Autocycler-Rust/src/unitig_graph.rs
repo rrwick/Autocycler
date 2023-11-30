@@ -227,20 +227,36 @@ impl UnitigGraph {
     }
 
     fn renumber_unitigs(&mut self) {
-        self.unitigs.sort_by(|a, b| {
-            let a_key = (1.0 / (a.length() as f64), &a.forward_seq, 1.0 / a.depth);
-            let b_key = (1.0 / (b.length() as f64), &b.forward_seq, 1.0 / b.depth);
-            a_key.partial_cmp(&b_key).unwrap_or(std::cmp::Ordering::Equal)
+        // This method reorders Unitigs by: length (decreasing), sequence (lexicographic) and
+        // depth (decreasing). Importantly, it does not sort the self.unitigs vector, as that would
+        // invalidate the raw pointers between Unitig objects.
+        let mut unitig_data: Vec<(f64, Vec<u8>, f64, usize)> = self.unitigs.iter().enumerate()
+            .map(|(i, unitig)| {
+                let length_inverse = 1.0 / (unitig.length() as f64);
+                let seq_clone = unitig.forward_seq.clone();
+                let depth_inverse = 1.0 / unitig.depth;
+                (length_inverse, seq_clone, depth_inverse, i)
+            }).collect();
+        unitig_data.sort_by(|(a_length, a_seq, a_depth, _), (b_length, b_seq, b_depth, _)| {
+            (a_length, a_seq, a_depth).partial_cmp(&(b_length, b_seq, b_depth)).unwrap_or(std::cmp::Ordering::Equal)
         });
-        for (number, unitig) in self.unitigs.iter_mut().enumerate() {
-            unitig.number = (number + 1) as u32;
+        for (new_number, (_, _, _, i)) in unitig_data.into_iter().enumerate() {
+            self.unitigs[i].number = (new_number + 1) as u32;
         }
+    }
+
+    pub fn iterate_unitigs(&self) -> impl Iterator<Item = &Unitig> {
+        // This method allows for iterating over the Unitigs in their number order, despite the
+        // fact that the self.unitigs vector is not sorted in number order.
+        let mut unitig_refs: Vec<&Unitig> = self.unitigs.iter().collect();
+        unitig_refs.sort_by_key(|u| u.number);
+        unitig_refs.into_iter()
     }
 
     pub fn save_gfa(&self, gfa_filename: &PathBuf, sequences: &Vec<Sequence>) -> io::Result<()> {
         let mut file = File::create(gfa_filename)?;
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
-        for unitig in &self.unitigs {
+        for unitig in self.iterate_unitigs() {
             writeln!(file, "{}", unitig.gfa_segment_line())?;
         }
         for (a, a_strand, b, b_strand) in self.get_links_for_gfa() {
@@ -255,7 +271,7 @@ impl UnitigGraph {
 
     fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
         let mut links = Vec::new();
-        for a in &self.unitigs {
+        for a in self.iterate_unitigs() {
             unsafe {
                 for &(b_ptr, b_strand) in &a.forward_next {
                     if let Some(b) = b_ptr.as_ref() {
@@ -304,4 +320,5 @@ impl UnitigGraph {
         Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
                       "assembly.fasta".to_string(), "contig_1".to_string(), 20)  // TEMP
     }
+
 }
