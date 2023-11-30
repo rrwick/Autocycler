@@ -18,6 +18,7 @@ use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::kmer_graph::KmerGraph;
+use crate::position::UnitigPos;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
 
@@ -291,12 +292,10 @@ impl UnitigGraph {
     }
 
     fn get_gfa_path_line(&self, seq: &Sequence) -> String {
-        let path_str = String::new();  // TEMP
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        let unitig_path = self.get_unitig_path_for_sequence(seq);
+        let path_str: Vec<String> = unitig_path.iter()
+            .map(|(num, strand)| format!("{}{}", num, if *strand { "+" } else { "-" })).collect();
+        let path_str = path_str.join(",");
         format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}",
                 seq.id, path_str, seq.length, seq.filename, seq.contig_header)
     }
@@ -321,4 +320,38 @@ impl UnitigGraph {
                       "assembly.fasta".to_string(), "contig_1".to_string(), 20)  // TEMP
     }
 
+    fn find_start_position(&self, seq_id: u16) -> &UnitigPos {
+        let half_k = self.k_size / 2;
+        let mut start_positions = Vec::new();
+        for unitig in &self.unitigs {
+            start_positions.extend(
+                unitig.forward_start_positions.iter()
+                    .chain(unitig.reverse_start_positions.iter())
+                    .filter(|&p| p.seq_id == seq_id && p.strand && p.pos == half_k)
+            );
+        }
+        assert_eq!(start_positions.len(), 1);
+        start_positions[0]
+    }
+
+    fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
+        let total_length = seq.length as u32;
+        let half_k = self.k_size / 2;
+        let mut unitig_path = Vec::new();
+        unsafe {
+            let mut p = self.find_start_position(seq.id);
+            loop {
+                assert!(p.on_unitig_start());
+                let u = &*p.unitig;
+                unitig_path.push((u.number, p.unitig_strand));
+                p = p.next.as_ref().unwrap();
+                assert!(p.on_unitig_end());
+                if p.pos == total_length - half_k {
+                    break;
+                }
+                p = p.next.as_ref().unwrap();
+            }
+        }
+        unitig_path
+    }
 }

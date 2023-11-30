@@ -70,9 +70,9 @@ pub struct UnitigPos {
     pub pos: u32,
     pub prev: *mut UnitigPos,
     pub next: *mut UnitigPos,
-    unitig: *mut Unitig,
-    unitig_strand: bool, // true for forward strand, false for reverse strand
-    unitig_start_end: bool, // true for start, false for end
+    pub unitig: *mut Unitig,
+    pub unitig_strand: bool, // true for forward strand, false for reverse strand
+    pub unitig_start_end: bool, // true for start, false for end
 }
 
 impl UnitigPos {
@@ -90,11 +90,11 @@ impl UnitigPos {
         }
     }
 
-    fn on_unitig_start(&self) -> bool {
+    pub fn on_unitig_start(&self) -> bool {
         self.unitig_start_end
     }
 
-    fn on_unitig_end(&self) -> bool {
+    pub fn on_unitig_end(&self) -> bool {
         !self.unitig_start_end
     }
 }
