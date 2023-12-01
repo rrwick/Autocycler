@@ -326,7 +326,6 @@ class UnitigGraph(object):
                 first, second = a.reverse_end_positions, b.forward_start_positions
             elif a_strand == -1 and b_strand == -1:
                 first, second = a.reverse_end_positions, b.reverse_start_positions
-                pass
             else:
                 assert False
             for a in first:
