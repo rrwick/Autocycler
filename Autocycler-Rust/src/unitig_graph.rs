@@ -218,13 +218,44 @@ impl UnitigGraph {
         }
     }
 
-
     fn connect_positions(&mut self) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        for unitig in &mut self.unitigs {
+            unitig.connect_positions(self.k_size as usize);
+        }
+        let mut links = Vec::new();
+        for unitig in &self.unitigs {
+            for &(next_unitig, next_strand) in &unitig.forward_next {
+                links.push((unitig as *const Unitig, true, next_unitig, next_strand));
+            }
+            for &(next_unitig, next_strand) in &unitig.reverse_next {
+                links.push((unitig as *const Unitig, false, next_unitig, next_strand));
+            }
+        }
+        for &(a, a_strand, b, b_strand) in &links {
+            unsafe {
+                let first: Vec<*mut UnitigPos> = if a_strand {
+                    (*a).forward_end_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
+                } else {
+                    (*a).reverse_end_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
+                };
+                let second: Vec<*mut UnitigPos> = if b_strand {
+                    (*b).forward_start_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
+                } else {
+                    (*b).reverse_start_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
+                };
+                for &a_pos in &first {
+                    let matches: Vec<_> = second.iter()
+                        .filter(|&&b_pos| (*a_pos).seq_id == (*b_pos).seq_id
+                                          && (*a_pos).strand == (*b_pos).strand
+                                          && (*a_pos).pos == (*b_pos).pos).collect();
+                    assert!(matches.len() <= 1);
+                    if let Some(&match_pos) = matches.first() {
+                        (*a_pos).next = *match_pos;
+                        (**match_pos).prev = a_pos;
+                    }
+                }
+            }
+        }
     }
 
     fn trim_overlaps(&mut self) {
