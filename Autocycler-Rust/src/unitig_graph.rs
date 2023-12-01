@@ -37,6 +37,7 @@ impl UnitigGraph {
             link_count: 0,
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
+        u_graph.simplify_seqs();
         u_graph.create_links();
         u_graph.connect_positions();
         u_graph.trim_overlaps();
@@ -145,8 +146,13 @@ impl UnitigGraph {
                 seen.insert(for_k.seq());
                 seen.insert(rev_k.seq());
             }
-            unitig.simplify_seqs();
             self.unitigs.push(unitig);
+        }
+    }
+
+    fn simplify_seqs(&mut self) {
+        for unitig in &mut self.unitigs {
+            unitig.simplify_seqs();
         }
     }
 
@@ -266,7 +272,6 @@ impl UnitigGraph {
         for s in sequences {
             writeln!(file, "{}", self.get_gfa_path_line(&s))?;
         }
-
         Ok(())
     }
 
