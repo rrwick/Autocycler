@@ -152,6 +152,12 @@ impl Unitig {
             self.reverse_end_positions = unsafe{&**back_kmer}.positions.iter()
                 .map(|kp| UnitigPos::new(kp, raw_self, false, false)).collect();
         }
+        for p in &mut self.forward_end_positions {
+            p.pos += 1;
+        }
+        for p in &mut self.reverse_end_positions {
+            p.pos += 1;
+        }
     }
 
     fn set_average_depth(&mut self) {
@@ -223,7 +229,7 @@ impl Unitig {
         let adjusted_length = if self.trimmed {
             self.untrimmed_length(k_size) - k_size as u32 + 1
         } else {
-            self.forward_seq.len() as u32 - k_size as u32 + 1
+            self.length() - k_size as u32 + 1
         };
         for start_pos in self.forward_start_positions.iter_mut() {
             if let Some(end_pos) = self.forward_end_positions.iter_mut().find(|end_pos| {
