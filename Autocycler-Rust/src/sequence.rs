@@ -11,7 +11,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::misc::reverse_complement;
+use crate::misc::{quit_with_error, reverse_complement_u8};
 
 
 pub struct Sequence {
@@ -25,10 +25,17 @@ pub struct Sequence {
 
 impl Sequence {
     pub fn new(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
+
+        let forward_seq = seq.into_bytes();
+        if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
+            quit_with_error(&format!("{} contains non-ACGT characters", filename));
+        }
+        let reverse_seq = reverse_complement_u8(&forward_seq);
+
         Sequence {
             id,
-            reverse_seq: reverse_complement(&seq).into_bytes(),
-            forward_seq: seq.into_bytes(),
+            forward_seq: forward_seq,
+            reverse_seq: reverse_seq,
             filename,
             contig_header,
             length,

@@ -20,6 +20,8 @@ use crate::misc::reverse_complement_u8;
 use crate::position::KmerPos;
 use crate::sequence::Sequence;
 
+pub static ALPHABET: [u8; 4] = [b'A', b'C', b'G', b'T'];
+
 
 pub struct Kmer {
     // Instead of storing a slice of the sequence, Kmer objects store a raw pointer to sequence.
@@ -132,8 +134,7 @@ impl<'a> KmerGraph<'a> {
         let mut next_kmers = Vec::new();
         let mut next_kmer = kmer[1..].to_vec();
         next_kmer.push(b'N');
-        let bases = [b'A', b'C', b'G', b'T'];
-        for &base in &bases {
+        for &base in &ALPHABET {
             *next_kmer.last_mut().unwrap() = base;
             if let Some(k) = self.kmers.get(next_kmer.as_slice()) {
                 next_kmers.push(k);
@@ -147,8 +148,7 @@ impl<'a> KmerGraph<'a> {
         let mut prev_kmers = Vec::new();
         let mut prev_kmer = vec![b'N'];
         prev_kmer.extend_from_slice(&kmer[..kmer.len() - 1]);
-        let bases = [b'A', b'C', b'G', b'T'];
-        for &base in &bases {
+        for &base in &ALPHABET {
             *prev_kmer.first_mut().unwrap() = base;
             if let Some(k) = self.kmers.get(prev_kmer.as_slice()) {
                 prev_kmers.push(k);
@@ -156,38 +156,6 @@ impl<'a> KmerGraph<'a> {
         }
         debug_assert!(prev_kmers.len() <= 4);
         prev_kmers
-    }
-
-    pub fn next_kmer_count(&self, kmer: &[u8]) -> usize {
-        // Like next_kmer, but just returns the count, not a vector.
-        let mut count = 0;
-        let mut next_kmer = kmer[1..].to_vec();
-        next_kmer.push(b'N');
-        let bases = [b'A', b'C', b'G', b'T'];
-        for &base in &bases {
-            *next_kmer.last_mut().unwrap() = base;
-            if let Some(k) = self.kmers.get(next_kmer.as_slice()) {
-                count += 1;
-            }
-        }
-        debug_assert!(count <= 4);
-        count
-    }
-
-    pub fn prev_kmer_count(&self, kmer: &[u8]) -> usize {
-        // Like prev_kmer, but just returns the count, not a vector.
-        let mut count = 0;
-        let mut prev_kmer = vec![b'N'];
-        prev_kmer.extend_from_slice(&kmer[..kmer.len() - 1]);
-        let bases = [b'A', b'C', b'G', b'T'];
-        for &base in &bases {
-            *prev_kmer.first_mut().unwrap() = base;
-            if let Some(k) = self.kmers.get(prev_kmer.as_slice()) {
-                count += 1;
-            }
-        }
-        debug_assert!(count <= 4);
-        count
     }
 
     pub fn iterate_kmers(&self) -> impl Iterator<Item = &Kmer> {
@@ -277,30 +245,6 @@ mod tests {
 
         let prev = kmer_graph.prev_kmers(b"ACGA");
         assert_eq!(prev.len(), 0);
-    }
-
-    #[test]
-    fn test_next_kmer_count() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
-        kmer_graph.add_sequence(&seq, 1);
-        assert_eq!(kmer_graph.next_kmer_count(b"ACAT"), 1);
-        assert_eq!(kmer_graph.next_kmer_count(b"AGTC"), 2);
-        assert_eq!(kmer_graph.next_kmer_count(b"CTGA"), 2);
-        assert_eq!(kmer_graph.next_kmer_count(b"AAAA"), 0);
-    }
-
-    #[test]
-    fn test_prev_kmer_count() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
-        kmer_graph.add_sequence(&seq, 1);
-        assert_eq!(kmer_graph.prev_kmer_count(b"ACAT"), 1);
-        assert_eq!(kmer_graph.prev_kmer_count(b"CTGA"), 2);
-        assert_eq!(kmer_graph.prev_kmer_count(b"GACA"), 2);
-        assert_eq!(kmer_graph.prev_kmer_count(b"ACGA"), 0);
     }
 
     #[test]

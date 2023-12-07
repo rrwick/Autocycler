@@ -214,13 +214,6 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
 fn complement_base(base: char) -> char {
     match base {
         'A' => 'T', 'T' => 'A', 'G' => 'C', 'C' => 'G',
-        'a' => 't', 't' => 'a', 'g' => 'c', 'c' => 'g',
-        'N' => 'N', 'n' => 'n',
-        'R' => 'Y', 'Y' => 'R', 'S' => 'S', 'W' => 'W', 'K' => 'M', 'M' => 'K',
-        'B' => 'V', 'V' => 'B', 'D' => 'H', 'H' => 'D',
-        'r' => 'y', 'y' => 'r', 's' => 's', 'w' => 'w', 'k' => 'm', 'm' => 'k',
-        'b' => 'v', 'v' => 'b', 'd' => 'h', 'h' => 'd',
-        '.' => '.', '-' => '-', '?' => '?',
         _ => 'N'
     }
 }
@@ -238,13 +231,6 @@ pub fn reverse_complement(seq: &str) -> String {
 fn complement_base_u8(base: u8) -> u8 {
     match base {
         b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G',
-        b'a' => b't', b't' => b'a', b'g' => b'c', b'c' => b'g',
-        b'N' => b'N', b'n' => b'n',
-        b'R' => b'Y', b'Y' => b'R', b'S' => b'S', b'W' => b'W', b'K' => b'M', b'M' => b'K',
-        b'B' => b'V', b'V' => b'B', b'D' => b'H', b'H' => b'D',
-        b'r' => b'y', b'y' => b'r', b's' => b's', b'w' => b'w', b'k' => b'm', b'm' => b'k',
-        b'b' => b'v', b'v' => b'b', b'd' => b'h', b'h' => b'd',
-        b'.' => b'.', b'-' => b'-', b'?' => b'?',
         _ => b'N'
     }
 }
@@ -285,16 +271,10 @@ mod tests {
     #[test]
     fn test_reverse_complement() {
         assert_eq!(reverse_complement("GGTATCACTCAGGAAGC"), "GCTTCCTGAGTGATACC");
-        assert_eq!(reverse_complement("GGGGaaaaaaaatttatatat"), "atatataaattttttttCCCC");
-        assert_eq!(reverse_complement("atatataaattttttttCCCC"), "GGGGaaaaaaaatttatatat");
-        assert_eq!(reverse_complement("ACGT123"), "NNNACGT");
     }
 
     #[test]
     fn test_reverse_complement_u8() {
         assert_eq!(reverse_complement_u8(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
-        assert_eq!(reverse_complement_u8(b"GGGGaaaaaaaatttatatat"), b"atatataaattttttttCCCC");
-        assert_eq!(reverse_complement_u8(b"atatataaattttttttCCCC"), b"GGGGaaaaaaaatttatatat");
-        assert_eq!(reverse_complement_u8(b"ACGT123"), b"NNNACGT");
     }
 }
