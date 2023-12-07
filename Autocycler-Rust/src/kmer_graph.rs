@@ -24,9 +24,9 @@ pub static ALPHABET: [u8; 4] = [b'A', b'C', b'G', b'T'];
 
 
 pub struct Kmer {
-    // Instead of storing a slice of the sequence, Kmer objects store a raw pointer to sequence.
-    // This requires unsafe code to access the k-mer sequence, but it avoids a bunch of tricky
-    // lifetimes.
+    // Kmer objects store a raw pointer to sequence. This is faster and uses less memory than
+    // storing a copy, and it avoids a bunch of tricky lifetimes which would be needed to store a
+    // slice. However, it requires unsafe code to access the k-mer sequence.
     pointer: *const u8,
     length: usize,
     pub positions: Vec<KmerPos>,
@@ -42,20 +42,20 @@ impl Kmer {
     }
 
     pub fn seq(&self) -> &[u8] {
-        let kseq = unsafe{ from_raw_parts(self.pointer, self.length) };
-        kseq
+        unsafe{ from_raw_parts(self.pointer, self.length) }
     }
 
     pub fn add_position(&mut self, seq_id: u16, strand: bool, pos: usize) {
-        let position = KmerPos::new(seq_id, strand, pos);
-        self.positions.push(position);
+        self.positions.push(KmerPos::new(seq_id, strand, pos));
     }
 
-    pub fn count(&self) -> usize {
+    pub fn depth(&self) -> usize {
+        // Returns how many times this k-mer appears in the input sequences.
         self.positions.len()
     }
 
     pub fn first_position(&self, half_k: usize) -> bool {
+        // Returns true if any of this k-mer's positions are at the start of an input sequence.
         self.positions.iter().any(|p| p.pos as usize == half_k)
     }
 }
@@ -63,10 +63,8 @@ impl Kmer {
 impl fmt::Display for Kmer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let seq = std::str::from_utf8(self.seq()).unwrap();
-        let positions = self.positions.iter()
-                                      .map(|p| p.to_string())
-                                      .collect::<Vec<String>>()
-                                      .join(",");
+        let positions = self.positions.iter().map(|p| p.to_string())
+                                      .collect::<Vec<String>>().join(",");
         write!(f, "{}:{}", seq, positions)
     }
 }
@@ -92,6 +90,9 @@ impl<'a> KmerGraph<'a> {
     }
 
     pub fn add_sequence(&mut self, seq: &'a Sequence, assembly_count: usize) {
+        // Adds a sequence to the KmerGraph. For each k-mer in the sequence, a Kmer object and its
+        // reverse complement are created (if necessary), and then the position of that k-mer in
+        // the sequence is added to the Kmer object.
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
 
@@ -102,7 +103,6 @@ impl<'a> KmerGraph<'a> {
             let reverse_start = seq.length - forward_start - k_size;
             let forward_end = forward_start + k_size;
             let reverse_end = reverse_start + k_size;
-
             let forward_k = &seq.forward_seq[forward_start..forward_end];
             let reverse_k = &seq.reverse_seq[reverse_start..reverse_end];
 
@@ -111,7 +111,8 @@ impl<'a> KmerGraph<'a> {
                     entry.get_mut().add_position(seq.id, true, forward_start + half_k);
                 },
                 Entry::Vacant(entry) => {
-                    let mut kmer = unsafe { Kmer::new(forward_raw.add(forward_start), k_size, assembly_count) };
+                    let mut kmer = unsafe { Kmer::new(forward_raw.add(forward_start), k_size,
+                                                      assembly_count) };
                     kmer.add_position(seq.id, true, forward_start + half_k);
                     entry.insert(kmer);
                 }
@@ -122,7 +123,8 @@ impl<'a> KmerGraph<'a> {
                     entry.get_mut().add_position(seq.id, false, reverse_start + half_k);
                 },
                 Entry::Vacant(entry) => {
-                    let mut kmer = unsafe { Kmer::new(reverse_raw.add(reverse_start), k_size, assembly_count) };
+                    let mut kmer = unsafe { Kmer::new(reverse_raw.add(reverse_start), k_size,
+                                                      assembly_count) };
                     kmer.add_position(seq.id, false, reverse_start + half_k);
                     entry.insert(kmer);
                 }
@@ -131,6 +133,8 @@ impl<'a> KmerGraph<'a> {
     }
 
     pub fn next_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+        // Given an input k-mer, this function returns all k-mers in the graph which overlap by k-1
+        // bases on the right side. For example, ACGACT -> CGACTA, CGACTG.
         let mut next_kmers = Vec::new();
         let mut next_kmer = kmer[1..].to_vec();
         next_kmer.push(b'N');
@@ -145,6 +149,8 @@ impl<'a> KmerGraph<'a> {
     }
 
     pub fn prev_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+        // Given an input k-mer, this function returns all k-mers in the graph which overlap by k-1
+        // bases on the left side. For example, ACGACT -> AACGAC, GACGAC.
         let mut prev_kmers = Vec::new();
         let mut prev_kmer = vec![b'N'];
         prev_kmer.extend_from_slice(&kmer[..kmer.len() - 1]);
@@ -159,12 +165,16 @@ impl<'a> KmerGraph<'a> {
     }
 
     pub fn iterate_kmers(&self) -> impl Iterator<Item = &Kmer> {
+        // Iterates through the Kmer objects in alphabetical order.
         let mut sorted_keys: Vec<&&[u8]> = self.kmers.keys().collect();
         sorted_keys.sort_unstable();
         sorted_keys.into_iter().map(move |&k| self.kmers.get(k).unwrap())
     }
 
-    pub fn reverse(&self, kmer: &Kmer) -> &Kmer{
+    pub fn reverse(&self, kmer: &Kmer) -> &Kmer {
+        // Given a Kmer object, this function returns the reverse-complement Kmer object. Since all
+        // k-mers are added on both strands, it can be assumed that the reverse-complement Kmer
+        // object exists.
         let reverse_seq: &[u8] = &reverse_complement_u8(kmer.seq());
         self.kmers.get(reverse_seq).unwrap()
     }

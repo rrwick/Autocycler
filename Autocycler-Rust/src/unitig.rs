@@ -161,8 +161,8 @@ impl Unitig {
     }
 
     fn set_average_depth(&mut self) {
-        let for_depths: Vec<f64> = self.forward_kmers.iter().map(|k| unsafe{&**k}.count() as f64).collect();
-        let rev_depths: Vec<f64> = self.reverse_kmers.iter().map(|k| unsafe{&**k}.count() as f64).collect();
+        let for_depths: Vec<f64> = self.forward_kmers.iter().map(|k| unsafe{&**k}.depth() as f64).collect();
+        let rev_depths: Vec<f64> = self.reverse_kmers.iter().map(|k| unsafe{&**k}.depth() as f64).collect();
         let forward_avg = for_depths.iter().sum::<f64>() / for_depths.len() as f64;
         let reverse_avg = rev_depths.iter().sum::<f64>() / rev_depths.len() as f64;
         assert_eq!(forward_avg, reverse_avg);
