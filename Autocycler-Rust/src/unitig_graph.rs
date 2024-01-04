@@ -18,7 +18,7 @@ use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::kmer_graph::KmerGraph;
-use crate::position::UnitigPos;
+use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
 
@@ -39,7 +39,6 @@ impl UnitigGraph {
         u_graph.build_unitigs_from_kmer_graph(k_graph);
         u_graph.simplify_seqs();
         u_graph.create_links();
-        u_graph.connect_positions();
         u_graph.trim_overlaps();
         u_graph.renumber_unitigs();
         u_graph
@@ -68,7 +67,6 @@ impl UnitigGraph {
         }
         u_graph.build_links_from_gfa(&link_lines);
         u_graph.build_paths_from_gfa(&path_lines);
-        u_graph.connect_positions();
         u_graph
     }
 
@@ -218,46 +216,6 @@ impl UnitigGraph {
         }
     }
 
-    fn connect_positions(&mut self) {
-        for unitig in &mut self.unitigs {
-            unitig.connect_positions(self.k_size as usize);
-        }
-        let mut links = Vec::new();
-        for unitig in &self.unitigs {
-            for &(next_unitig, next_strand) in &unitig.forward_next {
-                links.push((unitig as *const Unitig, true, next_unitig, next_strand));
-            }
-            for &(next_unitig, next_strand) in &unitig.reverse_next {
-                links.push((unitig as *const Unitig, false, next_unitig, next_strand));
-            }
-        }
-        for &(a, a_strand, b, b_strand) in &links {
-            unsafe {
-                let first: Vec<*mut UnitigPos> = if a_strand {
-                    (*a).forward_end_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
-                } else {
-                    (*a).reverse_end_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
-                };
-                let second: Vec<*mut UnitigPos> = if b_strand {
-                    (*b).forward_start_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
-                } else {
-                    (*b).reverse_start_positions.iter().map(|pos| pos as *const _ as *mut _).collect()
-                };
-                for &a_pos in &first {
-                    let matches: Vec<_> = second.iter()
-                        .filter(|&&b_pos| (*a_pos).seq_id == (*b_pos).seq_id
-                                          && (*a_pos).strand == (*b_pos).strand
-                                          && (*a_pos).pos == (*b_pos).pos).collect();
-                    assert!(matches.len() <= 1);
-                    if let Some(&match_pos) = matches.first() {
-                        (*a_pos).next = *match_pos;
-                        (**match_pos).prev = a_pos;
-                    }
-                }
-            }
-        }
-    }
-
     fn trim_overlaps(&mut self) {
         for unitig in &mut self.unitigs {
             unitig.trim_overlaps(self.k_size as usize);
@@ -356,36 +314,55 @@ impl UnitigGraph {
                       "assembly.fasta".to_string(), "contig_1".to_string(), 20)  // TEMP
     }
 
-    fn find_start_position(&self, seq_id: u16) -> &UnitigPos {
+    fn find_starting_unitig(&self, seq_id: u16) -> (&Unitig, bool) {
+        // For a given sequence ID, this function returns the Unitig and strand where that sequence
+        // begins.
         let half_k = self.k_size / 2;
-        let mut start_positions = Vec::new();
+        let mut starting_unitigs = Vec::new();
         for unitig in &self.unitigs {
-            start_positions.extend(
-                unitig.forward_start_positions.iter()
-                    .chain(unitig.reverse_start_positions.iter())
-                    .filter(|&p| p.seq_id == seq_id && p.strand && p.pos == half_k)
-            );
+            for p in &unitig.forward_positions {
+                if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
+                    starting_unitigs.push((unitig, true));
+                }
+            }
+            for p in &unitig.reverse_positions {
+                if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
+                    starting_unitigs.push((unitig, false));
+                }
+            }
         }
-        assert_eq!(start_positions.len(), 1);
-        start_positions[0]
+        assert_eq!(starting_unitigs.len(), 1);
+        starting_unitigs[0]
+    }
+
+    fn get_next_unitig(&self, seq_id: u16, unitig: &Unitig, strand: bool, pos: u32) -> Option<(&Unitig, bool, u32)> {
+        let next_pos = pos + unitig.untrimmed_length(self.k_size as usize) - self.k_size as u32 + 1;
+        let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
+        for &(next_unitig, next_strand) in next_unitigs {
+            let u = unsafe{next_unitig.as_ref()}.unwrap();
+            let positions = if next_strand { &u.forward_positions } else { &u.reverse_positions};
+            for p in positions {
+                if p.seq_id() == seq_id && p.strand() && p.pos == next_pos {
+                    return Some((&u, next_strand, next_pos));
+                }
+            }
+        }
+        None
     }
 
     fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
         let total_length = seq.length as u32;
         let half_k = self.k_size / 2;
         let mut unitig_path = Vec::new();
-        unsafe {
-            let mut p = self.find_start_position(seq.id);
-            loop {
-                assert!(p.on_unitig_start());
-                let u = &*p.unitig;
-                unitig_path.push((u.number, p.unitig_strand));
-                p = p.next.as_ref().unwrap();
-                assert!(p.on_unitig_end());
-                if p.pos == total_length - half_k {
-                    break;
+        let (mut unitig, mut strand) = self.find_starting_unitig(seq.id);
+        let mut pos = half_k;
+        loop {
+            unitig_path.push((unitig.number, strand));
+            match self.get_next_unitig(seq.id, unitig, strand, pos) {
+                None => break,
+                Some((next_unitig, next_strand, next_pos)) => {
+                    (unitig, strand, pos) = (next_unitig, next_strand, next_pos);
                 }
-                p = p.next.as_ref().unwrap();
             }
         }
         unitig_path

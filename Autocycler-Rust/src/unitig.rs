@@ -16,7 +16,7 @@ use std::fmt;
 
 use crate::kmer_graph::Kmer;
 use crate::misc::{reverse_complement_u8, quit_with_error};
-use crate::position::UnitigPos;
+use crate::position::Position;
 
 
 pub struct Unitig {
@@ -26,10 +26,8 @@ pub struct Unitig {
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
-    pub forward_start_positions: Vec<UnitigPos>,
-    pub forward_end_positions: Vec<UnitigPos>,
-    pub reverse_start_positions: Vec<UnitigPos>,
-    pub reverse_end_positions: Vec<UnitigPos>,
+    pub forward_positions: Vec<Position>,
+    pub reverse_positions: Vec<Position>,
     pub forward_next: Vec<(*mut Unitig, bool)>,
     pub forward_prev: Vec<(*mut Unitig, bool)>,
     pub reverse_next: Vec<(*mut Unitig, bool)>,
@@ -51,10 +49,8 @@ impl Unitig {
             forward_seq: Vec::new(),
             reverse_seq: Vec::new(),
             depth: 0.0,
-            forward_start_positions: Vec::new(),
-            forward_end_positions: Vec::new(),
-            reverse_start_positions: Vec::new(),
-            reverse_end_positions: Vec::new(),
+            forward_positions: Vec::new(),
+            reverse_positions: Vec::new(),
             forward_next: Vec::new(),
             forward_prev: Vec::new(),
             reverse_next: Vec::new(),
@@ -89,10 +85,8 @@ impl Unitig {
             forward_seq,
             reverse_seq,
             depth,
-            forward_start_positions: Vec::new(),
-            forward_end_positions: Vec::new(),
-            reverse_start_positions: Vec::new(),
-            reverse_end_positions: Vec::new(),
+            forward_positions: Vec::new(),
+            reverse_positions: Vec::new(),
             forward_next: Vec::new(),
             forward_prev: Vec::new(),
             reverse_next: Vec::new(),
@@ -135,28 +129,15 @@ impl Unitig {
     }
 
     fn set_start_end_positions(&mut self) {
-        let raw_self = self as *mut Self;
-        if let Some(front_kmer) = self.forward_kmers.front() {
-            self.forward_start_positions = unsafe{&**front_kmer}.positions.iter()
-                .map(|kp| UnitigPos::new(kp, raw_self, true, true)).collect();
+        // Sets the Unitig's positions on each strand to be the same as the positions of the first
+        // Kmer on that strand.
+        if let Some(&kmer_ptr) = self.forward_kmers.front() {
+            let kmer = unsafe { &*kmer_ptr };
+            self.forward_positions.extend_from_slice(&kmer.positions);
         }
-        if let Some(back_kmer) = self.forward_kmers.back() {
-            self.forward_end_positions = unsafe{&**back_kmer}.positions.iter()
-                .map(|kp| UnitigPos::new(kp, raw_self, true, false)).collect();
-        }
-        if let Some(front_kmer) = self.reverse_kmers.front() {
-            self.reverse_start_positions = unsafe{&**front_kmer}.positions.iter()
-                .map(|kp| UnitigPos::new(kp, raw_self, false, true)).collect();
-        }
-        if let Some(back_kmer) = self.reverse_kmers.back() {
-            self.reverse_end_positions = unsafe{&**back_kmer}.positions.iter()
-                .map(|kp| UnitigPos::new(kp, raw_self, false, false)).collect();
-        }
-        for p in &mut self.forward_end_positions {
-            p.pos += 1;
-        }
-        for p in &mut self.reverse_end_positions {
-            p.pos += 1;
+        if let Some(&kmer_ptr) = self.reverse_kmers.front() {
+            let kmer = unsafe { &*kmer_ptr };
+            self.reverse_positions.extend_from_slice(&kmer.positions);
         }
     }
 
@@ -223,30 +204,6 @@ impl Unitig {
             untrimmed_length += half_k;
         }
         untrimmed_length as u32
-    }
-
-    pub fn connect_positions(&mut self, k_size: usize) {
-        let adjusted_length = if self.trimmed {
-            self.untrimmed_length(k_size) - k_size as u32 + 1
-        } else {
-            self.length() - k_size as u32 + 1
-        };
-        for start_pos in self.forward_start_positions.iter_mut() {
-            if let Some(end_pos) = self.forward_end_positions.iter_mut().find(|end_pos| {
-                start_pos.seq_id == end_pos.seq_id && start_pos.strand == end_pos.strand && start_pos.pos + adjusted_length == end_pos.pos
-            }) {
-                start_pos.next = end_pos as *mut _;
-                end_pos.prev = start_pos as *mut _;
-            }
-        }
-        for start_pos in self.reverse_start_positions.iter_mut() {
-            if let Some(end_pos) = self.reverse_end_positions.iter_mut().find(|end_pos| {
-                start_pos.seq_id == end_pos.seq_id && start_pos.strand == end_pos.strand && start_pos.pos + adjusted_length == end_pos.pos
-            }) {
-                start_pos.next = end_pos as *mut _;
-                end_pos.prev = start_pos as *mut _;
-            }
-        }
     }
 }
 

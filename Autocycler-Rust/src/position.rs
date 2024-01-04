@@ -1,15 +1,5 @@
 // This file defines structs which store the sequence, strand and position for contigs in the input
-// assemblies:
-// * KmerPos objects:
-//   * Hold just sequence, strand and position.
-//   * Are used for every k-mer in the input assemblies (so there a lot of them).
-//   * For this reason, I keep them as small as possible to save memory.
-// * UnitigPos objects:
-//   * In addition to sequence, strand and position, they also store a reference to their Unitig
-//     (including the strand and whether they are on the start or end of the Unitig) and links to 
-//     the next and previous UnitigPos objects (forming a doubly-linked list).
-//   * Are used only at the start/end of each Unitig (so there are fewer of them).
-//   * For this reason, memory efficiency matters less.
+// assemblies.
 
 // Copyright 2023 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
@@ -28,80 +18,39 @@ use std::ptr;
 use crate::unitig::Unitig;
 
 
-pub struct KmerPos {
+#[derive(Clone)]
+pub struct Position {
     pub pos: u32,
     seq_id_and_strand: u16, // seq_id (15 bits) and strand (1 bit) are packed into a u16
 }
 
-impl KmerPos {
+impl Position {
     const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000; // highest bit stores the strand
 
-    pub fn new(seq_id: u16, strand: bool, pos: usize) -> KmerPos {
+    pub fn new(seq_id: u16, strand: bool, pos: usize) -> Position {
         let mut seq_id_and_strand = seq_id;
         if strand {
-            seq_id_and_strand |= KmerPos::STRAND_BIT_MASK; // Set the strand bit
+            seq_id_and_strand |= Position::STRAND_BIT_MASK; // Set the strand bit
         }
-        KmerPos {
+        Position {
             pos: pos as u32,
             seq_id_and_strand,
         }
     }
 
     pub fn seq_id(&self) -> u16 {
-        self.seq_id_and_strand & !KmerPos::STRAND_BIT_MASK // Mask out the strand bit
+        self.seq_id_and_strand & !Position::STRAND_BIT_MASK // Mask out the strand bit
     }
 
     pub fn strand(&self) -> bool {
         // true for forward strand, false for reverse strand
-        (self.seq_id_and_strand & KmerPos::STRAND_BIT_MASK) != 0
+        (self.seq_id_and_strand & Position::STRAND_BIT_MASK) != 0
     }
 }
 
-impl fmt::Display for KmerPos {
+impl fmt::Display for Position {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}{}", self.seq_id(), if self.strand() { "+" } else { "-" }, self.pos)
-    }
-}
-
-
-pub struct UnitigPos {
-    pub seq_id: u16,
-    pub strand: bool, // true for forward strand, false for reverse strand
-    pub pos: u32,
-    pub prev: *mut UnitigPos,
-    pub next: *mut UnitigPos,
-    pub unitig: *mut Unitig,
-    pub unitig_strand: bool, // true for forward strand, false for reverse strand
-    pub unitig_start_end: bool, // true for start, false for end
-}
-
-impl UnitigPos {
-    pub fn new(kmer_pos: &KmerPos, unitig: *mut Unitig, unitig_strand: bool,
-               unitig_start_end: bool) -> UnitigPos {
-        UnitigPos {
-            seq_id: kmer_pos.seq_id(),
-            strand: kmer_pos.strand(),
-            pos: kmer_pos.pos,
-            prev: ptr::null_mut(),
-            next: ptr::null_mut(),
-            unitig,
-            unitig_strand,
-            unitig_start_end,
-        }
-    }
-
-    pub fn on_unitig_start(&self) -> bool {
-        self.unitig_start_end
-    }
-
-    pub fn on_unitig_end(&self) -> bool {
-        !self.unitig_start_end
-    }
-}
-
-impl fmt::Display for UnitigPos {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}{}", self.seq_id, if self.strand { "+" } else { "-" }, self.pos)
     }
 }
 
@@ -111,23 +60,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_kmerpos() {
-        let p1 = KmerPos::new(1, true, 123);
-        let p2 = KmerPos::new(2, false, 456);
-        let p3 = KmerPos::new(32767, true, 4294967295);  // max values for sed_id and pos
-        assert_eq!(format!("{}", p1), "1+123");
-        assert_eq!(format!("{}", p2), "2-456");
-        assert_eq!(format!("{}", p3), "32767+4294967295");
-    }
-
-    #[test]
-    fn test_unitigpos() {
-        let k1 = KmerPos::new(1, true, 123);
-        let k2 = KmerPos::new(2, false, 456);
-        let k3 = KmerPos::new(32767, true, 4294967295);
-        let p1 = UnitigPos::new(&k1, ptr::null_mut(), true, true);
-        let p2 = UnitigPos::new(&k2, ptr::null_mut(), true, false);
-        let p3 = UnitigPos::new(&k3, ptr::null_mut(), false, true);
+    fn test_position() {
+        let p1 = Position::new(1, true, 123);
+        let p2 = Position::new(2, false, 456);
+        let p3 = Position::new(32767, true, 4294967295);  // max values for sed_id and pos
         assert_eq!(format!("{}", p1), "1+123");
         assert_eq!(format!("{}", p2), "2-456");
         assert_eq!(format!("{}", p3), "32767+4294967295");

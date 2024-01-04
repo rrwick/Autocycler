@@ -17,7 +17,7 @@ use std::fmt;
 use std::slice::from_raw_parts;
 
 use crate::misc::reverse_complement_u8;
-use crate::position::KmerPos;
+use crate::position::Position;
 use crate::sequence::Sequence;
 
 pub static ALPHABET: [u8; 4] = [b'A', b'C', b'G', b'T'];
@@ -29,7 +29,7 @@ pub struct Kmer {
     // slice. However, it requires unsafe code to access the k-mer sequence.
     pointer: *const u8,
     length: usize,
-    pub positions: Vec<KmerPos>,
+    pub positions: Vec<Position>,
 }
 
 impl Kmer {
@@ -46,7 +46,7 @@ impl Kmer {
     }
 
     pub fn add_position(&mut self, seq_id: u16, strand: bool, pos: usize) {
-        self.positions.push(KmerPos::new(seq_id, strand, pos));
+        self.positions.push(Position::new(seq_id, strand, pos));
     }
 
     pub fn depth(&self) -> usize {
