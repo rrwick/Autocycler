@@ -107,7 +107,7 @@ impl Unitig {
 
     pub fn simplify_seqs(&mut self) {
         self.combine_kmers_into_sequences();
-        self.set_start_end_positions();
+        self.set_positions();
         self.set_average_depth();
         self.forward_kmers.clear();
         self.reverse_kmers.clear();
@@ -128,7 +128,7 @@ impl Unitig {
         }
     }
 
-    fn set_start_end_positions(&mut self) {
+    fn set_positions(&mut self) {
         // Sets the Unitig's positions on each strand to be the same as the positions of the first
         // Kmer on that strand.
         if let Some(&kmer_ptr) = self.forward_kmers.front() {

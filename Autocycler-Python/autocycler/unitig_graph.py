@@ -50,7 +50,6 @@ class UnitigGraph(object):
         print('\nBuilding unitig graph from k-mer graph:')
         self.build_unitigs_from_kmer_graph(k_graph)
         self.create_links()
-        self.connect_positions()
         self.trim_overlaps()
         self.renumber_unitigs()
 
@@ -70,7 +69,6 @@ class UnitigGraph(object):
         unitig_index = {u.number: u for u in self.unitigs}
         self.build_links_from_gfa(link_lines, unitig_index)
         self.build_paths_from_gfa(path_lines, unitig_index)
-        self.connect_positions()
 
     def read_gfa_header_line(self, parts):
         for p in parts:
@@ -132,15 +130,13 @@ class UnitigGraph(object):
         pos = half_k
         for unitig_num, unitig_strand in path:
             u = unitig_index[unitig_num]
-            starts = u.forward_start_positions if unitig_strand == 1 else u.reverse_start_positions
-            ends = u.forward_end_positions if unitig_strand == 1 else u.reverse_end_positions
-            starts.append(Position(seq_id, path_strand, pos, u, unitig_strand, 0))
+            positions = u.forward_positions if unitig_strand == 1 else u.reverse_positions
+            positions.append(Position(seq_id, path_strand, pos))
             pos += u.length()
             if u.dead_end_start(unitig_strand):
                 pos -= half_k
             if u.dead_end_end(unitig_strand):
                 pos -= half_k
-            ends.append(Position(seq_id, path_strand, pos, u, unitig_strand, 1))
         assert pos + half_k == length
 
     @staticmethod
@@ -299,50 +295,6 @@ class UnitigGraph(object):
         for unitig in self.unitigs:
             unitig.trim_overlaps(self.k_size)
 
-    def connect_positions(self):
-        """
-        This method connects up all Position objects in the UnitigGraph. This happens:
-        * Within unitigs, where a starting position is connected to an end position (carried out by
-          the Unitig connect_positions method).
-        * Between unitigs, where an ending position of one unitig is connected to a starting
-          position of a linked unitig (carried out by this method).
-        """
-        for unitig in self.unitigs:
-            unitig.connect_positions(self.k_size)
-
-        links = []
-        for unitig in self.unitigs:
-            for next_unitig, next_strand in unitig.forward_next:
-                links.append((unitig, 1, next_unitig, next_strand))
-            for next_unitig, next_strand in unitig.reverse_next:
-                links.append((unitig, -1, next_unitig, next_strand))
-
-        for a, a_strand, b, b_strand in links:
-            if a_strand == 1 and b_strand == 1:
-                first, second = a.forward_end_positions, b.forward_start_positions
-            elif a_strand == 1 and b_strand == -1:
-                first, second = a.forward_end_positions, b.reverse_start_positions
-            elif a_strand == -1 and b_strand == 1:
-                first, second = a.reverse_end_positions, b.forward_start_positions
-            elif a_strand == -1 and b_strand == -1:
-                first, second = a.reverse_end_positions, b.reverse_start_positions
-            else:
-                assert False
-            for a in first:
-                matches = [b for b in second
-                           if a.seq_id == b.seq_id and a.strand == b.strand and a.pos == b.pos]
-                assert len(matches) <= 1
-                if len(matches) == 1:
-                    match = matches[0]
-                    if a.next is None:
-                        a.next = match
-                    else:
-                        assert a.next == match
-                    if match.prev is None:
-                        match.prev = a
-                    else:
-                        assert match.prev_kmer == a
-
     def reconstruct_original_sequences(self):
         print(f'\nReconstructing input assemblies from unitig graph')
         original_seqs = collections.defaultdict(list)
@@ -372,22 +324,32 @@ class UnitigGraph(object):
         assert len(sequence) == total_length
         return sequence
 
-    def find_start_position(self, i):
+    def find_starting_unitig(self, seq_id):
         """
-        This method looks through all of the unitig-start positions (both strands), looking for the
-        start of the given sequence ID (position k_size/2-0.5).
+        For a given sequence ID, this function returns the Unitig and strand where that sequence
+        begins.
         """
         half_k = self.k_size // 2
-        start_positions = []
+        starting_unitigs = []
         for unitig in self.unitigs:
-            for p in unitig.forward_start_positions:
-                if p.seq_id == i and p.strand == 1 and p.pos == half_k:
-                    start_positions.append(p)
-            for p in unitig.reverse_start_positions:
-                if p.seq_id == i and p.strand == 1 and p.pos == half_k:
-                    start_positions.append(p)
-        assert len(start_positions) == 1
-        return start_positions[0]
+            for p in unitig.forward_positions:
+                if p.seq_id == seq_id and p.strand == 1 and p.pos == half_k:
+                    starting_unitigs.append((unitig, 1))
+            for p in unitig.reverse_positions:
+                if p.seq_id == seq_id and p.strand == 1 and p.pos == half_k:
+                    starting_unitigs.append((unitig, -1))
+        assert len(starting_unitigs) == 1
+        return starting_unitigs[0]
+    
+    def get_next_unitig(self, seq_id, unitig, strand, pos):
+        next_pos = pos + unitig.untrimmed_length(self.k_size) - self.k_size + 1
+        next_unitigs = unitig.forward_next if strand == 1 else unitig.reverse_next
+        for u, next_strand in next_unitigs:
+            positions = u.forward_positions if next_strand == 1 else u.reverse_positions
+            for p in positions:
+                if p.seq_id == seq_id and p.strand == 1 and p.pos == next_pos:
+                    return u, next_strand, next_pos            
+        return None, None, None
 
     def get_unitig_path_for_sequence(self, seq_id):
         """
@@ -395,15 +357,12 @@ class UnitigGraph(object):
         """
         total_length = self.contig_ids_to_seq_len[seq_id]
         half_k = self.k_size // 2
-        unitigs = []
-        p = self.find_start_position(seq_id)
+        unitig_path = []
+        unitig, strand = self.find_starting_unitig(seq_id)
+        pos = half_k
         while True:
-            assert p.on_unitig_start()
-            unitigs.append((p.unitig, p.unitig_strand))
-            p = p.next
-            assert p.on_unitig_end()
-            if p.pos == total_length - half_k:
+            unitig_path.append((unitig, strand))
+            unitig, strand, pos = self.get_next_unitig(seq_id, unitig, strand, pos)
+            if unitig is None:
                 break
-            assert p.next is not None
-            p = p.next
-        return unitigs
+        return unitig_path

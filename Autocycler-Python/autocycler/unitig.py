@@ -35,10 +35,9 @@ class Unitig(object):
         self.forward_seq, self.reverse_seq = '', ''
         self.depth = 0.0
 
-        # Position objects (connecting back to the original sequences) are stored for the start and
-        # end of both strands:
-        self.forward_start_positions, self.forward_end_positions = [], []
-        self.reverse_start_positions, self.reverse_end_positions = [], []
+        # Position objects (connecting back to the original sequences) are stored for the start of
+        # both strands:
+        self.forward_positions, self.reverse_positions = [], []
 
         # Pointers to the preceding and following Unitig objects, along with their strand:
         self.forward_next, self.forward_prev = [], []
@@ -151,7 +150,7 @@ class Unitig(object):
 
     def simplify_seqs(self):
         self.combine_kmers_into_sequences()
-        self.set_start_end_positions()
+        self.set_positions()
         self.set_average_depth()
         self.forward_kmers, self.reverse_kmers = None, None
 
@@ -171,33 +170,9 @@ class Unitig(object):
         self.reverse_seq = ''.join(reverse_seq)
         assert reverse_complement(self.forward_seq) == self.reverse_seq
 
-    def set_start_end_positions(self):
-        """
-        Sets this unitig's start and end for both strands. The end positions get a 1 added to make
-        them exclusive-end Pythonic ranges.
-        """
-        self.forward_start_positions = copy.deepcopy(self.forward_kmers[0].positions)
-        self.forward_end_positions = copy.deepcopy(self.forward_kmers[-1].positions)
-        self.reverse_start_positions = copy.deepcopy(self.reverse_kmers[0].positions)
-        self.reverse_end_positions = copy.deepcopy(self.reverse_kmers[-1].positions)
-        for p in self.forward_start_positions:
-            p.unitig = self
-            p.unitig_strand = 1
-            p.unitig_start_end = 0
-        for p in self.forward_end_positions:
-            p.unitig = self
-            p.unitig_strand = 1
-            p.unitig_start_end = 1
-            p.pos += 1
-        for p in self.reverse_start_positions:
-            p.unitig = self
-            p.unitig_strand = -1
-            p.unitig_start_end = 0
-        for p in self.reverse_end_positions:
-            p.unitig = self
-            p.unitig_strand = -1
-            p.unitig_start_end = 1
-            p.pos += 1
+    def set_positions(self):
+        self.forward_positions = copy.deepcopy(self.forward_kmers[0].positions)
+        self.reverse_positions = copy.deepcopy(self.reverse_kmers[0].positions)
 
     def set_average_depth(self):
         forward_depths, reverse_depths = [], []
@@ -228,35 +203,6 @@ class Unitig(object):
     def gfa_segment_line(self):
         return f'S\t{self.number}\t{self.forward_seq}\t' \
                f'DP:f:{self.depth:.2f}\n'
-
-    def connect_positions(self, k_size):
-        """
-        Connects the start and end positions for this unitig on both strands, when they line up.
-        There should always be a 1-to-1 relationship between starting and ending positions, i.e.
-        every starting position will connect to an ending position.
-        """
-        if self.trimmed:
-            adjusted_length = self.untrimmed_length(k_size) - k_size + 1
-        else:
-            adjusted_length = self.length() - k_size + 1
-        for start in self.forward_start_positions:
-            assert start.prev is None and start.next is None
-            matches = [end for end in self.forward_end_positions
-                       if start.seq_id == end.seq_id and start.strand == end.strand and \
-                       start.pos + adjusted_length == end.pos]
-            assert len(matches) == 1
-            end = matches[0]
-            start.next = end
-            end.prev = start
-        for start in self.reverse_start_positions:
-            assert start.prev is None and start.next is None
-            matches = [end for end in self.reverse_end_positions
-                       if start.seq_id == end.seq_id and start.strand == end.strand and \
-                       start.pos + adjusted_length == end.pos]
-            assert len(matches) == 1
-            end = matches[0]
-            start.next = end
-            end.prev = start
 
     def dead_end_start(self, strand):
         if strand == 1:
