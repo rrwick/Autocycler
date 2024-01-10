@@ -41,6 +41,8 @@ mod unitig_graph;
                              r#"                              |___/                  "#))]
 #[command(author, version, about, long_about = None, disable_help_subcommand = true,
           propagate_version = true)]
+#[clap(subcommand_required = true)]
+#[clap(arg_required_else_help = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -74,7 +76,7 @@ enum Commands {
         out_dir: PathBuf,
     },
 
-    /// cresolve De Bruijn graph to a consensus assembly
+    /// resolve De Bruijn graph to a consensus assembly
     Resolve {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
