@@ -1,5 +1,5 @@
 """
-Copyright 2023 Ryan Wick (rrwick@gmail.com)
+Copyright 2024 Ryan Wick (rrwick@gmail.com)
 https://github.com/rrwick/Autocycler
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU

@@ -1,7 +1,7 @@
 // This is the main file of Autocycler and where execution starts. It mainly handles the CLI and
 // then calls into other files to run whichever subcommand the user chose.
 
-// Copyright 2023 Ryan Wick (rrwick@gmail.com)
+// Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
 // This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or

@@ -2,7 +2,7 @@
 The version is stored here in a separate file so it can exist in only one place.
 https://stackoverflow.com/a/7071358/2438989
 
-Copyright 2023 Ryan Wick (rrwick@gmail.com)
+Copyright 2024 Ryan Wick (rrwick@gmail.com)
 https://github.com/rrwick/Autocycler
 
 This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or modify

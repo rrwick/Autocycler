@@ -3,7 +3,7 @@
 This is the Autocycler installation script. Assuming you're in the same directory, it can be run
 like this: `python3 setup.py install`, or (probably better) like this: `pip3 install .`
 
-Copyright 2023 Ryan Wick (rrwick@gmail.com)
+Copyright 2024 Ryan Wick (rrwick@gmail.com)
 https://github.com/rrwick/Autocycler
 
 This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or modify

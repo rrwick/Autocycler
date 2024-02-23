@@ -1,6 +1,6 @@
 // This file defines the UnitigGraph struct for building a compacted unitig graph from a KmerGraph.
 
-// Copyright 2023 Ryan Wick (rrwick@gmail.com)
+// Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
 // This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or

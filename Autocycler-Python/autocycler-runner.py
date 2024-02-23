@@ -3,7 +3,7 @@
 This script allows a user to run Autocycler without a pip/setuptools installation. Assuming all
 dependencies are installed, they can simply clone the repo and run this script.
 
-Copyright 2023 Ryan Wick (rrwick@gmail.com)
+Copyright 2024 Ryan Wick (rrwick@gmail.com)
 https://github.com/rrwick/Autocycler
 
 This file is part of Autocycler. Autocycler is free software: you can redistribute it and/or modify
