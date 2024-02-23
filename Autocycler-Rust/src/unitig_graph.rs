@@ -69,8 +69,10 @@ impl UnitigGraph {
                 _ => {}
             }
         }
-        u_graph.build_links_from_gfa(&link_lines);
-        u_graph.build_paths_from_gfa(&path_lines);
+        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
+            u_graph.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
+        u_graph.build_links_from_gfa(&link_lines, &unitig_index);
+        u_graph.build_paths_from_gfa(&path_lines, &unitig_index);
         u_graph
     }
 
@@ -87,10 +89,8 @@ impl UnitigGraph {
                          Are you sure this is an Autocycler-generated GFA file?");
     }
 
-    fn build_links_from_gfa(&mut self, link_lines: &Vec<String>) {
-        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
-            self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
-
+    fn build_links_from_gfa(&mut self, link_lines: &Vec<String>,
+                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) {
         self.link_count = 0;
         for line in link_lines {
             let parts: Vec<&str> = line.split('\t').collect();
@@ -125,12 +125,63 @@ impl UnitigGraph {
         }
     }
 
-    fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+    fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>,
+                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) {
+        for line in path_lines {
+            let parts: Vec<&str> = line.split('\t').collect();
+            let seq_id: u16 = parts[1].parse().expect("Error parsing sequence ID as integer");
+            let mut length = None;
+            let mut filename = None;
+            let mut header = None;
+            for p in &parts[2..] {
+                if p.starts_with("LN:i:") {
+                    length = Some(p[5..].parse::<u32>().expect("Error parsing length"));
+                } else if p.starts_with("FN:Z:") {
+                    filename = Some(p[5..].to_string());
+                } else if p.starts_with("HD:Z:") {
+                    header = Some(p[5..].to_string());
+                }
+            }
+            if length.is_none() || filename.is_none() || header.is_none() {
+                quit_with_error("missing required tag in GFA path line.");
+            }
+            let length = length.unwrap();
+            let forward_path = Self::parse_unitig_path(parts[2]);
+            let reverse_path = Self::reverse_path(&forward_path);
+    
+            self.add_positions_from_path(&forward_path, true, seq_id, unitig_index, length);
+            self.add_positions_from_path(&reverse_path, false, seq_id, unitig_index, length);
+        }
+    }
+
+    fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
+                               unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>, length: u32) {
+        let half_k = self.k_size / 2;
+        let mut pos = half_k;
+
+        for (unitig_num, unitig_strand) in path {
+            if let Some(unitig) = unitig_index.get(unitig_num) {
+                let mut u = unitig.borrow_mut();
+                let positions = if *unitig_strand {
+                    &mut u.forward_positions
+                } else {
+                    &mut u.reverse_positions
+                };
+                positions.push(Position::new(seq_id, path_strand, pos as usize));
+                pos += u.length();
+                if u.dead_end_start(*unitig_strand) {
+                    pos -= half_k;
+                }
+                if u.dead_end_end(*unitig_strand) {
+                    pos -= half_k;
+                }
+            } else {
+                quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
+            }
+        }
+    
+        assert!(pos + half_k == length, "Position calculation mismatch");
+
     }
 
     fn build_unitigs_from_kmer_graph(&mut self, k_graph: &KmerGraph) {
@@ -396,5 +447,19 @@ impl UnitigGraph {
             }
         }
         unitig_path
+    }
+
+    fn parse_unitig_path(path_str: &str) -> Vec<(u32, bool)> {
+        path_str.split(',')
+            .map(|u| {
+                let strand = if u.ends_with('+') { true } else if u.ends_with('-') { false }
+                             else { panic!("Invalid path strand") };
+                let num = u[..u.len() - 1].parse::<u32>().expect("Error parsing unitig number");
+                (num, strand)
+            }).collect()
+    }
+
+    fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
+        path.iter().rev().map(|&(num, strand)| (num, !strand)).collect()
     }
 }

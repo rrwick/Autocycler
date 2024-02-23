@@ -36,7 +36,6 @@ fn load_graph(in_gfa: &PathBuf) -> UnitigGraph{
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
     let unitig_graph = UnitigGraph::from_gfa_file(&in_gfa);
-    eprintln!("k-mer size: {}", unitig_graph.k_size);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
     unitig_graph
