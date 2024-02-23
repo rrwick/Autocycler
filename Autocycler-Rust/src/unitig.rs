@@ -188,10 +188,6 @@ impl Unitig {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.forward_seq.len()
-    }
-
     pub fn length(&self) -> u32 {
         self.forward_seq.len() as u32
     }

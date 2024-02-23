@@ -13,9 +13,6 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt;
-use std::ptr;
-
-use crate::unitig::Unitig;
 
 
 #[derive(Clone)]

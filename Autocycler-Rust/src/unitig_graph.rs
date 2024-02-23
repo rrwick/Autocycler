@@ -12,7 +12,6 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write, BufRead, BufReader};
@@ -197,7 +196,6 @@ impl UnitigGraph {
             let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, &reverse_kmer);
             seen.insert(forward_kmer.seq());
             seen.insert(reverse_kmer.seq());
-            let starting_kmer = forward_kmer;
 
             // Extend unitig forward
             let mut for_k = forward_kmer;
@@ -219,7 +217,7 @@ impl UnitigGraph {
 
             // Extend unitig backward
             let mut for_k = forward_kmer;
-            let mut rev_k = reverse_kmer;
+            let mut rev_k;
             loop {
                 if for_k.first_position(half_k) { break; }
                 let prev_kmers = k_graph.prev_kmers(for_k.seq());

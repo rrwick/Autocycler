@@ -93,7 +93,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph, sequences: &Vec<Sequence>, out_gfa:
     explanation("All non-branching paths are now collapsed to form a compacted De Bruijn graph, \
                  a.k.a. a unitig graph.");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
-    unitig_graph.save_gfa(&out_gfa, &sequences);
+    unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
     eprintln!();

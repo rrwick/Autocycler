@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
+use crate::misc::check_if_file_exists;
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -29,6 +30,7 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
+    check_if_file_exists(&in_gfa);
 }
 
 

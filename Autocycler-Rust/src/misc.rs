@@ -56,8 +56,7 @@ pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
 
 pub fn check_if_file_exists(filename: &PathBuf) {
     if !Path::new(filename).exists() {
-        let error_message = format!("{:?} file does not exist", filename);
-        quit_with_error(&error_message);
+        quit_with_error(&format!("{:?} file does not exist", filename));
     }
 }
 
@@ -208,23 +207,6 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
         fasta_seqs.push((name, header, sequence));
     }
     Ok(fasta_seqs)
-}
-
-
-fn complement_base(base: char) -> char {
-    match base {
-        'A' => 'T', 'T' => 'A', 'G' => 'C', 'C' => 'G',
-        _ => 'N'
-    }
-}
-
-
-pub fn reverse_complement(seq: &str) -> String {
-    let mut rev_seq: String = String::with_capacity(seq.len());
-    for c in seq.chars().rev() {
-        rev_seq.push(complement_base(c))
-    }
-    rev_seq
 }
 
 
