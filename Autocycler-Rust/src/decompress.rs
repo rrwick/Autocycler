@@ -9,9 +9,10 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::log::{section_header, explanation};
-
 use std::path::PathBuf;
+
+use crate::log::{section_header, explanation};
+use crate::unitig_graph::UnitigGraph;
 
 
 pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
@@ -20,6 +21,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
                  compress), reconstruct the assemblies used to build that graph and save them \
                  in the specified directory.");
     print_settings(&in_gfa, &out_dir);
+    let unitig_graph = load_graph(&in_gfa);
 }
 
 
@@ -27,4 +29,15 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
+}
+
+
+fn load_graph(in_gfa: &PathBuf) -> UnitigGraph{
+    section_header("Loading graph");
+    explanation("The compressed sequence graph is now loaded into memory.");
+    let unitig_graph = UnitigGraph::from_gfa_file(&in_gfa);
+    eprintln!("k-mer size: {}", unitig_graph.k_size);
+    eprintln!("{} unitigs", unitig_graph.unitigs.len());
+    eprintln!("{} links", unitig_graph.link_count);
+    unitig_graph
 }

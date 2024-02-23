@@ -23,11 +23,12 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
+use crate::misc::quit_with_error;
 
 
 pub struct UnitigGraph {
     pub unitigs: Vec<Rc<RefCell<Unitig>>>,
-    k_size: u32,
+    pub k_size: u32,
     pub link_count: usize,
 }
 
@@ -60,7 +61,7 @@ impl UnitigGraph {
             let line = line_result.unwrap();
             let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
             match parts.get(0) {
-                Some(&"H") => u_graph.read_gfa_header_line(&line),
+                Some(&"H") => u_graph.read_gfa_header_line(&parts),
                 Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(
                                                    Unitig::from_segment_line(&line)))),
                 Some(&"L") => link_lines.push(line),
@@ -73,20 +74,55 @@ impl UnitigGraph {
         u_graph
     }
 
-    fn read_gfa_header_line(&mut self, line: &str) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+    fn read_gfa_header_line(&mut self, parts: &Vec<&str>) {
+        for &p in parts {
+            if p.starts_with("KM:i:") {
+                if let Ok(k) = p[5..].parse::<u32>() {
+                    self.k_size = k;
+                    return;
+                }
+            }
+        }
+        quit_with_error("could not find a valid k-mer tag (e.g. KM:i:51) in the GFA header line.\n\
+                         Are you sure this is an Autocycler-generated GFA file?");
     }
 
     fn build_links_from_gfa(&mut self, link_lines: &Vec<String>) {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
+            self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
+
+        self.link_count = 0;
+        for line in link_lines {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 6 || parts[5] != "0M" {
+                quit_with_error("non-zero overlap found on the GFA link line.\n\
+                                 Are you sure this is an Autocycler-generated GFA file?");
+                return;
+            }
+            let seg_1: u32 = parts[1].parse().expect("Error parsing segment 1 as integer");
+            let seg_2: u32 = parts[3].parse().expect("Error parsing segment 2 as integer");
+            let strand_1 = parts[2] == "+";
+            let strand_2 = parts[4] == "+";
+            if let Some(unitig_1) = unitig_index.get(&seg_1) {
+                if let Some(unitig_2) = unitig_index.get(&seg_2) {
+                    if strand_1 {
+                        unitig_1.borrow_mut().forward_next.push((Rc::clone(unitig_2), strand_2));
+                    } else {
+                        unitig_1.borrow_mut().reverse_next.push((Rc::clone(unitig_2), strand_2));
+                    }
+                    if strand_2 {
+                        unitig_2.borrow_mut().forward_prev.push((Rc::clone(unitig_1), strand_1));
+                    } else {
+                        unitig_2.borrow_mut().reverse_prev.push((Rc::clone(unitig_1), strand_1));
+                    }
+                    self.link_count += 1;
+                } else {
+                    quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_2));
+                }
+            } else {
+                quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_1));
+            }
+        }
     }
 
     fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>) {
