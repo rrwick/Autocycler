@@ -11,11 +11,13 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
@@ -24,7 +26,7 @@ use crate::unitig::Unitig;
 
 
 pub struct UnitigGraph {
-    pub unitigs: Vec<Unitig>,
+    pub unitigs: Vec<Rc<RefCell<Unitig>>>,
     k_size: u32,
     pub link_count: usize,
 }
@@ -59,7 +61,8 @@ impl UnitigGraph {
             let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
             match parts.get(0) {
                 Some(&"H") => u_graph.read_gfa_header_line(&line),
-                Some(&"S") => u_graph.unitigs.push(Unitig::from_segment_line(&line)),
+                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(
+                                                   Unitig::from_segment_line(&line)))),
                 Some(&"L") => link_lines.push(line),
                 Some(&"P") => path_lines.push(line),
                 _ => {}
@@ -144,13 +147,13 @@ impl UnitigGraph {
                 seen.insert(for_k.seq());
                 seen.insert(rev_k.seq());
             }
-            self.unitigs.push(unitig);
+            self.unitigs.push(Rc::new(RefCell::new(unitig)));
         }
     }
 
     fn simplify_seqs(&mut self) {
-        for unitig in &mut self.unitigs {
-            unitig.simplify_seqs();
+        for unitig in &self.unitigs {
+            unitig.borrow_mut().simplify_seqs();
         }
     }
 
@@ -161,8 +164,8 @@ impl UnitigGraph {
         let mut forward_starts = HashMap::new();
         let mut reverse_starts = HashMap::new();
         for (i, unitig) in self.unitigs.iter().enumerate() {
-            let forward_key = unitig.forward_seq[..piece_len].to_vec();
-            let reverse_key = unitig.reverse_seq[..piece_len].to_vec();
+            let forward_key = unitig.borrow().forward_seq[..piece_len].to_vec();
+            let reverse_key = unitig.borrow().reverse_seq[..piece_len].to_vec();
             forward_starts.entry(forward_key).or_insert_with(Vec::new).push(i);
             reverse_starts.entry(reverse_key).or_insert_with(Vec::new).push(i);
         }
@@ -170,90 +173,82 @@ impl UnitigGraph {
         // Use the indices to find connections between unitigs.
         self.link_count = 0;
         for i in 0..self.unitigs.len() {
-            unsafe {
-                let unitig_a = self.unitigs.get_unchecked_mut(i) as *mut Unitig;
-                let ending_forward_seq = self.unitigs[i].forward_seq[self.unitigs[i].len() - piece_len..].to_vec();
-                let ending_reverse_seq = self.unitigs[i].reverse_seq[self.unitigs[i].len() - piece_len..].to_vec();
+            let unitig_a = Rc::clone(&self.unitigs[i]);
+            let ending_forward_seq = unitig_a.borrow().forward_seq[unitig_a.borrow().forward_seq.len() - piece_len..].to_vec();
+            let ending_reverse_seq = unitig_a.borrow().reverse_seq[unitig_a.borrow().reverse_seq.len() - piece_len..].to_vec();
 
-                if let Some(next_idxs) = forward_starts.get(&ending_forward_seq) {
-                    for &j in next_idxs {
-                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+            if let Some(next_idxs) = forward_starts.get(&ending_forward_seq) {
+                for &j in next_idxs {
+                    let unitig_b = Rc::clone(&self.unitigs[j]);
 
-                        // unitig_a+ -> unitig_b+
-                        (*unitig_a).forward_next.push((unitig_b, true));
-                        (*unitig_b).forward_prev.push((unitig_a, true));
-                        self.link_count += 1;
+                    // unitig_a+ -> unitig_b+
+                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), true));
+                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), true));
+                    self.link_count += 1;
 
-                        // unitig_b- -> unitig_a-
-                        (*unitig_b).reverse_next.push((unitig_a, false));
-                        (*unitig_a).reverse_prev.push((unitig_b, false));
-                        self.link_count += 1;
-                    }
+                    // unitig_b- -> unitig_a-
+                    unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), false));
+                    unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), false));
+                    self.link_count += 1;
                 }
+            }
 
-                if let Some(next_idxs) = reverse_starts.get(&ending_forward_seq) {
-                    for &j in next_idxs {
-                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+            if let Some(next_idxs) = reverse_starts.get(&ending_forward_seq) {
+                for &j in next_idxs {
+                    let unitig_b = Rc::clone(&self.unitigs[j]);
 
-                        // unitig_a+ -> unitig_b-
-                        (*unitig_a).forward_next.push((unitig_b, false));
-                        (*unitig_b).reverse_prev.push((unitig_a, true));
-                        self.link_count += 1;
-                    }
+                    // unitig_a+ -> unitig_b-
+                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), false));
+                    unitig_b.borrow_mut().reverse_prev.push((Rc::clone(&unitig_a), true));
+                    self.link_count += 1;
                 }
+            }
 
-                if let Some(next_idxs) = forward_starts.get(&ending_reverse_seq) {
-                    for &j in next_idxs {
-                        let unitig_b = self.unitigs.get_unchecked_mut(j) as *mut Unitig;
+            if let Some(next_idxs) = forward_starts.get(&ending_reverse_seq) {
+                for &j in next_idxs {
+                    let unitig_b = Rc::clone(&self.unitigs[j]);
 
-                        // unitig_a- -> unitig_b+
-                        (*unitig_a).reverse_next.push((unitig_b, true));
-                        (*unitig_b).forward_prev.push((unitig_a, false));
-                        self.link_count += 1;
-                    }
+                    // unitig_a- -> unitig_b+
+                    unitig_a.borrow_mut().reverse_next.push((Rc::clone(&unitig_b), true));
+                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), false));
+                    self.link_count += 1;
                 }
             }
         }
     }
 
     fn trim_overlaps(&mut self) {
-        for unitig in &mut self.unitigs {
-            unitig.trim_overlaps(self.k_size as usize);
+        for unitig in &self.unitigs {
+            unitig.borrow_mut().trim_overlaps(self.k_size as usize);
         }
     }
 
     fn renumber_unitigs(&mut self) {
-        // This method reorders Unitigs by: length (decreasing), sequence (lexicographic) and
-        // depth (decreasing). Importantly, it does not sort the self.unitigs vector, as that would
-        // invalidate the raw pointers between Unitig objects.
-        let mut unitig_data: Vec<(f64, Vec<u8>, f64, usize)> = self.unitigs.iter().enumerate()
-            .map(|(i, unitig)| {
-                let length_inverse = 1.0 / (unitig.length() as f64);
-                let seq_clone = unitig.forward_seq.clone();
-                let depth_inverse = 1.0 / unitig.depth;
-                (length_inverse, seq_clone, depth_inverse, i)
-            }).collect();
-        unitig_data.sort_by(|(a_length, a_seq, a_depth, _), (b_length, b_seq, b_depth, _)| {
-            (a_length, a_seq, a_depth).partial_cmp(&(b_length, b_seq, b_depth)).unwrap_or(std::cmp::Ordering::Equal)
+        // This method sorts and renumbers Unitigs by: length (decreasing), sequence (lexicographic)
+        // and depth (decreasing).
+        self.unitigs.sort_by(|a_rc, b_rc| {
+            let a = a_rc.borrow();
+            let b = b_rc.borrow();
+            let length_cmp = a.length().cmp(&b.length()).reverse();
+            if length_cmp != std::cmp::Ordering::Equal {
+                return length_cmp;
+            }
+            let seq_cmp = a.forward_seq.cmp(&b.forward_seq);
+            if seq_cmp != std::cmp::Ordering::Equal {
+                return seq_cmp;
+            }
+            a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal).reverse()
         });
-        for (new_number, (_, _, _, i)) in unitig_data.into_iter().enumerate() {
-            self.unitigs[i].number = (new_number + 1) as u32;
+        for (new_number, unitig) in self.unitigs.iter().enumerate() {
+            unitig.borrow_mut().number = (new_number + 1) as u32;
         }
-    }
-
-    pub fn iterate_unitigs(&self) -> impl Iterator<Item = &Unitig> {
-        // This method allows for iterating over the Unitigs in their number order, despite the
-        // fact that the self.unitigs vector is not sorted in number order.
-        let mut unitig_refs: Vec<&Unitig> = self.unitigs.iter().collect();
-        unitig_refs.sort_by_key(|u| u.number);
-        unitig_refs.into_iter()
     }
 
     pub fn save_gfa(&self, gfa_filename: &PathBuf, sequences: &Vec<Sequence>) -> io::Result<()> {
         let mut file = File::create(gfa_filename)?;
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
-        for unitig in self.iterate_unitigs() {
-            writeln!(file, "{}", unitig.gfa_segment_line())?;
+        for unitig in &self.unitigs {
+            writeln!(file, "{}", unitig.borrow().gfa_segment_line())?;
         }
         for (a, a_strand, b, b_strand) in self.get_links_for_gfa() {
             writeln!(file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand)?;
@@ -266,20 +261,18 @@ impl UnitigGraph {
 
     fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
         let mut links = Vec::new();
-        for a in self.iterate_unitigs() {
-            unsafe {
-                for &(b_ptr, b_strand) in &a.forward_next {
-                    if let Some(b) = b_ptr.as_ref() {
-                        links.push((a.number.to_string(), "+".to_string(), b.number.to_string(),
-                                   (if b_strand {"+"} else {"-"}).to_string()));
-                    }
-                }
-                for &(b_ptr, b_strand) in &a.reverse_next {
-                    if let Some(b) = b_ptr.as_ref() {
-                        links.push((a.number.to_string(), "-".to_string(), b.number.to_string(),
-                                   (if b_strand {"+"} else {"-"}).to_string()));
-                    }
-                }
+        for a_rc in &self.unitigs {
+            let a = a_rc.borrow();
+            for (b_rc, b_strand) in &a.forward_next {
+                let b = b_rc.borrow();
+                links.push((a.number.to_string(), "+".to_string(), b.number.to_string(),
+                            (if *b_strand {"+"} else {"-"}).to_string()));
+            }
+
+            for (b_rc, b_strand) in &a.reverse_next {
+                let b = b_rc.borrow();
+                links.push((a.number.to_string(), "-".to_string(), b.number.to_string(),
+                            (if *b_strand {"+"} else {"-"}).to_string()));
             }
         }
         links
@@ -314,36 +307,38 @@ impl UnitigGraph {
                       "assembly.fasta".to_string(), "contig_1".to_string(), 20)  // TEMP
     }
 
-    fn find_starting_unitig(&self, seq_id: u16) -> (&Unitig, bool) {
+    fn find_starting_unitig(&self, seq_id: u16) -> (Rc<RefCell<Unitig>>, bool) {
         // For a given sequence ID, this function returns the Unitig and strand where that sequence
         // begins.
         let half_k = self.k_size / 2;
         let mut starting_unitigs = Vec::new();
         for unitig in &self.unitigs {
-            for p in &unitig.forward_positions {
+            for p in &unitig.borrow().forward_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((unitig, true));
+                    starting_unitigs.push((Rc::clone(unitig), true));
                 }
             }
-            for p in &unitig.reverse_positions {
+            for p in &unitig.borrow().reverse_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((unitig, false));
+                    starting_unitigs.push((Rc::clone(unitig), false));
                 }
             }
         }
         assert_eq!(starting_unitigs.len(), 1);
-        starting_unitigs[0]
+        starting_unitigs[0].clone()
     }
 
-    fn get_next_unitig(&self, seq_id: u16, unitig: &Unitig, strand: bool, pos: u32) -> Option<(&Unitig, bool, u32)> {
+    fn get_next_unitig(&self, seq_id: u16, unitig_rc: &Rc<RefCell<Unitig>>, strand: bool,
+                       pos: u32) -> Option<(Rc<RefCell<Unitig>>, bool, u32)> {
+        let unitig = unitig_rc.borrow();
         let next_pos = pos + unitig.untrimmed_length(self.k_size as usize) - self.k_size as u32 + 1;
         let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
-        for &(next_unitig, next_strand) in next_unitigs {
-            let u = unsafe{next_unitig.as_ref()}.unwrap();
-            let positions = if next_strand { &u.forward_positions } else { &u.reverse_positions};
+        for (next_unitig_rc, next_strand) in next_unitigs {
+            let u = next_unitig_rc.borrow();
+            let positions = if *next_strand { &u.forward_positions } else { &u.reverse_positions};
             for p in positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == next_pos {
-                    return Some((&u, next_strand, next_pos));
+                    return Some((Rc::clone(next_unitig_rc), *next_strand, next_pos));
                 }
             }
         }
@@ -351,14 +346,13 @@ impl UnitigGraph {
     }
 
     fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
-        let total_length = seq.length as u32;
         let half_k = self.k_size / 2;
         let mut unitig_path = Vec::new();
         let (mut unitig, mut strand) = self.find_starting_unitig(seq.id);
         let mut pos = half_k;
         loop {
-            unitig_path.push((unitig.number, strand));
-            match self.get_next_unitig(seq.id, unitig, strand, pos) {
+            unitig_path.push((unitig.borrow().number, strand));
+            match self.get_next_unitig(seq.id, &unitig, strand, pos) {
                 None => break,
                 Some((next_unitig, next_strand, next_pos)) => {
                     (unitig, strand, pos) = (next_unitig, next_strand, next_pos);

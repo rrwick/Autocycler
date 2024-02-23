@@ -11,8 +11,10 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
+use std::rc::Rc;
 
 use crate::kmer_graph::Kmer;
 use crate::misc::{reverse_complement_u8, quit_with_error};
@@ -28,10 +30,10 @@ pub struct Unitig {
     pub depth: f64,
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
-    pub forward_next: Vec<(*mut Unitig, bool)>,
-    pub forward_prev: Vec<(*mut Unitig, bool)>,
-    pub reverse_next: Vec<(*mut Unitig, bool)>,
-    pub reverse_prev: Vec<(*mut Unitig, bool)>,
+    pub forward_next: Vec<(Rc<RefCell<Unitig>>, bool)>,
+    pub forward_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
+    pub reverse_next: Vec<(Rc<RefCell<Unitig>>, bool)>,
+    pub reverse_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
     trimmed: bool,
 }
 
