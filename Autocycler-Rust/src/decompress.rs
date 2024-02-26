@@ -9,10 +9,11 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fs;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::check_if_file_exists;
+use crate::misc::{check_if_file_exists, quit_with_error};
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -22,7 +23,11 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
                  compress), reconstruct the assemblies used to build that graph and save them \
                  in the specified directory.");
     print_settings(&in_gfa, &out_dir);
+    create_output_dir(&out_dir);
     let unitig_graph = load_graph(&in_gfa);
+    let seqs = unitig_graph.reconstruct_original_sequences();
+
+    unitig_graph.save_gfa(&out_dir.join("temp_test.gfa"), &seqs);
 }
 
 
@@ -31,6 +36,14 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
     check_if_file_exists(&in_gfa);
+}
+
+
+fn create_output_dir(out_dir: &PathBuf) {
+    match fs::create_dir_all(&out_dir) {
+        Ok(_) => {},
+        Err(e) => quit_with_error(&format!("failed to create output directory\n{:?}", e)),
+    }
 }
 
 
