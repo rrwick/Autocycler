@@ -206,21 +206,18 @@ impl Unitig {
 
     pub fn get_seq(&self, strand: bool, upstream: usize, downstream: usize) -> Vec<u8> {
         // This function returns the unitig's sequence on the given strand. It can also add on a
-        // bit of upstream or downstream sequence, if available. Note that this only works up to
-        // the overlap size, because this is the amount of upstream/downstream sequence that can be
-        // reliably found, regardless of path.
+        // bit of upstream or downstream sequence, if available.
         let mut seq = Vec::new();
         if upstream > 0 {
-            let upstream_seq = self.get_upstream_seq(strand, upstream);
-            seq.extend(&upstream_seq);
+            seq.extend(self.get_upstream_seq(strand, upstream));
         }
-        match strand {
-            true => seq.extend(&self.forward_seq),
-            false => seq.extend(&self.reverse_seq),
-        };
+        if strand {
+            seq.extend(&self.forward_seq);
+        } else {
+            seq.extend(&self.reverse_seq);
+        }
         if downstream > 0 {
-            let downstream_seq = self.get_downstream_seq(strand, downstream);
-            seq.extend(&downstream_seq);
+            seq.extend(self.get_downstream_seq(strand, downstream));
         }
         seq
     }
@@ -231,11 +228,9 @@ impl Unitig {
         let mut current_strand = strand;
         unsafe {
             loop {
-                let prev_unitigs = match current_strand {
-                    true => &(*current_unitig).forward_prev,
-                    false => &(*current_unitig).reverse_prev,
-                };
-                if prev_unitigs.len() == 0 { break; }
+                let prev_unitigs = if current_strand { &(*current_unitig).forward_prev }
+                                                else { &(*current_unitig).reverse_prev };
+                if prev_unitigs.is_empty() { break; }
                 let (prev_unitig, prev_strand) = prev_unitigs.first().unwrap();
                 let mut seq = prev_unitig.borrow().get_seq(*prev_strand, 0, 0);
                 seq.extend(upstream_seq);
@@ -255,11 +250,9 @@ impl Unitig {
         let mut current_strand = strand;
         unsafe {
             loop {
-                let next_unitigs = match current_strand {
-                    true => &(*current_unitig).forward_next,
-                    false => &(*current_unitig).reverse_next,
-                };
-                if next_unitigs.len() == 0 { break; }
+                let next_unitigs = if current_strand { &(*current_unitig).forward_next }
+                                                else { &(*current_unitig).reverse_next };
+                if next_unitigs.is_empty() { break; }
                 let (next_unitig, next_strand) = next_unitigs.first().unwrap();
                 let seq = next_unitig.borrow().get_seq(*next_strand, 0, 0);
                 downstream_seq.extend(seq);
@@ -268,11 +261,7 @@ impl Unitig {
                 current_strand = *next_strand;
             }
         }
-        let end = if amount > downstream_seq.len() {
-            downstream_seq.len()
-        } else {
-            amount
-        };
+        let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
         downstream_seq[..end].to_vec()
     }
 }
