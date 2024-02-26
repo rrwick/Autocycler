@@ -392,21 +392,28 @@ impl UnitigGraph {
                                      unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>)
                                      -> (String, String, String) {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
-        let unitigs = self.get_unitig_path_for_sequence(&seq);
-        let half_k = self.k_size / 2;
-        let mut sequence = Vec::new();
-
-        for (i, (unitig_num, strand)) in unitigs.iter().enumerate() {
-            let unitig = unitig_index.get(unitig_num).unwrap();
-            let upstream = if i == 0 { half_k } else { 0 };
-            let downstream = if i == unitigs.len() - 1 { half_k } else { 0 };
-            sequence.push(unitig.borrow().get_seq(*strand, upstream, downstream));
-        }
-        let sequence: String = sequence.into_iter().collect();
+        let path = self.get_unitig_path_for_sequence(&seq);
+        let sequence = self.get_sequence_from_path(&path, &unitig_index);
         // assert_eq!(sequence.len(), seq.length,
         //            "reconstructed sequence does not have expected length");  // TODO: uncomment this once get_seq is implemented.
 
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
+    }
+
+    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>,
+                              unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) -> String {
+        // Given a path (vector of unitig IDs and strands), this function returns the sequence
+        // traced by that path. It also requires a unitig index so it can quickly look up unitigs
+        // by their number.
+        let half_k = self.k_size / 2;
+        let mut sequence = Vec::new();
+        for (i, (unitig_num, strand)) in path.iter().enumerate() {
+            let unitig = unitig_index.get(unitig_num).unwrap();
+            let upstream = if i == 0 { half_k } else { 0 };
+            let downstream = if i == path.len() - 1 { half_k } else { 0 };
+            sequence.push(unitig.borrow().get_seq(*strand, upstream, downstream));
+        }
+        sequence.into_iter().collect()
     }
 
     fn find_starting_unitig(&self, seq_id: u16) -> (Rc<RefCell<Unitig>>, bool) {

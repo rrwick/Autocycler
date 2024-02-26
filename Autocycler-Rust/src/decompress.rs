@@ -9,6 +9,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::fs;
 use std::fs::File;
@@ -32,27 +33,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     let (unitig_graph, sequences) = load_graph(&in_gfa);
     unitig_graph.save_gfa(&out_dir.join("temp_test.gfa"), &sequences);  // TEMP - this graph should be identical to the input graph
     let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);
-    
-    for (filename, headers_seqs) in original_seqs {
-        let file_path = out_dir.join(filename);
-        let file = File::create(&file_path).unwrap();
-        if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            let writer = GzEncoder::new(file, Compression::default());
-            let mut buf_writer = BufWriter::new(writer);
-
-            for (header, seq) in headers_seqs {
-                writeln!(buf_writer, ">{}", header).unwrap();
-                writeln!(buf_writer, "{}", seq).unwrap();
-            }
-        } else {
-            let mut buf_writer = BufWriter::new(file);
-
-            for (header, seq) in headers_seqs {
-                writeln!(buf_writer, ">{}", header).unwrap();
-                writeln!(buf_writer, "{}", seq).unwrap();
-            }
-        }
-    }
+    save_original_seqs(&out_dir, original_seqs);
 }
 
 
@@ -79,4 +60,26 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
     (unitig_graph, sequences)
+}
+
+
+fn save_original_seqs(out_dir: &PathBuf, original_seqs: HashMap<String, Vec<(String, String)>>) {
+    for (filename, headers_seqs) in original_seqs {
+        let file_path = out_dir.join(filename);
+        let file = File::create(&file_path).unwrap();
+        if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            let writer = GzEncoder::new(file, Compression::default());
+            let mut buf_writer = BufWriter::new(writer);
+            for (header, seq) in headers_seqs {
+                writeln!(buf_writer, ">{}", header).unwrap();
+                writeln!(buf_writer, "{}", seq).unwrap();
+            }
+        } else {
+            let mut buf_writer = BufWriter::new(file);
+            for (header, seq) in headers_seqs {
+                writeln!(buf_writer, ">{}", header).unwrap();
+                writeln!(buf_writer, "{}", seq).unwrap();
+            }
+        }
+    }
 }
