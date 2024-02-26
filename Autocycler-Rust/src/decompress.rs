@@ -9,11 +9,16 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::io::{BufWriter, Write};
 use std::fs;
+use std::fs::File;
 use std::path::PathBuf;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_file_exists, quit_with_error};
+use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -24,10 +29,30 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
                  in the specified directory.");
     print_settings(&in_gfa, &out_dir);
     create_output_dir(&out_dir);
-    let unitig_graph = load_graph(&in_gfa);
-    let seqs = unitig_graph.reconstruct_original_sequences();
+    let (unitig_graph, sequences) = load_graph(&in_gfa);
+    unitig_graph.save_gfa(&out_dir.join("temp_test.gfa"), &sequences);  // TEMP - this graph should be identical to the input graph
+    let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);
+    
+    for (filename, headers_seqs) in original_seqs {
+        let file_path = out_dir.join(filename);
+        let file = File::create(&file_path).unwrap();
+        if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            let writer = GzEncoder::new(file, Compression::default());
+            let mut buf_writer = BufWriter::new(writer);
 
-    unitig_graph.save_gfa(&out_dir.join("temp_test.gfa"), &seqs);
+            for (header, seq) in headers_seqs {
+                writeln!(buf_writer, ">{}", header).unwrap();
+                writeln!(buf_writer, "{}", seq).unwrap();
+            }
+        } else {
+            let mut buf_writer = BufWriter::new(file);
+
+            for (header, seq) in headers_seqs {
+                writeln!(buf_writer, ">{}", header).unwrap();
+                writeln!(buf_writer, "{}", seq).unwrap();
+            }
+        }
+    }
 }
 
 
@@ -47,11 +72,11 @@ fn create_output_dir(out_dir: &PathBuf) {
 }
 
 
-fn load_graph(in_gfa: &PathBuf) -> UnitigGraph{
+fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
-    let unitig_graph = UnitigGraph::from_gfa_file(&in_gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
-    unitig_graph
+    (unitig_graph, sequences)
 }

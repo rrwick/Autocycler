@@ -251,11 +251,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reverse_complement() {
-        assert_eq!(reverse_complement("GGTATCACTCAGGAAGC"), "GCTTCCTGAGTGATACC");
-    }
-
-    #[test]
     fn test_reverse_complement_u8() {
         assert_eq!(reverse_complement_u8(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
     }

@@ -41,4 +41,12 @@ impl Sequence {
             length,
         }
     }
+
+    pub fn contig_name(&self) -> String {
+        self.contig_header
+            .split_whitespace()
+            .next() // Take the first element of the iterator
+            .unwrap_or("") // In case there's no whitespace, return the whole string or a default empty string
+            .to_string() // Convert the slice to a String        
+    }
 }

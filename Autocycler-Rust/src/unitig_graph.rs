@@ -18,6 +18,7 @@ use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::log::section_header;
 use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
@@ -46,7 +47,7 @@ impl UnitigGraph {
         u_graph
     }
 
-    pub fn from_gfa_file(gfa_filename: &PathBuf) -> Self {
+    pub fn from_gfa_file(gfa_filename: &PathBuf) -> (Self, Vec<Sequence>) {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,
@@ -71,8 +72,8 @@ impl UnitigGraph {
         let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
             u_graph.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
         u_graph.build_links_from_gfa(&link_lines, &unitig_index);
-        u_graph.build_paths_from_gfa(&path_lines, &unitig_index);
-        u_graph
+        let sequences = u_graph.build_paths_from_gfa(&path_lines, &unitig_index);
+        (u_graph, sequences)
     }
 
     fn read_gfa_header_line(&mut self, parts: &Vec<&str>) {
@@ -125,7 +126,8 @@ impl UnitigGraph {
     }
 
     fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>,
-                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) {
+                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) -> Vec<Sequence> {
+        let mut sequences = Vec::new();
         for line in path_lines {
             let parts: Vec<&str> = line.split('\t').collect();
             let seq_id: u16 = parts[1].parse().expect("Error parsing sequence ID as integer");
@@ -147,10 +149,12 @@ impl UnitigGraph {
             let length = length.unwrap();
             let forward_path = Self::parse_unitig_path(parts[2]);
             let reverse_path = Self::reverse_path(&forward_path);
-    
             self.add_positions_from_path(&forward_path, true, seq_id, unitig_index, length);
             self.add_positions_from_path(&reverse_path, false, seq_id, unitig_index, length);
+            sequences.push(Sequence::new(seq_id, String::new(),
+                                         filename.unwrap(), header.unwrap(), length as usize));
         }
+        sequences
     }
 
     fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
@@ -372,24 +376,37 @@ impl UnitigGraph {
                 seq.id, path_str, seq.length, seq.filename, seq.contig_header)
     }
 
-    pub fn reconstruct_original_sequences(&self) -> Vec<Sequence> {
-        let mut original_seqs = Vec::new();
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
+    pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
+        section_header("Reconstructing input assemblies from unitig graph");
+        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
+            self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
+        let mut original_seqs: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for seq in seqs {
+            let (filename, header, sequence) =  self.reconstruct_original_sequence(&seq, &unitig_index);
+            original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
+        }
         original_seqs
     }
 
-    fn reconstruct_original_sequence(&self) -> Sequence {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                      "assembly.fasta".to_string(), "contig_1".to_string(), 20)  // TEMP
+    fn reconstruct_original_sequence(&self, seq: &Sequence,
+                                     unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>)
+                                     -> (String, String, String) {
+        eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
+        let unitigs = self.get_unitig_path_for_sequence(&seq);
+        let half_k = self.k_size / 2;
+        let mut sequence = Vec::new();
+
+        for (i, (unitig_num, strand)) in unitigs.iter().enumerate() {
+            let unitig = unitig_index.get(unitig_num).unwrap();
+            let upstream = if i == 0 { half_k } else { 0 };
+            let downstream = if i == unitigs.len() - 1 { half_k } else { 0 };
+            sequence.push(unitig.borrow().get_seq(*strand, upstream, downstream));
+        }
+        let sequence: String = sequence.into_iter().collect();
+        // assert_eq!(sequence.len(), seq.length,
+        //            "reconstructed sequence does not have expected length");  // TODO: uncomment this once get_seq is implemented.
+
+        (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
     fn find_starting_unitig(&self, seq_id: u16) -> (Rc<RefCell<Unitig>>, bool) {

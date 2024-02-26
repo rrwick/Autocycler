@@ -203,6 +203,26 @@ impl Unitig {
         }
         untrimmed_length as u32
     }
+
+    pub fn get_seq(&self, strand: bool, upstream: u32, downstream: u32) -> String {
+        // This function returns the unitig's sequence on the given strand. It can also add on a
+        // bit of upstream or downstream sequence, if available. Note that this only works up to
+        // the overlap size, because this is the amount of upstream/downstream sequence that can be
+        // reliably found, regardless of path.
+
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+        // TODO
+
+        return "ACGT".to_string();  // TEMP
+    }
 }
 
 impl fmt::Display for Unitig {
