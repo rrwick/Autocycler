@@ -404,9 +404,9 @@ impl UnitigGraph {
         let mut sequence = Vec::new();
         for (i, (unitig_num, strand)) in path.iter().enumerate() {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
-            let upstream = if i == 0 { half_k } else { 0 };
-            let downstream = if i == path.len() - 1 { half_k } else { 0 };
-            sequence.push(unitig.borrow().get_seq(*strand, upstream, downstream));
+            let upstream = if i == 0 { half_k as usize } else { 0 };
+            let downstream = if i == path.len() - 1 { half_k as usize } else { 0 };
+            sequence.push(String::from_utf8(unitig.borrow().get_seq(*strand, upstream, downstream)).unwrap());
         }
         sequence.into_iter().collect()
     }
