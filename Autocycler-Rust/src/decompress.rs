@@ -9,7 +9,6 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::fs;
 use std::fs::File;
@@ -31,9 +30,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     print_settings(&in_gfa, &out_dir);
     create_output_dir(&out_dir);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
-    unitig_graph.save_gfa(&out_dir.join("temp_test.gfa"), &sequences);  // TEMP - this graph should be identical to the input graph
-    let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);
-    save_original_seqs(&out_dir, original_seqs);
+    save_original_seqs(&out_dir, unitig_graph, sequences);
 }
 
 
@@ -63,7 +60,10 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn save_original_seqs(out_dir: &PathBuf, original_seqs: HashMap<String, Vec<(String, String)>>) {
+fn save_original_seqs(out_dir: &PathBuf, unitig_graph: UnitigGraph, sequences: Vec<Sequence>) {
+    section_header("Reconstructing assemblies from unitig graph");
+    explanation("Each contig is reconstructed by tracing its path through the unitig graph");
+    let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);
     for (filename, headers_seqs) in original_seqs {
         let file_path = out_dir.join(filename);
         let file = File::create(&file_path).unwrap();
@@ -82,4 +82,5 @@ fn save_original_seqs(out_dir: &PathBuf, original_seqs: HashMap<String, Vec<(Str
             }
         }
     }
+    eprintln!();
 }

@@ -226,21 +226,54 @@ impl Unitig {
     }
 
     fn get_upstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        return "AAAAAAAAA".as_bytes().to_vec();  // TEMP
+        let mut upstream_seq = Vec::new();
+        let mut current_unitig = self as *const Unitig;
+        let mut current_strand = strand;
+        unsafe {
+            loop {
+                let prev_unitigs = match current_strand {
+                    true => &(*current_unitig).forward_prev,
+                    false => &(*current_unitig).reverse_prev,
+                };
+                if prev_unitigs.len() == 0 { break; }
+                let (prev_unitig, prev_strand) = prev_unitigs.first().unwrap();
+                let mut seq = prev_unitig.borrow().get_seq(*prev_strand, 0, 0);
+                seq.extend(upstream_seq);
+                upstream_seq = seq;
+                if upstream_seq.len() >= amount { break; }
+                current_unitig = &*prev_unitig.borrow() as *const Unitig;
+                current_strand = *prev_strand;
+            }
+        }
+        let start = upstream_seq.len().saturating_sub(amount);
+        upstream_seq[start..].to_vec()
     }
 
     fn get_downstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        return "TTTTTTTTT".as_bytes().to_vec();  // TEMP
+        let mut downstream_seq = Vec::new();
+        let mut current_unitig = self as *const Unitig;
+        let mut current_strand = strand;
+        unsafe {
+            loop {
+                let next_unitigs = match current_strand {
+                    true => &(*current_unitig).forward_next,
+                    false => &(*current_unitig).reverse_next,
+                };
+                if next_unitigs.len() == 0 { break; }
+                let (next_unitig, next_strand) = next_unitigs.first().unwrap();
+                let seq = next_unitig.borrow().get_seq(*next_strand, 0, 0);
+                downstream_seq.extend(seq);
+                if downstream_seq.len() >= amount { break; }
+                current_unitig = &*next_unitig.borrow() as *const Unitig;
+                current_strand = *next_strand;
+            }
+        }
+        let end = if amount > downstream_seq.len() {
+            downstream_seq.len()
+        } else {
+            amount
+        };
+        downstream_seq[..end].to_vec()
     }
 }
 

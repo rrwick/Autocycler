@@ -27,7 +27,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     starting_message(&in_dir, &out_gfa, k_size);
     let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
-    let unitig_graph = build_unitig_graph(kmer_graph, &sequences, &out_gfa);
+    build_unitig_graph(kmer_graph, &sequences, &out_gfa);
     finished_message(start_time, out_gfa);
 }
 

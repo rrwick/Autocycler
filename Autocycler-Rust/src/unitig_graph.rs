@@ -18,7 +18,6 @@ use std::io::{self, Write, BufRead, BufReader};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::log::section_header;
 use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
@@ -378,10 +377,9 @@ impl UnitigGraph {
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
-        section_header("Reconstructing input assemblies from unitig graph");
         let mut original_seqs: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for seq in seqs {
-            let (filename, header, sequence) =  self.reconstruct_original_sequence(&seq);
+            let (filename, header, sequence) = self.reconstruct_original_sequence(&seq);
             original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
         }
         original_seqs
@@ -391,8 +389,7 @@ impl UnitigGraph {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
         let sequence = self.get_sequence_from_path(&path);
-        // assert_eq!(sequence.len(), seq.length,
-        //            "reconstructed sequence does not have expected length");  // TODO: uncomment this once get_seq is implemented.
+        assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
