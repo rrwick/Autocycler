@@ -30,6 +30,7 @@ pub struct UnitigGraph {
     pub unitigs: Vec<Rc<RefCell<Unitig>>>,
     pub k_size: u32,
     pub link_count: usize,
+    unitig_index: HashMap<u32, Rc<RefCell<Unitig>>>,
 }
 
 impl UnitigGraph {
@@ -38,6 +39,7 @@ impl UnitigGraph {
             unitigs: Vec::new(),
             k_size: k_graph.k_size,
             link_count: 0,
+            unitig_index: HashMap::new(),
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
         u_graph.simplify_seqs();
@@ -52,6 +54,7 @@ impl UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,
             link_count: 0,
+            unitig_index: HashMap::new(),
         };
         let file = File::open(gfa_filename).unwrap();
         let reader = BufReader::new(file);
@@ -69,11 +72,14 @@ impl UnitigGraph {
                 _ => {}
             }
         }
-        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
-            u_graph.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
-        u_graph.build_links_from_gfa(&link_lines, &unitig_index);
-        let sequences = u_graph.build_paths_from_gfa(&path_lines, &unitig_index);
+        u_graph.build_unitig_index();
+        u_graph.build_links_from_gfa(&link_lines);
+        let sequences = u_graph.build_paths_from_gfa(&path_lines);
         (u_graph, sequences)
+    }
+
+    fn build_unitig_index(&mut self) {
+        self.unitig_index = self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
     }
 
     fn read_gfa_header_line(&mut self, parts: &Vec<&str>) {
@@ -89,8 +95,7 @@ impl UnitigGraph {
                          Are you sure this is an Autocycler-generated GFA file?");
     }
 
-    fn build_links_from_gfa(&mut self, link_lines: &Vec<String>,
-                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) {
+    fn build_links_from_gfa(&mut self, link_lines: &Vec<String>) {
         self.link_count = 0;
         for line in link_lines {
             let parts: Vec<&str> = line.split('\t').collect();
@@ -103,8 +108,8 @@ impl UnitigGraph {
             let seg_2: u32 = parts[3].parse().expect("Error parsing segment 2 as integer");
             let strand_1 = parts[2] == "+";
             let strand_2 = parts[4] == "+";
-            if let Some(unitig_1) = unitig_index.get(&seg_1) {
-                if let Some(unitig_2) = unitig_index.get(&seg_2) {
+            if let Some(unitig_1) = self.unitig_index.get(&seg_1) {
+                if let Some(unitig_2) = self.unitig_index.get(&seg_2) {
                     if strand_1 {
                         unitig_1.borrow_mut().forward_next.push((Rc::clone(unitig_2), strand_2));
                     } else {
@@ -125,8 +130,7 @@ impl UnitigGraph {
         }
     }
 
-    fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>,
-                            unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) -> Vec<Sequence> {
+    fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>) -> Vec<Sequence> {
         let mut sequences = Vec::new();
         for line in path_lines {
             let parts: Vec<&str> = line.split('\t').collect();
@@ -149,8 +153,8 @@ impl UnitigGraph {
             let length = length.unwrap();
             let forward_path = Self::parse_unitig_path(parts[2]);
             let reverse_path = Self::reverse_path(&forward_path);
-            self.add_positions_from_path(&forward_path, true, seq_id, unitig_index, length);
-            self.add_positions_from_path(&reverse_path, false, seq_id, unitig_index, length);
+            self.add_positions_from_path(&forward_path, true, seq_id, length);
+            self.add_positions_from_path(&reverse_path, false, seq_id, length);
             sequences.push(Sequence::new(seq_id, String::new(),
                                          filename.unwrap(), header.unwrap(), length as usize));
         }
@@ -158,12 +162,11 @@ impl UnitigGraph {
     }
 
     fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
-                               unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>, length: u32) {
+                               length: u32) {
         let half_k = self.k_size / 2;
         let mut pos = half_k;
-
         for (unitig_num, unitig_strand) in path {
-            if let Some(unitig) = unitig_index.get(unitig_num) {
+            if let Some(unitig) = self.unitig_index.get(unitig_num) {
                 let mut u = unitig.borrow_mut();
                 let positions = if *unitig_strand {
                     &mut u.forward_positions
@@ -182,9 +185,7 @@ impl UnitigGraph {
                 quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
             }
         }
-    
         assert!(pos + half_k == length, "Position calculation mismatch");
-
     }
 
     fn build_unitigs_from_kmer_graph(&mut self, k_graph: &KmerGraph) {
@@ -378,37 +379,31 @@ impl UnitigGraph {
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
         section_header("Reconstructing input assemblies from unitig graph");
-        let unitig_index: HashMap<u32, Rc<RefCell<Unitig>>> =
-            self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
         let mut original_seqs: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for seq in seqs {
-            let (filename, header, sequence) =  self.reconstruct_original_sequence(&seq, &unitig_index);
+            let (filename, header, sequence) =  self.reconstruct_original_sequence(&seq);
             original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
         }
         original_seqs
     }
 
-    fn reconstruct_original_sequence(&self, seq: &Sequence,
-                                     unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>)
-                                     -> (String, String, String) {
+    fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
-        let sequence = self.get_sequence_from_path(&path, &unitig_index);
+        let sequence = self.get_sequence_from_path(&path);
         // assert_eq!(sequence.len(), seq.length,
         //            "reconstructed sequence does not have expected length");  // TODO: uncomment this once get_seq is implemented.
-
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
-    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>,
-                              unitig_index: &HashMap<u32, Rc<RefCell<Unitig>>>) -> String {
+    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>) -> String {
         // Given a path (vector of unitig IDs and strands), this function returns the sequence
         // traced by that path. It also requires a unitig index so it can quickly look up unitigs
         // by their number.
         let half_k = self.k_size / 2;
         let mut sequence = Vec::new();
         for (i, (unitig_num, strand)) in path.iter().enumerate() {
-            let unitig = unitig_index.get(unitig_num).unwrap();
+            let unitig = self.unitig_index.get(unitig_num).unwrap();
             let upstream = if i == 0 { half_k } else { 0 };
             let downstream = if i == path.len() - 1 { half_k } else { 0 };
             sequence.push(unitig.borrow().get_seq(*strand, upstream, downstream));
