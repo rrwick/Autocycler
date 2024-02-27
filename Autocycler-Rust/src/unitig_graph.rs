@@ -22,7 +22,7 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
-use crate::misc::quit_with_error;
+use crate::misc::{quit_with_error, strand};
 
 
 pub struct UnitigGraph {
@@ -152,8 +152,8 @@ impl UnitigGraph {
             let length = length.unwrap();
             let forward_path = Self::parse_unitig_path(parts[2]);
             let reverse_path = Self::reverse_path(&forward_path);
-            self.add_positions_from_path(&forward_path, true, seq_id, length);
-            self.add_positions_from_path(&reverse_path, false, seq_id, length);
+            self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length);
+            self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length);
             sequences.push(Sequence::new(seq_id, String::new(),
                                          filename.unwrap(), header.unwrap(), length as usize));
         }
@@ -271,13 +271,13 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a+ -> unitig_b+
-                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), true));
-                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), true));
+                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
+                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
                     self.link_count += 1;
 
                     // unitig_b- -> unitig_a-
-                    unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), false));
-                    unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), false));
+                    unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
+                    unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
                     self.link_count += 1;
                 }
             }
@@ -287,8 +287,8 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a+ -> unitig_b-
-                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), false));
-                    unitig_b.borrow_mut().reverse_prev.push((Rc::clone(&unitig_a), true));
+                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::REVERSE));
+                    unitig_b.borrow_mut().reverse_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
                     self.link_count += 1;
                 }
             }
@@ -298,8 +298,8 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a- -> unitig_b+
-                    unitig_a.borrow_mut().reverse_next.push((Rc::clone(&unitig_b), true));
-                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), false));
+                    unitig_a.borrow_mut().reverse_next.push((Rc::clone(&unitig_b), strand::FORWARD));
+                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::REVERSE));
                     self.link_count += 1;
                 }
             }
@@ -416,12 +416,12 @@ impl UnitigGraph {
         for unitig in &self.unitigs {
             for p in &unitig.borrow().forward_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((Rc::clone(unitig), true));
+                    starting_unitigs.push((Rc::clone(unitig), strand::FORWARD));
                 }
             }
             for p in &unitig.borrow().reverse_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((Rc::clone(unitig), false));
+                    starting_unitigs.push((Rc::clone(unitig), strand::REVERSE));
                 }
             }
         }

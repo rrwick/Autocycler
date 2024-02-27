@@ -16,7 +16,7 @@ use std::collections::hash_map::Entry;
 use std::fmt;
 use std::slice::from_raw_parts;
 
-use crate::misc::reverse_complement_u8;
+use crate::misc::{reverse_complement_u8, strand};
 use crate::position::Position;
 use crate::sequence::Sequence;
 
@@ -108,24 +108,24 @@ impl<'a> KmerGraph<'a> {
 
             match self.kmers.entry(forward_k) {
                 Entry::Occupied(mut entry) => {
-                    entry.get_mut().add_position(seq.id, true, forward_start + half_k);
+                    entry.get_mut().add_position(seq.id, strand::FORWARD, forward_start + half_k);
                 },
                 Entry::Vacant(entry) => {
                     let mut kmer = unsafe { Kmer::new(forward_raw.add(forward_start), k_size,
                                                       assembly_count) };
-                    kmer.add_position(seq.id, true, forward_start + half_k);
+                    kmer.add_position(seq.id, strand::FORWARD, forward_start + half_k);
                     entry.insert(kmer);
                 }
             }
 
             match self.kmers.entry(reverse_k) {
                 Entry::Occupied(mut entry) => {
-                    entry.get_mut().add_position(seq.id, false, reverse_start + half_k);
+                    entry.get_mut().add_position(seq.id, strand::REVERSE, reverse_start + half_k);
                 },
                 Entry::Vacant(entry) => {
                     let mut kmer = unsafe { Kmer::new(reverse_raw.add(reverse_start), k_size,
                                                       assembly_count) };
-                    kmer.add_position(seq.id, false, reverse_start + half_k);
+                    kmer.add_position(seq.id, strand::REVERSE, reverse_start + half_k);
                     entry.insert(kmer);
                 }
             }
@@ -190,8 +190,8 @@ mod tests {
         let seq = String::from("ACGACTGACATCAGCACTGA").into_bytes();
         let raw = seq.as_ptr();
         let mut k = Kmer::new(raw, 4, 2);
-        k.add_position(1, true, 123);
-        k.add_position(2, false, 456);
+        k.add_position(1, strand::FORWARD, 123);
+        k.add_position(2, strand::REVERSE, 456);
         assert_eq!(format!("{}", k), "ACGA:1+123,2-456");
     }
 

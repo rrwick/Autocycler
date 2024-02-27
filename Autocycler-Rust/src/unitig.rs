@@ -17,7 +17,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::kmer_graph::Kmer;
-use crate::misc::{reverse_complement_u8, quit_with_error};
+use crate::misc::{reverse_complement_u8, quit_with_error, strand};
 use crate::position::Position;
 
 
@@ -176,15 +176,15 @@ impl Unitig {
 
     pub fn dead_end_start(&self, strand: bool) -> bool {
         match strand {
-            true => self.forward_prev.is_empty(),
-            false => self.reverse_prev.is_empty(),
+            strand::FORWARD => self.forward_prev.is_empty(),
+            strand::REVERSE => self.reverse_prev.is_empty(),
         }
     }
 
     pub fn dead_end_end(&self, strand: bool) -> bool {
         match strand {
-            true => self.forward_next.is_empty(),
-            false => self.reverse_next.is_empty(),
+            strand::FORWARD => self.forward_next.is_empty(),
+            strand::REVERSE => self.reverse_next.is_empty(),
         }
     }
 
@@ -195,10 +195,10 @@ impl Unitig {
     pub fn untrimmed_length(&self, k_size: usize) -> u32 {
         let half_k = k_size / 2;
         let mut untrimmed_length = self.forward_seq.len();
-        if !self.dead_end_start(true) {
+        if !self.dead_end_start(strand::FORWARD) {
             untrimmed_length += half_k;
         }
-        if !self.dead_end_end(true) {
+        if !self.dead_end_end(strand::FORWARD) {
             untrimmed_length += half_k;
         }
         untrimmed_length as u32
@@ -322,53 +322,53 @@ mod tests {
     fn test_dead_ends() {
         let unitig_a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1")));
         let unitig_b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tCGCGTTCGAC\tDP:f:1")));
-        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), true));
-        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), true));
-        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), false));
-        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), false));
+        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
+        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
+        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
+        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
 
-        assert_eq!(unitig_a.borrow().dead_end_start(true), true);
-        assert_eq!(unitig_a.borrow().dead_end_end(true), false);
-        assert_eq!(unitig_a.borrow().dead_end_start(false), false);
-        assert_eq!(unitig_a.borrow().dead_end_end(false), true);
+        assert_eq!(unitig_a.borrow().dead_end_start(strand::FORWARD), true);
+        assert_eq!(unitig_a.borrow().dead_end_end(strand::FORWARD), false);
+        assert_eq!(unitig_a.borrow().dead_end_start(strand::REVERSE), false);
+        assert_eq!(unitig_a.borrow().dead_end_end(strand::REVERSE), true);
 
-        assert_eq!(unitig_b.borrow().dead_end_start(true), false);
-        assert_eq!(unitig_b.borrow().dead_end_end(true), true);
-        assert_eq!(unitig_b.borrow().dead_end_start(false), true);
-        assert_eq!(unitig_b.borrow().dead_end_end(false), false);
+        assert_eq!(unitig_b.borrow().dead_end_start(strand::FORWARD), false);
+        assert_eq!(unitig_b.borrow().dead_end_end(strand::FORWARD), true);
+        assert_eq!(unitig_b.borrow().dead_end_start(strand::REVERSE), true);
+        assert_eq!(unitig_b.borrow().dead_end_end(strand::REVERSE), false);
     }
 
     #[test]
     fn test_get_seq() {
         let unitig_a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1")));
         let unitig_b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tCGCGTTCGAC\tDP:f:1")));
-        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), true));
-        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), true));
-        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), false));
-        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), false));
+        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
+        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
+        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
+        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
 
         // no upstream/downstream seq
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(true,  0, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(false, 0, 0)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(true,  0, 0)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(false, 0, 0)).unwrap(), "GTCGAACGCG");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 0)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 0, 0)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 0, 0)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 0)).unwrap(), "GTCGAACGCG");
 
         // asking for upstream/downstream seq that doesn't exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(true,  5, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(false, 0, 5)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(true,  0, 5)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(false, 5, 0)).unwrap(), "GTCGAACGCG");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 5, 0)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 0, 5)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 0, 5)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 5, 0)).unwrap(), "GTCGAACGCG");
 
         // asking for upstream/downstream seq that does exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(true,  0, 5)).unwrap(), "GCTGAAGGGCCGCGT");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(false, 5, 0)).unwrap(), "ACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(true,  5, 0)).unwrap(), "AGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(false, 0, 5)).unwrap(), "GTCGAACGCGGCCCT");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 5)).unwrap(), "GCTGAAGGGCCGCGT");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 5, 0)).unwrap(), "ACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 5, 0)).unwrap(), "AGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 5)).unwrap(), "GTCGAACGCGGCCCT");
 
         // asking for more upstream/downstream seq than exists
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(true,  0, 15)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(false, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(true,  15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(false, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 15)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
     }
 }

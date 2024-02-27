@@ -20,6 +20,13 @@ use std::io::{prelude::*, BufReader};
 use std::path::{Path, PathBuf};
 
 
+// This module lets me use strand::FORWARD for true and strand::REVERSE for false.
+pub mod strand {
+    pub const FORWARD: bool = true;
+    pub const REVERSE: bool = false;
+}
+
+
 pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
     let paths = match read_dir(in_dir) {
         Ok(paths) => paths,

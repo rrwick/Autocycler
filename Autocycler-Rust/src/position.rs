@@ -14,6 +14,8 @@
 
 use std::fmt;
 
+use crate::misc::strand;
+
 
 #[derive(Clone)]
 pub struct Position {
@@ -58,9 +60,9 @@ mod tests {
 
     #[test]
     fn test_position() {
-        let p1 = Position::new(1, true, 123);
-        let p2 = Position::new(2, false, 456);
-        let p3 = Position::new(32767, true, 4294967295);  // max values for sed_id and pos
+        let p1 = Position::new(1, strand::FORWARD, 123);
+        let p2 = Position::new(2, strand::REVERSE, 456);
+        let p3 = Position::new(32767, strand::FORWARD, 4294967295);  // max values for sed_id and pos
         assert_eq!(format!("{}", p1), "1+123");
         assert_eq!(format!("{}", p2), "2-456");
         assert_eq!(format!("{}", p3), "32767+4294967295");
