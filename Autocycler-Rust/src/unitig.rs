@@ -223,46 +223,37 @@ impl Unitig {
     }
 
     fn get_upstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        let mut upstream_seq = Vec::new();
-        let mut current_unitig = self as *const Unitig;
-        let mut current_strand = strand;
-        unsafe {
-            loop {
-                let prev_unitigs = if current_strand { &(*current_unitig).forward_prev }
-                                                else { &(*current_unitig).reverse_prev };
-                if prev_unitigs.is_empty() { break; }
-                let (prev_unitig, prev_strand) = prev_unitigs.first().unwrap();
-                let mut seq = prev_unitig.borrow().get_seq(*prev_strand, 0, 0);
-                seq.extend(upstream_seq);
-                upstream_seq = seq;
-                if upstream_seq.len() >= amount { break; }
-                current_unitig = &*prev_unitig.borrow() as *const Unitig;
-                current_strand = *prev_strand;
-            }
+        let prev_unitigs = if strand { &self.forward_prev } else { &self.reverse_prev };
+        if prev_unitigs.is_empty() {
+            return Vec::new();
         }
-        let start = upstream_seq.len().saturating_sub(amount);
-        upstream_seq[start..].to_vec()
+        let (prev_unitig, prev_strand) = prev_unitigs.first().unwrap();
+        let upstream_seq = prev_unitig.borrow().get_seq(*prev_strand, 0, 0);
+        if amount <= upstream_seq.len() {  // got enough upstream seq
+            let start = upstream_seq.len().saturating_sub(amount);
+            upstream_seq[start..].to_vec()
+        } else {  // need more upstream seq, call recursively
+            let mut more_seq = prev_unitig.borrow().get_upstream_seq(*prev_strand, amount - upstream_seq.len());
+            more_seq.extend(upstream_seq);
+            more_seq
+        }
     }
 
     fn get_downstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        let mut downstream_seq = Vec::new();
-        let mut current_unitig = self as *const Unitig;
-        let mut current_strand = strand;
-        unsafe {
-            loop {
-                let next_unitigs = if current_strand { &(*current_unitig).forward_next }
-                                                else { &(*current_unitig).reverse_next };
-                if next_unitigs.is_empty() { break; }
-                let (next_unitig, next_strand) = next_unitigs.first().unwrap();
-                let seq = next_unitig.borrow().get_seq(*next_strand, 0, 0);
-                downstream_seq.extend(seq);
-                if downstream_seq.len() >= amount { break; }
-                current_unitig = &*next_unitig.borrow() as *const Unitig;
-                current_strand = *next_strand;
-            }
+        let next_unitigs = if strand { &self.forward_next } else {&self.reverse_next };
+        if next_unitigs.is_empty() {
+            return Vec::new();
         }
-        let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
-        downstream_seq[..end].to_vec()
+        let (next_unitig, next_strand) = next_unitigs.first().unwrap();
+        let mut downstream_seq = next_unitig.borrow().get_seq(*next_strand, 0, 0);
+        if amount <= downstream_seq.len() {  // got enough downstream seq
+            let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
+            downstream_seq[..end].to_vec()
+        } else {  // need more downstream seq, call recursively
+            let more_seq = next_unitig.borrow().get_downstream_seq(*next_strand, amount - downstream_seq.len());
+            downstream_seq.extend(more_seq);
+            downstream_seq
+        }
     }
 }
 
