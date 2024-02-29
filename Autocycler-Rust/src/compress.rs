@@ -46,7 +46,7 @@ fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
 }
 
 
-fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
+pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("All contigs in the input assemblies are now loaded and given a unique integer \
                  ID.");

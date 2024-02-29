@@ -14,8 +14,6 @@
 
 use std::fmt;
 
-use crate::misc::strand;
-
 
 #[derive(Clone)]
 pub struct Position {
@@ -57,6 +55,7 @@ impl fmt::Display for Position {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::misc::strand;
 
     #[test]
     fn test_position() {

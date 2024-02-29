@@ -60,7 +60,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn save_original_seqs(out_dir: &PathBuf, unitig_graph: UnitigGraph, sequences: Vec<Sequence>) {
+pub fn save_original_seqs(out_dir: &PathBuf, unitig_graph: UnitigGraph, sequences: Vec<Sequence>) {
     section_header("Reconstructing assemblies from unitig graph");
     explanation("Each contig is reconstructed by tracing its path through the unitig graph");
     let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);

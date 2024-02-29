@@ -23,6 +23,7 @@ mod misc;
 mod position;
 mod resolve;
 mod sequence;
+mod tests;
 mod unitig;
 mod unitig_graph;
 
