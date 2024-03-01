@@ -17,7 +17,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::kmer_graph::Kmer;
-use crate::misc::{reverse_complement_u8, quit_with_error, strand};
+use crate::misc::{reverse_complement, quit_with_error, strand};
 use crate::position::Position;
 
 
@@ -71,7 +71,7 @@ impl Unitig {
             std::process::exit(1)
         });
         let forward_seq = parts[2].as_bytes().to_owned();
-        let reverse_seq = reverse_complement_u8(&forward_seq);
+        let reverse_seq = reverse_complement(&forward_seq);
         let depth = parts.iter()
             .find(|&p| p.starts_with("DP:f:"))
             .and_then(|p| p[5..].parse::<f64>().ok())

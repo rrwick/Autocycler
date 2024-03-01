@@ -32,32 +32,33 @@ pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
         Ok(paths) => paths,
         Err(_) => {
             quit_with_error(&format!("unable to read directory {}", in_dir.display()));
-            return Vec::new();  // unreachable
+            unreachable!()
         },
     };
-
     let mut all_assemblies: Vec<PathBuf> = Vec::new();
     for path in paths {
         let path = path.unwrap().path();
-        if path.is_file() && 
-           (path.extension().unwrap_or_default() == "fasta" ||
-            path.extension().unwrap_or_default() == "fna" ||
-            path.extension().unwrap_or_default() == "fa" ||
-            path.extension().unwrap_or_default() == "gz" &&
-            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fasta") ||
-            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fna") ||
-            path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fa")) {
-                all_assemblies.push(path);
+        if is_assembly_file(&path) {
+            all_assemblies.push(path);
         }
     }
-
     all_assemblies.sort_unstable();
-
     if all_assemblies.is_empty() {
         quit_with_error(&format!("Error: no assemblies found in {}", in_dir.display()));
     }
-
     all_assemblies
+}
+
+
+fn is_assembly_file(path: &Path) -> bool {
+    path.is_file() && 
+        (path.extension().unwrap_or_default() == "fasta" ||
+         path.extension().unwrap_or_default() == "fna" ||
+         path.extension().unwrap_or_default() == "fa" ||
+         (path.extension().unwrap_or_default() == "gz" &&
+          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fasta") ||
+          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fna") ||
+          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fa")))
 }
 
 
@@ -217,18 +218,21 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
 }
 
 
-fn complement_base_u8(base: u8) -> u8 {
+fn complement_base(base: u8) -> u8 {
     match base {
-        b'A' => b'T', b'T' => b'A', b'G' => b'C', b'C' => b'G',
+        b'A' => b'T',
+        b'T' => b'A',
+        b'G' => b'C',
+        b'C' => b'G',
         _ => b'N'
     }
 }
 
 
-pub fn reverse_complement_u8(seq: &[u8]) -> Vec<u8> {
+pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
     let mut rev_seq: Vec<u8> = Vec::with_capacity(seq.len());
     for &b in seq.iter().rev() {
-        rev_seq.push(complement_base_u8(b));
+        rev_seq.push(complement_base(b));
     }
     rev_seq
 }
@@ -258,7 +262,8 @@ mod tests {
     }
 
     #[test]
-    fn test_reverse_complement_u8() {
-        assert_eq!(reverse_complement_u8(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
+    fn test_reverse_complement() {
+        assert_eq!(reverse_complement(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
+        assert_eq!(reverse_complement(b"XYZ"), b"NNN");
     }
 }

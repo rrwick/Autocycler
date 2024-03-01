@@ -11,7 +11,6 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use regex::Regex;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -53,7 +52,6 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     eprintln!("Loading sequences:");
     let assemblies = find_all_assemblies(in_dir);
     let mut seq_id = 0usize;
-    let whitespace_re = Regex::new(r"\s+").unwrap();
     let mut sequences = Vec::new();
     for assembly in &assemblies {
         for (name, header, seq) in load_fasta(&assembly) {
@@ -66,7 +64,7 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
             if seq_id > 32767 {
                 quit_with_error("no more than 32767 input sequences are allowed");
             }
-            let contig_header = whitespace_re.replace_all(&header, " ").to_string();
+            let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
             sequences.push(Sequence::new(seq_id as u16, seq, filename, contig_header, seq_len));
         }

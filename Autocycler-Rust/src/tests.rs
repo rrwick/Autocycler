@@ -1,4 +1,4 @@
-// This file contains some high-level tests for Autocycler.
+// This file contains some high-level tests for Autocycler and other things that don't obviously
 
 // Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
@@ -69,18 +69,21 @@ mod tests {
 
         // Save the sequences to the assembly directory.
         let original_a = assembly_dir.path().join("a.fasta");
-        let original_b = assembly_dir.path().join("b.fasta");
-        let original_c = assembly_dir.path().join("c.fasta");
+        let original_b = assembly_dir.path().join("b.fna");
+        let original_c = assembly_dir.path().join("c.fa");
         let original_d = assembly_dir.path().join("d.fasta.gz");
-        let original_e = assembly_dir.path().join("e.fasta.gz");
+        let original_e = assembly_dir.path().join("e.fna.gz");
+        let original_f = assembly_dir.path().join("e.xyz");  // bad file extension, not included
         make_test_file(&original_a, seq_a);
         make_test_file(&original_b, seq_b);
         make_test_file(&original_c, seq_c);
         make_gzipped_test_file(&original_d, seq_d);
         make_gzipped_test_file(&original_e, seq_e);
+        make_test_file(&original_f, seq_a);
 
         // Build a k-mer graph from the sequences.
         let (sequences_1, assembly_count) = load_sequences(&assembly_dir.path().to_path_buf(), k_size);
+        assert_eq!(assembly_count, 5);
         let mut kmer_graph = KmerGraph::new(k_size);
         kmer_graph.add_sequences(&sequences_1, assembly_count);
 
@@ -98,10 +101,10 @@ mod tests {
         // Reconstruct the sequences from the unitig graph.
         save_original_seqs(&reconstructed_dir.path().to_path_buf(), unitig_graph_2, sequences_2);
         let reconstructed_a = reconstructed_dir.path().join("a.fasta");
-        let reconstructed_b = reconstructed_dir.path().join("b.fasta");
-        let reconstructed_c = reconstructed_dir.path().join("c.fasta");
+        let reconstructed_b = reconstructed_dir.path().join("b.fna");
+        let reconstructed_c = reconstructed_dir.path().join("c.fa");
         let reconstructed_d = reconstructed_dir.path().join("d.fasta.gz");
-        let reconstructed_e = reconstructed_dir.path().join("e.fasta.gz");
+        let reconstructed_e = reconstructed_dir.path().join("e.fna.gz");
 
         // Make sure original sequences match reconstruction.
         assert_same_content(&original_a, &reconstructed_a);
@@ -141,5 +144,22 @@ mod tests {
                 test_high_level(&seq_a, &seq_b, &seq_c, &seq_d, &seq_e, 9);
             }
         }
+    }
+
+    #[test]
+    fn test_whitespace() {
+        // This test checks that each instance of whitespace in contig headers is turned into a
+        // single space. This is because tabs in contig headers will screw up the GFA file.
+        let temp_dir = tempdir().unwrap();
+        let temp_file = temp_dir.path().join("assembly.fasta");
+        let fasta = ">name abc  def\tghi\nCTTATGAGCAGTCCTTAACGTAGCGGT\n".to_string();
+        make_test_file(&temp_file, &fasta);
+        let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), 11);
+        assert_eq!(assembly_count, 1);
+        let sequence = sequences.first().unwrap();
+        assert_eq!(sequence.filename, "assembly.fasta");
+        assert_eq!(sequence.contig_name(), "name");
+        assert_eq!(sequence.contig_header, "name abc def ghi");
+        assert_eq!(sequence.forward_seq, String::from("CTTATGAGCAGTCCTTAACGTAGCGGT").into_bytes());
     }
 }

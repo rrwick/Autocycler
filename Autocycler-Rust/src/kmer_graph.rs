@@ -16,7 +16,7 @@ use std::collections::hash_map::Entry;
 use std::fmt;
 use std::slice::from_raw_parts;
 
-use crate::misc::{reverse_complement_u8, strand};
+use crate::misc::{reverse_complement, strand};
 use crate::position::Position;
 use crate::sequence::Sequence;
 
@@ -175,7 +175,7 @@ impl<'a> KmerGraph<'a> {
         // Given a Kmer object, this function returns the reverse-complement Kmer object. Since all
         // k-mers are added on both strands, it can be assumed that the reverse-complement Kmer
         // object exists.
-        let reverse_seq: &[u8] = &reverse_complement_u8(kmer.seq());
+        let reverse_seq: &[u8] = &reverse_complement(kmer.seq());
         self.kmers.get(reverse_seq).unwrap()
     }
 }
