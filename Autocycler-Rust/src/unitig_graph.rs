@@ -312,7 +312,7 @@ impl UnitigGraph {
         }
     }
 
-    fn renumber_unitigs(&mut self) {
+    pub fn renumber_unitigs(&mut self) {
         // This method sorts and renumbers Unitigs by: length (decreasing), sequence (lexicographic)
         // and depth (decreasing).
         self.unitigs.sort_by(|a_rc, b_rc| {
@@ -448,7 +448,7 @@ impl UnitigGraph {
         None
     }
 
-    fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
+    pub fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
         let half_k = self.k_size / 2;
         let mut unitig_path = Vec::new();
         let (mut unitig, mut strand) = self.find_starting_unitig(seq.id);
@@ -477,141 +477,6 @@ impl UnitigGraph {
 
     fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
         path.iter().rev().map(|&(num, strand)| (num, !strand)).collect()
-    }
-
-    pub fn simplify_structure(&mut self, seqs: &Vec<Sequence>) {
-        // This function simplifies the graph structure by expanding repeats.
-        //
-        // For example, it will turn this:
-        //    ACTACTCAACT
-        //               \
-        //                ATCGACTACGCTACG
-        //               /
-        //    GACTACGAACT
-        //
-        // Into this:
-        //    ACTACTC
-        //           \
-        //            AACTATCGACTACGCTACG
-        //           /
-        //    GACTACG
-        //
-        let (fixed_starts, fixed_ends) = self.get_fixed_unitig_starts_and_ends(seqs);
-        for unitig_rc in &self.unitigs {
-            let unitig_number = unitig_rc.borrow().number;
-            let inputs = self.get_exclusive_inputs(&unitig_rc);
-            if inputs.len() >= 2 && !fixed_starts.contains(&unitig_number) {
-                Self::shift_sequence_1(&inputs, &unitig_rc);
-            }
-            let outputs = self.get_exclusive_outputs(&unitig_rc);
-            if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
-                Self::shift_sequence_2(&unitig_rc, &outputs);
-            }
-        }
-        self.renumber_unitigs();
-    }
-
-    fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: &Rc<RefCell<Unitig>>) {
-        eprintln!("\n"); // TEMP
-        for (source_rc, strand) in sources {
-            let mut source = source_rc.borrow_mut();
-            eprintln!("SOURCE: {}", source); // TEMP
-        }
-        let mut destination = destination_rc.borrow_mut();
-        eprintln!("DESTINATION: {}", destination); // TEMP
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        eprintln!("\n"); // TEMP
-    }
-
-    fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>) {
-        eprintln!("\n"); // TEMP
-        for (source_rc, strand) in sources {
-            let mut source = source_rc.borrow_mut();
-            eprintln!("SOURCE: {}", source); // TEMP
-        }
-        let mut destination = destination_rc.borrow_mut();
-        eprintln!("DESTINATION: {}", destination); // TEMP
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        // TODO
-        eprintln!("\n"); // TEMP
-    }
-
-    fn get_fixed_unitig_starts_and_ends(&self, sequences: &Vec<Sequence>) -> (HashSet<u32>, HashSet<u32>) {
-        // Returns two sets of unitig IDs: all unitigs where the start can't be changed and all
-        // unitigs where the end can't be changed. All results are in terms of the unitig's forward
-        // strand.
-        let mut fixed_starts = HashSet::new();
-        let mut fixed_ends = HashSet::new();
-        for seq in sequences {
-            let unitig_path = self.get_unitig_path_for_sequence(seq);
-            if unitig_path.len() == 0 {
-                continue
-            }
-            let (first_unitig, first_strand) = unitig_path[0];
-            if first_strand {
-                fixed_starts.insert(first_unitig);
-            } else {
-                fixed_ends.insert(first_unitig);
-            }
-            let (last_unitig, last_strand) = unitig_path.last().unwrap();
-            if first_strand {
-                fixed_ends.insert(first_unitig);
-            } else {
-                fixed_starts.insert(first_unitig);
-            }
-        }
-        (fixed_starts, fixed_ends)
-    }
-
-    fn get_exclusive_inputs(&self, unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
-        // This function returns a vector of unitigs which exclusively input to the given unitig.
-        // Exclusive input means the unitig leads only to the given unitig. If any of the given
-        // unitig's inputs are not exclusive inputs, then this function returns an empty vector.
-        let mut inputs = Vec::new();
-        let unitig = unitig_rc.borrow();
-        for (prev_unitig_rc, prev_strand) in &unitig.forward_prev {
-            let prev_unitig = &prev_unitig_rc.borrow();
-            let prev_next_unitigs = if *prev_strand { &prev_unitig.forward_next } else { &prev_unitig.reverse_next };
-            if prev_next_unitigs.len() != 1 {
-                return Vec::new();
-            }
-            let (prev_next_unitig_rc, prev_next_strand) = &prev_next_unitigs[0];
-            if *prev_next_strand && prev_next_unitig_rc.borrow().number == unitig.number {
-                inputs.push((Rc::clone(&prev_unitig_rc), *prev_strand));
-            } else {
-                return Vec::new();
-            }
-        }
-        inputs
-    }
-
-    fn get_exclusive_outputs(&self, unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
-        // This function returns a vector of unitigs which exclusively output from the given unitig.
-        // Exclusive output means the given unitig leads only to the unitig. If any of the given
-        // unitig's outputs are not exclusive outputs, then this function returns an empty vector.
-        let mut outputs = Vec::new();
-        let unitig = unitig_rc.borrow();
-        for (next_unitig_rc, next_strand) in &unitig.forward_next {
-            let next_unitig = &next_unitig_rc.borrow();
-            let next_prev_unitigs = if *next_strand { &next_unitig.forward_prev } else { &next_unitig.reverse_prev };
-            if next_prev_unitigs.len() != 1 {
-                return Vec::new();
-            }
-            let (next_prev_unitig_rc, next_prev_strand) = &next_prev_unitigs[0];
-            if *next_prev_strand && next_prev_unitig_rc.borrow().number == unitig.number {
-                outputs.push((Rc::clone(&next_unitig_rc), *next_strand));
-            } else {
-                return Vec::new();
-            }
-        }
-        outputs
     }
 
     pub fn get_total_length(&self) -> u32 {

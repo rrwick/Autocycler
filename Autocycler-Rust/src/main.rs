@@ -26,6 +26,7 @@ mod sequence;
 mod tests;
 mod unitig;
 mod unitig_graph;
+mod graph_simplification;
 
 
 #[derive(Parser)]

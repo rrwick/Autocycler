@@ -19,6 +19,7 @@ use crate::misc::{find_all_assemblies, load_fasta, format_duration, quit_with_er
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
+use crate::graph_simplification::simplify_structure;
 
 
 pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
@@ -105,7 +106,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
     section_header("Simplifying unitig graph");
     explanation("Graph branches are now simplified by moving sequence into repeat segments \
                  when possible.");
-    unitig_graph.simplify_structure(&sequences);
+    simplify_structure(unitig_graph, &sequences);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
     eprintln!("total length: {} bp", unitig_graph.get_total_length());
