@@ -88,7 +88,8 @@ mod tests {
         kmer_graph.add_sequences(&sequences_1, assembly_count);
 
         // Build a unitig graph and save it to file.
-        let unitig_graph_1 = UnitigGraph::from_kmer_graph(&kmer_graph);
+        let mut unitig_graph_1 = UnitigGraph::from_kmer_graph(&kmer_graph);
+        unitig_graph_1.simplify_structure(&sequences_1);
         let gfa_1 = graph_dir.path().join("graph_1.gfa");
         unitig_graph_1.save_gfa(&gfa_1, &sequences_1).unwrap();
 

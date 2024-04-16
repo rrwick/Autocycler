@@ -26,7 +26,9 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
     starting_message(&in_dir, &out_gfa, k_size);
     let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
-    build_unitig_graph(kmer_graph, &sequences, &out_gfa);
+    let mut unitig_graph = build_unitig_graph(kmer_graph);
+    simplify_unitig_graph(&mut unitig_graph, &sequences);
+    unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
     finished_message(start_time, out_gfa);
 }
 
@@ -86,14 +88,27 @@ fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence
 }
 
 
-fn build_unitig_graph(kmer_graph: KmerGraph, sequences: &Vec<Sequence>, out_gfa: &PathBuf) {
+fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
     section_header("Building compacted unitig graph");
     explanation("All non-branching paths are now collapsed to form a compacted De Bruijn graph, \
                  a.k.a. a unitig graph.");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
-    unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.link_count);
+    eprintln!("total length: {} bp", unitig_graph.get_total_length());
+    eprintln!();
+    unitig_graph
+}
+
+
+fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+    section_header("Simplifying unitig graph");
+    explanation("Graph branches are now simplified by moving sequence into repeat segments \
+                 when possible.");
+    unitig_graph.simplify_structure(&sequences);
+    eprintln!("{} unitigs", unitig_graph.unitigs.len());
+    eprintln!("{} links", unitig_graph.link_count);
+    eprintln!("total length: {} bp", unitig_graph.get_total_length());
     eprintln!();
 }
 

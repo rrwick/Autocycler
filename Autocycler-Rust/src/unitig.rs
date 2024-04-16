@@ -262,7 +262,7 @@ impl fmt::Display for Unitig {
         let display_seq = if self.forward_seq.len() < 15 {
             String::from_utf8_lossy(&self.forward_seq).to_string()
         } else {
-            format!("{}...{}", 
+            format!("{}...{}",
                     String::from_utf8_lossy(&self.forward_seq[..6]),
                     String::from_utf8_lossy(&self.forward_seq[self.forward_seq.len() - 6..]))
         };
