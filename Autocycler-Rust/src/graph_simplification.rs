@@ -76,45 +76,67 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
 
 
 fn remove_zero_length_unitigs(graph: &mut UnitigGraph) {
-    // TODO: make some tests for this function which cover a bunch of cases, including when prev and next are the same? Could occur in a loop. Should write a test...
+    // TODO: make some tests for this function which cover a bunch of cases, including when prev and next are the same (could occur in a loop).
 
     // Create links to bypass the zero-length unitigs
+    let mut new_links_1 = Vec::new();
+    let mut new_links_2 = Vec::new();
     for unitig_rc in &graph.unitigs {
         let unitig = unitig_rc.borrow();
         if unitig.length() == 0 {
             for (prev_rc, prev_strand) in &unitig.forward_prev {
-                if *prev_strand {
-                    prev_rc.borrow_mut().forward_next.extend(unitig.forward_next.iter().cloned());
-                    prev_rc.borrow_mut().reverse_prev.extend(unitig.reverse_prev.iter().cloned());
-                } else {
-                    prev_rc.borrow_mut().reverse_next.extend(unitig.forward_next.iter().cloned());
-                    prev_rc.borrow_mut().forward_prev.extend(unitig.reverse_prev.iter().cloned());
-                }
+                let forward_next_cloned = unitig.forward_next.iter().cloned().collect::<Vec<_>>();
+                let reverse_prev_cloned = unitig.reverse_prev.iter().cloned().collect::<Vec<_>>();
+                new_links_1.push((prev_rc.clone(), *prev_strand, forward_next_cloned, reverse_prev_cloned));
             }
             for (next_rc, next_strand) in &unitig.forward_next {
-                if *next_strand {
-                    next_rc.borrow_mut().forward_prev.extend(unitig.forward_prev.iter().cloned());
-                    next_rc.borrow_mut().reverse_next.extend(unitig.reverse_next.iter().cloned());
-                } else {
-                    next_rc.borrow_mut().reverse_prev.extend(unitig.forward_prev.iter().cloned());
-                    next_rc.borrow_mut().forward_next.extend(unitig.reverse_next.iter().cloned());
-                }
+                let forward_prev_cloned = unitig.forward_prev.iter().cloned().collect::<Vec<_>>();
+                let reverse_next_cloned = unitig.reverse_next.iter().cloned().collect::<Vec<_>>();
+                new_links_2.push((next_rc.clone(), *next_strand, forward_prev_cloned, reverse_next_cloned));
             }
         }
     }
-    
-    // Delete the zero-length unitigs from the graph
-    graph.unitigs.retain(|u| u.borrow().length() > 0);
-    let unitig_numbers: HashSet<u32> = graph.unitigs.iter().map(|u| u.borrow().number).collect();
-    for unitig_rc in &graph.unitigs {
+    for (unitig_rc, strand, to_add_forward, to_add_reverse) in new_links_1 {
         let mut unitig = unitig_rc.borrow_mut();
-        unitig.forward_next.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
-        unitig.forward_prev.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
-        unitig.reverse_next.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
-        unitig.reverse_prev.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
+        if strand {
+            unitig.forward_next.extend(to_add_forward);
+            unitig.reverse_prev.extend(to_add_reverse);
+        } else {
+            unitig.reverse_next.extend(to_add_forward);
+            unitig.forward_prev.extend(to_add_reverse);
+        }
+    }
+    for (unitig_rc, strand, to_add_forward, to_add_reverse) in new_links_2 {
+        let mut unitig = unitig_rc.borrow_mut();
+        if strand {
+            unitig.forward_prev.extend(to_add_forward);
+            unitig.reverse_next.extend(to_add_reverse);
+        } else {
+            unitig.reverse_prev.extend(to_add_forward);
+            unitig.forward_next.extend(to_add_reverse);
+        }
     }
 
     // TODO: remove any duplicated links?
+    
+    // Delete the zero-length unitigs from the graph
+    graph.unitigs.retain(|u| u.borrow().length() > 0);
+
+    // Delete any links to no-longer-existing unitigs.
+    let unitig_numbers: HashSet<u32> = graph.unitigs.iter().map(|u| u.borrow().number).collect();
+    for unitig_rc in &graph.unitigs {
+        let unitig = unitig_rc.borrow();
+        let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+        let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+        let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+        let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+        drop(unitig);
+        let mut unitig = unitig_rc.borrow_mut();
+        for index in forward_next_to_remove.into_iter().rev() { unitig.forward_next.remove(index); }
+        for index in forward_prev_to_remove.into_iter().rev() { unitig.forward_prev.remove(index); }
+        for index in reverse_next_to_remove.into_iter().rev() { unitig.reverse_next.remove(index); }
+        for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
+    }
 }
 
 
