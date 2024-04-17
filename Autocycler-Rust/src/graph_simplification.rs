@@ -101,6 +101,14 @@ fn remove_zero_length_unitigs(graph: &mut UnitigGraph) {
     
     // Delete the zero-length unitigs from the graph
     graph.unitigs.retain(|u| u.borrow().length() > 0);
+    let unitig_numbers: HashSet<u32> = graph.unitigs.iter().map(|u| u.borrow().number).collect();
+    for unitig_rc in &graph.unitigs {
+        let mut unitig = unitig_rc.borrow_mut();
+        unitig.forward_next.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
+        unitig.forward_prev.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
+        unitig.reverse_next.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
+        unitig.reverse_prev.retain(|(u, _strand)| unitig_numbers.contains(&u.borrow().number));
+    }
 
     // TODO: remove any duplicated links?
 }

@@ -28,7 +28,6 @@ use crate::misc::{quit_with_error, strand};
 pub struct UnitigGraph {
     pub unitigs: Vec<Rc<RefCell<Unitig>>>,
     pub k_size: u32,
-    pub link_count: usize,
     unitig_index: HashMap<u32, Rc<RefCell<Unitig>>>,
 }
 
@@ -37,7 +36,6 @@ impl UnitigGraph {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: k_graph.k_size,
-            link_count: 0,
             unitig_index: HashMap::new(),
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
@@ -52,7 +50,6 @@ impl UnitigGraph {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,
-            link_count: 0,
             unitig_index: HashMap::new(),
         };
         let file = File::open(gfa_filename).unwrap();
@@ -95,7 +92,6 @@ impl UnitigGraph {
     }
 
     fn build_links_from_gfa(&mut self, link_lines: &Vec<String>) {
-        self.link_count = 0;
         for line in link_lines {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() < 6 || parts[5] != "0M" {
@@ -119,7 +115,7 @@ impl UnitigGraph {
                     } else {
                         unitig_2.borrow_mut().reverse_prev.push((Rc::clone(unitig_1), strand_1));
                     }
-                    self.link_count += 1;
+
                 } else {
                     quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_2));
                 }
@@ -260,7 +256,6 @@ impl UnitigGraph {
         }
 
         // Use the indices to find connections between unitigs.
-        self.link_count = 0;
         for i in 0..self.unitigs.len() {
             let unitig_a = Rc::clone(&self.unitigs[i]);
             let ending_forward_seq = unitig_a.borrow().forward_seq[unitig_a.borrow().forward_seq.len() - piece_len..].to_vec();
@@ -273,12 +268,10 @@ impl UnitigGraph {
                     // unitig_a+ -> unitig_b+
                     unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
                     unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
-                    self.link_count += 1;
 
                     // unitig_b- -> unitig_a-
                     unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
                     unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
-                    self.link_count += 1;
                 }
             }
 
@@ -289,7 +282,6 @@ impl UnitigGraph {
                     // unitig_a+ -> unitig_b-
                     unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::REVERSE));
                     unitig_b.borrow_mut().reverse_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
-                    self.link_count += 1;
                 }
             }
 
@@ -300,7 +292,6 @@ impl UnitigGraph {
                     // unitig_a- -> unitig_b+
                     unitig_a.borrow_mut().reverse_next.push((Rc::clone(&unitig_b), strand::FORWARD));
                     unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::REVERSE));
-                    self.link_count += 1;
                 }
             }
         }
@@ -484,5 +475,14 @@ impl UnitigGraph {
             total_length += unitig.borrow().length();
         }
         total_length
+    }
+
+    pub fn get_link_count(&self) -> u32 {
+        let mut link_count = 0;
+        for unitig in &self.unitigs {
+            link_count += unitig.borrow().forward_next.len();
+            link_count += unitig.borrow().reverse_next.len();
+        }
+        link_count.try_into().unwrap()
     }
 }

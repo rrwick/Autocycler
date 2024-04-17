@@ -55,7 +55,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     explanation("The compressed sequence graph is now loaded into memory.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.link_count);
+    eprintln!("{} links", unitig_graph.get_link_count());
     (unitig_graph, sequences)
 }
 

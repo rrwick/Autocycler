@@ -95,7 +95,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
                  a.k.a. a unitig graph.");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.link_count);
+    eprintln!("{} links", unitig_graph.get_link_count());
     eprintln!("total length: {} bp", unitig_graph.get_total_length());
     eprintln!();
     unitig_graph
@@ -108,7 +108,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
                  when possible.");
     simplify_structure(unitig_graph, &sequences);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.link_count);
+    eprintln!("{} links", unitig_graph.get_link_count());
     eprintln!("total length: {} bp", unitig_graph.get_total_length());
     eprintln!();
 }
