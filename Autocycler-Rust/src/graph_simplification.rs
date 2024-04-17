@@ -46,7 +46,11 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     //           /                       \
     //    GACTACG                         TTGTACC
     //
+    // To avoid messing with input sequence paths, this function will not shift sequences at the
+    // start/ends of such paths. It also ensures that unitigs at the start or end of a path are
+    // never reduced to zero length, as this can cause problems with paths.
     let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
+    let cannot_be_zero_length: HashSet<_> = fixed_starts.union(&fixed_ends).cloned().collect();
     for unitig_rc in &graph.unitigs {
         let unitig_number = unitig_rc.borrow().number;
         let inputs = get_exclusive_inputs(&unitig_rc);
@@ -56,7 +60,7 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
                 if *input_strand && fixed_ends.contains(&input_rc.borrow().number) { shift_okay = false; }
                 if !*input_strand && fixed_starts.contains(&input_rc.borrow().number) { shift_okay = false; }
             }
-            if shift_okay { shift_sequence_1(&inputs, &unitig_rc); }
+            if shift_okay { shift_sequence_1(&inputs, &unitig_rc, &cannot_be_zero_length); }
         }
         let outputs = get_exclusive_outputs(&unitig_rc);
         if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
@@ -65,7 +69,7 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
                 if *output_strand && fixed_starts.contains(&output_rc.borrow().number) { shift_okay = false; }
                 if !*output_strand && fixed_ends.contains(&output_rc.borrow().number) { shift_okay = false; }
             }
-            if shift_okay { shift_sequence_2(&unitig_rc, &outputs); }
+            if shift_okay { shift_sequence_2(&unitig_rc, &outputs, &cannot_be_zero_length); }
         }
     }
 }
@@ -114,11 +118,27 @@ fn remove_zero_length_unitigs(graph: &mut UnitigGraph) {
 }
 
 
-fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: &Rc<RefCell<Unitig>>) {
+fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: &Rc<RefCell<Unitig>>,
+                    cannot_be_zero_length: &HashSet<u32>) {
     // This function:
     // * removes any common sequence from the ends of the source unitigs
     // * adds that common sequence to the start of the destination unitig
-    let common_seq = get_common_end_seq(sources);
+    // If any of the source unitigs are in the cannot_be_zero_length set, then this function will
+    // limit the shifted sequence to ensure that at least 1bp remains in those unitigs.
+    let mut common_seq = get_common_end_seq(sources);
+    if common_seq.len() == 0 {
+        return;
+    }
+
+    let common_seq_len = common_seq.len() as u32;
+    let leave_one_bp = sources.iter().any(|(source_rc, _)| {
+        let source = source_rc.borrow();
+        cannot_be_zero_length.contains(&source.number) && source.length() == common_seq_len
+    });
+    if leave_one_bp {
+        common_seq.remove(0);
+    }
+
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
         if *strand {
@@ -132,11 +152,27 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: 
 }
 
 
-fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>) {
+fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
+                    cannot_be_zero_length: &HashSet<u32>) {
     // This function:
     // * removes any common sequence from the starts of the source unitigs
     // * adds that common sequence to the end of the destination unitig
-    let common_seq = get_common_start_seq(sources);
+    // If any of the source unitigs are in the cannot_be_zero_length set, then this function will
+    // limit the shifted sequence to ensure that at least 1bp remains in those unitigs.
+    let mut common_seq = get_common_start_seq(sources);
+    if common_seq.len() == 0 {
+        return;
+    }
+
+    let common_seq_len = common_seq.len() as u32;
+    let leave_one_bp = sources.iter().any(|(source_rc, _)| {
+        let source = source_rc.borrow();
+        cannot_be_zero_length.contains(&source.number) && source.length() == common_seq_len
+    });
+    if leave_one_bp {
+        common_seq.pop();
+    }
+
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
         if *strand {

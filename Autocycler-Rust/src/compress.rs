@@ -104,8 +104,8 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
 
 fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
     section_header("Simplifying unitig graph");
-    explanation("Graph branches are now simplified by moving sequence into repeat segments \
-                 when possible.");
+    explanation("Then graph structure is now simplified by moving sequence into repeat unitigs \
+                 when possible and deleting zero-length unitigs.");
     simplify_structure(unitig_graph, &sequences);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.get_link_count());
