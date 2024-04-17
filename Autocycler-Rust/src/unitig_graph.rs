@@ -357,7 +357,6 @@ impl UnitigGraph {
                 links.push((a.number.to_string(), "+".to_string(), b.number.to_string(),
                             (if *b_strand {"+"} else {"-"}).to_string()));
             }
-
             for (b_rc, b_strand) in &a.reverse_next {
                 let b = b_rc.borrow();
                 links.push((a.number.to_string(), "-".to_string(), b.number.to_string(),

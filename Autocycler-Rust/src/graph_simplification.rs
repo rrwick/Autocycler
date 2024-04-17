@@ -22,6 +22,14 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
+    expand_repeats(graph, seqs);
+    remove_zero_length_unitigs(graph);
+    // TODO: loop until no more changes?
+    // graph.renumber_unitigs();
+}
+
+
+fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     // This function simplifies the graph structure by expanding repeats.
     //
     // For example, it will turn this:
@@ -60,8 +68,43 @@ pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
             if shift_okay { shift_sequence_2(&unitig_rc, &outputs); }
         }
     }
-    graph.renumber_unitigs();
 }
+
+
+fn remove_zero_length_unitigs(graph: &mut UnitigGraph) {
+    // TODO: make some tests for this function which cover a bunch of cases, including when prev and next are the same? Could occur in a loop. Should write a test...
+
+    // Create links to bypass the zero-length unitigs
+    for unitig_rc in &graph.unitigs {
+        let unitig = unitig_rc.borrow();
+        if unitig.length() == 0 {
+            for (prev_rc, prev_strand) in &unitig.forward_prev {
+                if *prev_strand {
+                    prev_rc.borrow_mut().forward_next.extend(unitig.forward_next.iter().cloned());
+                    prev_rc.borrow_mut().reverse_prev.extend(unitig.reverse_prev.iter().cloned());
+                } else {
+                    prev_rc.borrow_mut().reverse_next.extend(unitig.forward_next.iter().cloned());
+                    prev_rc.borrow_mut().forward_prev.extend(unitig.reverse_prev.iter().cloned());
+                }
+            }
+            for (next_rc, next_strand) in &unitig.forward_next {
+                if *next_strand {
+                    next_rc.borrow_mut().forward_prev.extend(unitig.forward_prev.iter().cloned());
+                    next_rc.borrow_mut().reverse_next.extend(unitig.reverse_next.iter().cloned());
+                } else {
+                    next_rc.borrow_mut().reverse_prev.extend(unitig.forward_prev.iter().cloned());
+                    next_rc.borrow_mut().forward_next.extend(unitig.reverse_next.iter().cloned());
+                }
+            }
+        }
+    }
+    
+    // Delete the zero-length unitigs from the graph
+    graph.unitigs.retain(|u| u.borrow().length() > 0);
+
+    // TODO: remove any duplicated links?
+}
+
 
 fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: &Rc<RefCell<Unitig>>) {
     // This function:
@@ -80,6 +123,7 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: 
     destination.add_seq_to_start(common_seq);
 }
 
+
 fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>) {
     // This function:
     // * removes any common sequence from the starts of the source unitigs
@@ -96,6 +140,7 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefC
     let mut destination = destination_rc.borrow_mut();
     destination.add_seq_to_end(common_seq);
 }
+
 
 fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
                                     sequences: &Vec<Sequence>) -> (HashSet<u32>, HashSet<u32>) {
@@ -125,6 +170,7 @@ fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
     (fixed_starts, fixed_ends)
 }
 
+
 fn get_exclusive_inputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
     // This function returns a vector of unitigs which exclusively input to the given unitig.
     // Exclusive input means the unitig leads only to the given unitig. If any of the given
@@ -146,6 +192,7 @@ fn get_exclusive_inputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unit
     }
     inputs
 }
+
 
 fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
     // This function returns a vector of unitigs which exclusively output from the given unitig.
@@ -169,6 +216,7 @@ fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Uni
     outputs
 }
 
+
 fn get_common_start_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
     // This function returns the common sequence at the start of all given unitigs.
     let seqs: Vec<_> = unitigs.iter().map(|(u, strand)| u.borrow().get_seq(*strand, 0, 0)).collect();
@@ -182,6 +230,7 @@ fn get_common_start_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
     }
     prefix
 }
+
 
 fn get_common_end_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
     // This function returns the common sequence at the end of all given unitigs.
