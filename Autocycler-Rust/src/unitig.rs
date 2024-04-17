@@ -255,6 +255,40 @@ impl Unitig {
             downstream_seq
         }
     }
+
+    pub fn remove_seq_from_start(&mut self, amount: usize) {
+        for p in &mut self.forward_positions {
+            p.pos += amount as u32
+        }
+        assert!(amount <= self.forward_seq.len());
+        self.forward_seq.drain(0..amount);
+        self.reverse_seq.truncate(self.reverse_seq.len() - amount);
+    }
+
+    pub fn remove_seq_from_end(&mut self, amount: usize) {
+        for p in &mut self.reverse_positions {
+            p.pos += amount as u32
+        }
+        assert!(amount <= self.forward_seq.len());
+        self.forward_seq.truncate(self.reverse_seq.len() - amount);
+        self.reverse_seq.drain(0..amount);
+    }
+
+    pub fn add_seq_to_start(&mut self, seq: Vec<u8>) {
+        for p in &mut self.forward_positions {
+            p.pos -= seq.len() as u32;
+        }
+        self.forward_seq.splice(0..0, seq.iter().cloned());
+        self.reverse_seq = reverse_complement(&self.forward_seq);
+    }
+
+    pub fn add_seq_to_end(&mut self, mut seq: Vec<u8>) {
+        for p in &mut self.reverse_positions {
+            p.pos -= seq.len() as u32;
+        }
+        self.forward_seq.append(&mut seq);
+        self.reverse_seq = reverse_complement(&self.forward_seq);
+    }
 }
 
 impl fmt::Display for Unitig {
@@ -268,6 +302,10 @@ impl fmt::Display for Unitig {
         };
         write!(f, "unitig {}: {}, {} bp, {:.2}x", self.number, display_seq, self.forward_seq.len(), self.depth)
     }
+}
+
+impl fmt::Debug for Unitig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
 }
 
 
@@ -370,5 +408,105 @@ mod tests {
         assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
         assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
         assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
+    }
+
+    #[test]
+    fn test_remove_seq_from_start() {
+        let mut u = Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1");
+        u.forward_positions.push(Position::new(1, strand::FORWARD, 100));
+        u.reverse_positions.push(Position::new(2, strand::REVERSE, 890));
+        u.forward_positions.push(Position::new(2, strand::REVERSE, 200));
+        u.reverse_positions.push(Position::new(2, strand::FORWARD, 790));
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+
+        u.remove_seq_from_start(2);
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "TGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCA");
+        assert_eq!(u.forward_positions[0].pos, 102);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 202);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+    }
+
+    #[test]
+    fn test_remove_seq_from_end() {
+        let mut u = Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1");
+        u.forward_positions.push(Position::new(1, strand::FORWARD, 100));
+        u.reverse_positions.push(Position::new(2, strand::REVERSE, 890));
+        u.forward_positions.push(Position::new(2, strand::REVERSE, 200));
+        u.reverse_positions.push(Position::new(2, strand::FORWARD, 790));
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+
+        u.remove_seq_from_end(2);
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGG");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "CCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 892);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 792);
+    }
+
+    #[test]
+    fn test_add_seq_to_start() {
+        let mut u = Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1");
+        u.forward_positions.push(Position::new(1, strand::FORWARD, 100));
+        u.reverse_positions.push(Position::new(2, strand::REVERSE, 890));
+        u.forward_positions.push(Position::new(2, strand::REVERSE, 200));
+        u.reverse_positions.push(Position::new(2, strand::FORWARD, 790));
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+
+        u.add_seq_to_start("AC".into());
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ACGCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCAGCGT");
+        assert_eq!(u.forward_positions[0].pos, 98);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 198);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+    }
+
+    #[test]
+    fn test_add_seq_to_end() {
+        let mut u = Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1");
+        u.forward_positions.push(Position::new(1, strand::FORWARD, 100));
+        u.reverse_positions.push(Position::new(2, strand::REVERSE, 890));
+        u.forward_positions.push(Position::new(2, strand::REVERSE, 200));
+        u.reverse_positions.push(Position::new(2, strand::FORWARD, 790));
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCCCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 890);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 790);
+
+        u.add_seq_to_end("AC".into());
+
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCTGAAGGGCAC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCCCTTCAGC");
+        assert_eq!(u.forward_positions[0].pos, 100);
+        assert_eq!(u.reverse_positions[0].pos, 888);
+        assert_eq!(u.forward_positions[1].pos, 200);
+        assert_eq!(u.reverse_positions[1].pos, 788);
     }
 }

@@ -51,6 +51,10 @@ impl fmt::Display for Position {
     }
 }
 
+impl fmt::Debug for Position {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
 
 #[cfg(test)]
 mod tests {

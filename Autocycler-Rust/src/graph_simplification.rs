@@ -25,31 +25,39 @@ pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     // This function simplifies the graph structure by expanding repeats.
     //
     // For example, it will turn this:
-    //    ACTACTCAACT
-    //               \
+    //    ACTACTCAACT                 GCTACGACTAC
+    //               \               /
     //                ATCGACTACGCTACG
-    //               /
-    //    GACTACGAACT
+    //               /               \
+    //    GACTACGAACT                 GCTATTGTACC
     //
     // Into this:
-    //    ACTACTC
-    //           \
-    //            AACTATCGACTACGCTACG
-    //           /
-    //    GACTACG
+    //    ACTACTC                         CGACTAC
+    //           \                       /
+    //            AACTATCGACTACGCTACGGCTA
+    //           /                       \
+    //    GACTACG                         TTGTACC
     //
     let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
     for unitig_rc in &graph.unitigs {
         let unitig_number = unitig_rc.borrow().number;
-        let inputs = get_exclusive_inputs(graph, &unitig_rc);
+        let inputs = get_exclusive_inputs(&unitig_rc);
         if inputs.len() >= 2 && !fixed_starts.contains(&unitig_number) {
-            // TODO: check inputs for fixed_starts/fixed_ends.
-            shift_sequence_1(&inputs, &unitig_rc);
+            let mut shift_okay = true;
+            for (input_rc, input_strand) in &inputs {
+                if *input_strand && fixed_ends.contains(&input_rc.borrow().number) { shift_okay = false; }
+                if !*input_strand && fixed_starts.contains(&input_rc.borrow().number) { shift_okay = false; }
+            }
+            if shift_okay { shift_sequence_1(&inputs, &unitig_rc); }
         }
-        let outputs = get_exclusive_outputs(graph, &unitig_rc);
+        let outputs = get_exclusive_outputs(&unitig_rc);
         if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
-            // TODO: check puts for fixed_starts/fixed_ends.
-            shift_sequence_2(&unitig_rc, &outputs);
+            let mut shift_okay = true;
+            for (output_rc, output_strand) in &outputs {
+                if *output_strand && fixed_starts.contains(&output_rc.borrow().number) { shift_okay = false; }
+                if !*output_strand && fixed_ends.contains(&output_rc.borrow().number) { shift_okay = false; }
+            }
+            if shift_okay { shift_sequence_2(&unitig_rc, &outputs); }
         }
     }
     graph.renumber_unitigs();
@@ -59,38 +67,34 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: 
     // This function:
     // * removes any common sequence from the ends of the source unitigs
     // * adds that common sequence to the start of the destination unitig
-    eprintln!("\n"); // TEMP
+    let common_seq = get_common_end_seq(sources);
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
-        eprintln!("SOURCE: {}", source); // TEMP
+        if *strand {
+            source.remove_seq_from_end(common_seq.len());
+        } else {
+            source.remove_seq_from_start(common_seq.len());
+        }
     }
     let mut destination = destination_rc.borrow_mut();
-    eprintln!("DESTINATION: {}", destination); // TEMP
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    eprintln!("\n"); // TEMP
+    destination.add_seq_to_start(common_seq);
 }
 
 fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>) {
     // This function:
     // * removes any common sequence from the starts of the source unitigs
     // * adds that common sequence to the end of the destination unitig
-    eprintln!("\n"); // TEMP
+    let common_seq = get_common_start_seq(sources);
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
-        eprintln!("SOURCE: {}", source); // TEMP
+        if *strand {
+            source.remove_seq_from_start(common_seq.len());
+        } else {
+            source.remove_seq_from_end(common_seq.len());
+        }
     }
     let mut destination = destination_rc.borrow_mut();
-    eprintln!("DESTINATION: {}", destination); // TEMP
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    eprintln!("\n"); // TEMP
+    destination.add_seq_to_end(common_seq);
 }
 
 fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
@@ -121,8 +125,7 @@ fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
     (fixed_starts, fixed_ends)
 }
 
-fn get_exclusive_inputs(graph: &UnitigGraph,
-                        unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
+fn get_exclusive_inputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
     // This function returns a vector of unitigs which exclusively input to the given unitig.
     // Exclusive input means the unitig leads only to the given unitig. If any of the given
     // unitig's inputs are not exclusive inputs, then this function returns an empty vector.
@@ -144,8 +147,7 @@ fn get_exclusive_inputs(graph: &UnitigGraph,
     inputs
 }
 
-fn get_exclusive_outputs(graph: &UnitigGraph,
-                         unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
+fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unitig>>, bool)> {
     // This function returns a vector of unitigs which exclusively output from the given unitig.
     // Exclusive output means the given unitig leads only to the unitig. If any of the given
     // unitig's outputs are not exclusive outputs, then this function returns an empty vector.
@@ -165,4 +167,34 @@ fn get_exclusive_outputs(graph: &UnitigGraph,
         }
     }
     outputs
+}
+
+fn get_common_start_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
+    // This function returns the common sequence at the start of all given unitigs.
+    let seqs: Vec<_> = unitigs.iter().map(|(u, strand)| u.borrow().get_seq(*strand, 0, 0)).collect();
+    if seqs.is_empty() { return Vec::new(); }
+    let mut prefix = seqs[0].clone();
+    for seq in seqs.iter() {
+        while !seq.starts_with(&prefix) {
+            prefix.pop();
+            if prefix.is_empty() { return Vec::new(); }
+        }
+    }
+    prefix
+}
+
+fn get_common_end_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
+    // This function returns the common sequence at the end of all given unitigs.
+    let seqs: Vec<Vec<u8>> = unitigs.iter().map(|(u, strand)| u.borrow().get_seq(*strand, 0, 0))
+        .map(|mut seq| { seq.reverse(); seq }).collect();
+    if seqs.is_empty() { return Vec::new(); }
+    let mut suffix = seqs[0].clone();
+    for seq in seqs.iter() {
+        while !seq.starts_with(&suffix) {
+            suffix.pop();
+            if suffix.is_empty() { return Vec::new(); }
+        }
+    }
+    suffix.reverse();
+    suffix
 }

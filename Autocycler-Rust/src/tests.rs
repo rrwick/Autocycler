@@ -28,6 +28,7 @@ mod tests {
     use crate::decompress::save_original_seqs;
     use crate::kmer_graph::KmerGraph;
     use crate::unitig_graph::UnitigGraph;
+    use crate::graph_simplification::simplify_structure;
 
     fn make_test_file(file_path: &PathBuf, contents: &str) {
         let mut file = File::create(&file_path).unwrap();
@@ -89,7 +90,7 @@ mod tests {
 
         // Build a unitig graph and save it to file.
         let mut unitig_graph_1 = UnitigGraph::from_kmer_graph(&kmer_graph);
-        unitig_graph_1.simplify_structure(&sequences_1);
+        simplify_structure(&mut unitig_graph_1, &sequences_1);
         let gfa_1 = graph_dir.path().join("graph_1.gfa");
         unitig_graph_1.save_gfa(&gfa_1, &sequences_1).unwrap();
 
