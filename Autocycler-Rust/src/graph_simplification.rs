@@ -22,14 +22,17 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
-    expand_repeats(graph, seqs);
-    remove_zero_length_unitigs(graph);
-    // TODO: loop until no more changes?
-    // graph.renumber_unitigs();
+    loop {
+        let shifted_amount = expand_repeats(graph, seqs);
+        if shifted_amount == 0 {
+            break;
+        }
+    }
+    graph.renumber_unitigs();
 }
 
 
-fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
+fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) -> usize {
     // This function simplifies the graph structure by expanding repeats.
     //
     // For example, it will turn this:
@@ -47,10 +50,13 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     //    GACTACG                         TTGTACC
     //
     // To avoid messing with input sequence paths, this function will not shift sequences at the
-    // start/ends of such paths. It also ensures that unitigs at the start or end of a path are
-    // never reduced to zero length, as this can cause problems with paths.
+    // start/ends of such paths. It also ensures that unitigs are never reduced to zero length, as
+    // this can cause problems with paths.
+    //
+    // The return value is the total amount of sequence shifted.
     let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
-    let cannot_be_zero_length: HashSet<_> = fixed_starts.union(&fixed_ends).cloned().collect();
+    let half_k = graph.k_size / 2;
+    let mut total_shifted_seq = 0;
     for unitig_rc in &graph.unitigs {
         let unitig_number = unitig_rc.borrow().number;
         let inputs = get_exclusive_inputs(&unitig_rc);
@@ -60,7 +66,9 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
                 if *input_strand && fixed_ends.contains(&input_rc.borrow().number) { shift_okay = false; }
                 if !*input_strand && fixed_starts.contains(&input_rc.borrow().number) { shift_okay = false; }
             }
-            if shift_okay { shift_sequence_1(&inputs, &unitig_rc, &cannot_be_zero_length); }
+            if shift_okay {
+                total_shifted_seq += shift_sequence_1(&inputs, &unitig_rc, half_k);
+            }
         }
         let outputs = get_exclusive_outputs(&unitig_rc);
         if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
@@ -69,98 +77,44 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
                 if *output_strand && fixed_starts.contains(&output_rc.borrow().number) { shift_okay = false; }
                 if !*output_strand && fixed_ends.contains(&output_rc.borrow().number) { shift_okay = false; }
             }
-            if shift_okay { shift_sequence_2(&unitig_rc, &outputs, &cannot_be_zero_length); }
-        }
-    }
-}
-
-
-fn remove_zero_length_unitigs(graph: &mut UnitigGraph) {
-    // TODO: make some tests for this function which cover a bunch of cases, including when prev and next are the same (could occur in a loop).
-
-    // Create links to bypass the zero-length unitigs
-    let mut new_links_1 = Vec::new();
-    let mut new_links_2 = Vec::new();
-    for unitig_rc in &graph.unitigs {
-        let unitig = unitig_rc.borrow();
-        if unitig.length() == 0 {
-            for (prev_rc, prev_strand) in &unitig.forward_prev {
-                let forward_next_cloned = unitig.forward_next.iter().cloned().collect::<Vec<_>>();
-                let reverse_prev_cloned = unitig.reverse_prev.iter().cloned().collect::<Vec<_>>();
-                new_links_1.push((prev_rc.clone(), *prev_strand, forward_next_cloned, reverse_prev_cloned));
-            }
-            for (next_rc, next_strand) in &unitig.forward_next {
-                let forward_prev_cloned = unitig.forward_prev.iter().cloned().collect::<Vec<_>>();
-                let reverse_next_cloned = unitig.reverse_next.iter().cloned().collect::<Vec<_>>();
-                new_links_2.push((next_rc.clone(), *next_strand, forward_prev_cloned, reverse_next_cloned));
+            if shift_okay {
+                total_shifted_seq += shift_sequence_2(&unitig_rc, &outputs, half_k);
             }
         }
     }
-    for (unitig_rc, strand, to_add_forward, to_add_reverse) in new_links_1 {
-        let mut unitig = unitig_rc.borrow_mut();
-        if strand {
-            unitig.forward_next.extend(to_add_forward);
-            unitig.reverse_prev.extend(to_add_reverse);
-        } else {
-            unitig.reverse_next.extend(to_add_forward);
-            unitig.forward_prev.extend(to_add_reverse);
-        }
-    }
-    for (unitig_rc, strand, to_add_forward, to_add_reverse) in new_links_2 {
-        let mut unitig = unitig_rc.borrow_mut();
-        if strand {
-            unitig.forward_prev.extend(to_add_forward);
-            unitig.reverse_next.extend(to_add_reverse);
-        } else {
-            unitig.reverse_prev.extend(to_add_forward);
-            unitig.forward_next.extend(to_add_reverse);
-        }
-    }
-
-    // TODO: remove any duplicated links?
-    
-    // Delete the zero-length unitigs from the graph
-    graph.unitigs.retain(|u| u.borrow().length() > 0);
-
-    // Delete any links to no-longer-existing unitigs.
-    let unitig_numbers: HashSet<u32> = graph.unitigs.iter().map(|u| u.borrow().number).collect();
-    for unitig_rc in &graph.unitigs {
-        let unitig = unitig_rc.borrow();
-        let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-        let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-        let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-        let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-        drop(unitig);
-        let mut unitig = unitig_rc.borrow_mut();
-        for index in forward_next_to_remove.into_iter().rev() { unitig.forward_next.remove(index); }
-        for index in forward_prev_to_remove.into_iter().rev() { unitig.forward_prev.remove(index); }
-        for index in reverse_next_to_remove.into_iter().rev() { unitig.reverse_next.remove(index); }
-        for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
-    }
+    total_shifted_seq
 }
 
 
-fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: &Rc<RefCell<Unitig>>,
-                    cannot_be_zero_length: &HashSet<u32>) {
+fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
+                    destination_rc: &Rc<RefCell<Unitig>>, half_k: u32) -> usize {
     // This function:
     // * removes any common sequence from the ends of the source unitigs
     // * adds that common sequence to the start of the destination unitig
-    // If any of the source unitigs are in the cannot_be_zero_length set, then this function will
-    // limit the shifted sequence to ensure that at least 1bp remains in those unitigs.
+    //
+    // This function also guards against a couple of potential complications with sequence paths
+    // (which could result in a path having more than one starting unitig):
+    // * won't let unitigs get down to a length of zero
+    // * won't add sequence to the destination unitig causing any of its positions to reach the
+    //   start of a path
+    //
+    // The return value is the amount of sequence shifted.
     let mut common_seq = get_common_end_seq(sources);
-    if common_seq.len() == 0 {
-        return;
-    }
+    if common_seq.len() == 0 { return 0; }
 
     let common_seq_len = common_seq.len() as u32;
-    let leave_one_bp = sources.iter().any(|(source_rc, _)| {
-        let source = source_rc.borrow();
-        cannot_be_zero_length.contains(&source.number) && source.length() == common_seq_len
-    });
+    let leave_one_bp = sources.iter().any(|(source_rc, _)| { source_rc.borrow().length() == common_seq_len });
     if leave_one_bp {
         common_seq.remove(0);
     }
 
+    let destination = destination_rc.borrow();
+    while let Some(_) = destination.forward_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
+        common_seq.remove(0);
+    }
+    drop(destination);
+    if common_seq.len() == 0 { return 0; }
+
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
         if *strand {
@@ -170,31 +124,41 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, destination_rc: 
         }
     }
     let mut destination = destination_rc.borrow_mut();
+    let shifted_amount = common_seq.len();
     destination.add_seq_to_start(common_seq);
+    shifted_amount
 }
 
 
-fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
-                    cannot_be_zero_length: &HashSet<u32>) {
+fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>,
+                    sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, half_k: u32) -> usize {
     // This function:
     // * removes any common sequence from the starts of the source unitigs
     // * adds that common sequence to the end of the destination unitig
-    // If any of the source unitigs are in the cannot_be_zero_length set, then this function will
-    // limit the shifted sequence to ensure that at least 1bp remains in those unitigs.
+    //
+    // This function also guards against a couple of potential complications with sequence paths
+    // (which could result in a path having more than one starting unitig):
+    // * won't let unitigs get down to a length of zero
+    // * won't add sequence to the destination unitig causing any of its positions to reach the
+    //   start of a path
+    //
+    // The return value is the amount of sequence shifted.
     let mut common_seq = get_common_start_seq(sources);
-    if common_seq.len() == 0 {
-        return;
-    }
+    if common_seq.len() == 0 { return 0; }
 
     let common_seq_len = common_seq.len() as u32;
-    let leave_one_bp = sources.iter().any(|(source_rc, _)| {
-        let source = source_rc.borrow();
-        cannot_be_zero_length.contains(&source.number) && source.length() == common_seq_len
-    });
+    let leave_one_bp = sources.iter().any(|(source_rc, _)| { source_rc.borrow().length() == common_seq_len });
     if leave_one_bp {
         common_seq.pop();
     }
 
+    let destination = destination_rc.borrow();
+    while let Some(_) = destination.reverse_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
+        common_seq.pop();
+    }
+    drop(destination);
+    if common_seq.len() == 0 { return 0; }
+
     for (source_rc, strand) in sources {
         let mut source = source_rc.borrow_mut();
         if *strand {
@@ -204,7 +168,9 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<(Rc<RefC
         }
     }
     let mut destination = destination_rc.borrow_mut();
+    let shifted_amount = common_seq.len();
     destination.add_seq_to_end(common_seq);
+    shifted_amount
 }
 
 
