@@ -22,12 +22,7 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
-    loop {
-        let shifted_amount = expand_repeats(graph, seqs);
-        if shifted_amount == 0 {
-            break;
-        }
-    }
+    while expand_repeats(graph, seqs) > 0 {}
     graph.renumber_unitigs();
 }
 
@@ -102,10 +97,11 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
     let mut common_seq = get_common_end_seq(sources);
     if common_seq.len() == 0 { return 0; }
 
-    let common_seq_len = common_seq.len() as u32;
-    let leave_one_bp = sources.iter().any(|(source_rc, _)| { source_rc.borrow().length() == common_seq_len });
-    if leave_one_bp {
+    let dup = if check_for_duplicates(&sources) {2} else {1};
+    let min_source_len = sources.iter().map(|(source_rc, _)| source_rc.borrow().length()).min().unwrap();
+    while min_source_len <= (common_seq.len() as u32) * dup {
         common_seq.remove(0);
+        if common_seq.len() == 0 { return 0; }
     }
 
     let destination = destination_rc.borrow();
@@ -146,10 +142,11 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>,
     let mut common_seq = get_common_start_seq(sources);
     if common_seq.len() == 0 { return 0; }
 
-    let common_seq_len = common_seq.len() as u32;
-    let leave_one_bp = sources.iter().any(|(source_rc, _)| { source_rc.borrow().length() == common_seq_len });
-    if leave_one_bp {
+    let dup = if check_for_duplicates(&sources) {2} else {1};
+    let min_source_len = sources.iter().map(|(source_rc, _)| source_rc.borrow().length()).min().unwrap();
+    while min_source_len <= (common_seq.len() as u32) * dup {
         common_seq.pop();
+        if common_seq.len() == 0 { return 0; }
     }
 
     let destination = destination_rc.borrow();
@@ -171,6 +168,11 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>,
     let shifted_amount = common_seq.len();
     destination.add_seq_to_end(common_seq);
     shifted_amount
+}
+
+fn check_for_duplicates(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> bool {
+    // Returns true if any two unitigs in the vector have the same number.
+    unitigs.iter().map(|(u, _)| u.borrow().number).collect::<HashSet<_>>().len() != unitigs.len()
 }
 
 
@@ -222,6 +224,9 @@ fn get_exclusive_inputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Unit
             return Vec::new();
         }
     }
+    if inputs.iter().any(|(input_rc, _)| { input_rc.borrow().number == unitig.number }) {
+        return Vec::new();
+    }
     inputs
 }
 
@@ -244,6 +249,9 @@ fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<(Rc<RefCell<Uni
         } else {
             return Vec::new();
         }
+    }
+    if outputs.iter().any(|(output_rc, _)| { output_rc.borrow().number == unitig.number }) {
+        return Vec::new();
     }
     outputs
 }
@@ -278,4 +286,238 @@ fn get_common_end_seq(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
     }
     suffix.reverse();
     suffix
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::fs::File;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn make_test_file(file_path: &PathBuf, contents: &str) {
+        let mut file = File::create(&file_path).unwrap();
+        write!(file, "{}", contents).unwrap();
+    }
+
+    fn unitig_vec_to_str(mut unitigs: Vec<(Rc<RefCell<Unitig>>, bool)>) -> String {
+        // Converts a vector of Unitigs to a string (makes my tests easier to write).
+        unitigs.sort_by(|a, b| {
+            let num_a = a.0.borrow().number;
+            let num_b = b.0.borrow().number;
+            num_a.cmp(&num_b).then_with(|| a.1.cmp(&b.1))
+        });
+        unitigs.iter()
+            .map(|(unitig, strand)| {
+                let num = unitig.borrow().number;
+                let sign = if *strand { '+' } else { '-' };
+                format!("{}{}", num, sign)
+            }).collect::<Vec<String>>().join(",")
+    }
+
+    fn get_test_gfa_1() -> String {
+        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+        S\t4\tGCTCGGCTCG\tDP:f:1\n\
+        S\t5\tCGAACCAT\tDP:f:1\n\
+        S\t6\tTACTTGT\tDP:f:1\n\
+        S\t7\tGCCTT\tDP:f:1\n\
+        S\t8\tATCT\tDP:f:1\n\
+        S\t9\tGC\tDP:f:1\n\
+        S\t10\tT\tDP:f:1\n\
+        L\t1\t+\t4\t+\t0M\n\
+        L\t4\t-\t1\t-\t0M\n\
+        L\t1\t+\t5\t-\t0M\n\
+        L\t5\t+\t1\t-\t0M\n\
+        L\t2\t+\t1\t+\t0M\n\
+        L\t1\t-\t2\t-\t0M\n\
+        L\t3\t-\t1\t+\t0M\n\
+        L\t1\t-\t3\t+\t0M\n\
+        L\t4\t+\t7\t-\t0M\n\
+        L\t7\t+\t4\t-\t0M\n\
+        L\t4\t+\t8\t+\t0M\n\
+        L\t8\t-\t4\t-\t0M\n\
+        L\t6\t-\t5\t-\t0M\n\
+        L\t5\t+\t6\t+\t0M\n\
+        L\t6\t+\t6\t-\t0M\n\
+        L\t7\t-\t9\t+\t0M\n\
+        L\t9\t-\t7\t+\t0M\n\
+        L\t8\t+\t10\t-\t0M\n\
+        L\t10\t+\t8\t-\t0M\n\
+        L\t9\t+\t7\t+\t0M\n\
+        L\t7\t-\t9\t-\t0M\n".to_string()
+    }
+
+    fn get_test_gfa_2() -> String {
+        "S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
+        S\t2\tATGAT\tDP:f:1\n\
+        S\t3\tGCGC\tDP:f:1\n\
+        L\t1\t+\t2\t+\t0M\n\
+        L\t2\t-\t1\t-\t0M\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t1\t-\t3\t+\t0M\n\
+        L\t3\t-\t1\t+\t0M\n\
+        L\t1\t-\t3\t-\t0M\n\
+        L\t3\t+\t1\t+\t0M\n".to_string()
+    }
+
+    #[test]
+    fn test_get_common_start_seq() {
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, true), (b, true), (c, true)];
+        assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "AC");
+
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, true), (b, true), (c, false)];
+        assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "A");
+
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, true), (b, false), (c, false)];
+        assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "");
+    }
+
+    #[test]
+    fn test_get_common_end_seq() {
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, true), (b, true), (c, true)];
+        assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "");
+
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, false), (b, false), (c, true)];
+        assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "T");
+
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+        let unitigs = vec![(a, false), (b, false), (c, false)];
+        assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "GT");
+    }
+
+    #[test]
+    fn test_get_exclusive_inputs_and_outputs() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        let unitig_1 = &graph.unitigs[0];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_1)), "2+,3-");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_1)), "");
+
+        let unitig_2 = &graph.unitigs[1];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_2)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_2)), "");
+
+        let unitig_3 = &graph.unitigs[2];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_3)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_3)), "");
+
+        let unitig_4 = &graph.unitigs[3];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_4)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_4)), "7-,8+");
+
+        let unitig_5 = &graph.unitigs[4];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_5)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_5)), "");
+
+        let unitig_6 = &graph.unitigs[5];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_6)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_6)), "");
+
+        let unitig_7 = &graph.unitigs[6];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_7)), "9-,9+");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_7)), "");
+
+        let unitig_8 = &graph.unitigs[7];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_8)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_8)), "10-");
+
+        let unitig_9 = &graph.unitigs[8];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_9)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_9)), "");
+
+        let unitig_10 = &graph.unitigs[9];
+        assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_10)), "");
+        assert_eq!(unitig_vec_to_str(get_exclusive_outputs(unitig_10)), "8-");
+    }
+
+    #[test]
+    fn test_simplify_structure_1() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let sequences: Vec<Sequence> = vec![];
+
+        assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "TTCGCTGCGCTCGCTTCGCTTT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[1].borrow().forward_seq).unwrap(), "TGCCGTCGTCGCTGTGCA");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[2].borrow().forward_seq).unwrap(), "TGCCTGAATCGCCTA");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[3].borrow().forward_seq).unwrap(), "GCTCGGCTCG");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[4].borrow().forward_seq).unwrap(), "CGAACCAT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[5].borrow().forward_seq).unwrap(), "TACTTGT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[6].borrow().forward_seq).unwrap(), "GCCTT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[7].borrow().forward_seq).unwrap(), "ATCT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[8].borrow().forward_seq).unwrap(), "GC");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[9].borrow().forward_seq).unwrap(), "T");
+
+        simplify_structure(&mut graph, &sequences);
+
+        assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "GCATTCGCTGCGCTCGCTTCGCTTT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[1].borrow().forward_seq).unwrap(), "TGCCGTCGTCGCTGT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[2].borrow().forward_seq).unwrap(), "CTGAATCGCCTA");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[3].borrow().forward_seq).unwrap(), "GCTCGGCTCGA");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[4].borrow().forward_seq).unwrap(), "CGAACCAT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[5].borrow().forward_seq).unwrap(), "TACTTGT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[6].borrow().forward_seq).unwrap(), "GCCT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[7].borrow().forward_seq).unwrap(), "TCT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[8].borrow().forward_seq).unwrap(), "GC");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[9].borrow().forward_seq).unwrap(), "T");
+    }
+
+    #[test]
+    fn test_simplify_structure_2() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let sequences: Vec<Sequence> = vec![];
+
+        assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "ACCGCTGCGCTCGCTTCGCTCT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[1].borrow().forward_seq).unwrap(), "ATGAT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[2].borrow().forward_seq).unwrap(), "GCGC");
+
+        simplify_structure(&mut graph, &sequences);
+
+        assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "CACCGCTGCGCTCGCTTCGCTCTAT");
+        assert_eq!(std::str::from_utf8(&graph.unitigs[1].borrow().forward_seq).unwrap(), "CG"); // formerly unitig 3
+        assert_eq!(std::str::from_utf8(&graph.unitigs[2].borrow().forward_seq).unwrap(), "G");  // formerly unitig 2
+    }
+
+    #[test]
+    fn test_check_for_duplicates() {
+        let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
+        let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
+        let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
+
+        let unitigs_1 = vec![(a.clone(), true), (b.clone(), true), (c.clone(), true)];
+        assert!(!check_for_duplicates(&unitigs_1));
+        
+        let unitigs_2 = vec![(a.clone(), true), (b.clone(), true), (a.clone(), false)];
+        assert!(check_for_duplicates(&unitigs_2));
+    }
 }
