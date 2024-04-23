@@ -45,10 +45,7 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) -> usize {
     //    GACTACG                         TTGTACC
     //
     // To avoid messing with input sequence paths, this function will not shift sequences at the
-    // start/ends of such paths. It also ensures that unitigs are never reduced to zero length, as
-    // this can cause problems with paths.
-    //
-    // The return value is the total amount of sequence shifted.
+    // start/ends of such paths. The return value is the total amount of sequence shifted.
     let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
     let half_k = graph.k_size / 2;
     let mut total_shifted_seq = 0;
@@ -56,23 +53,19 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) -> usize {
         let unitig_number = unitig_rc.borrow().number;
         let inputs = get_exclusive_inputs(&unitig_rc);
         if inputs.len() >= 2 && !fixed_starts.contains(&unitig_number) {
-            let mut shift_okay = true;
-            for (input_rc, input_strand) in &inputs {
-                if *input_strand && fixed_ends.contains(&input_rc.borrow().number) { shift_okay = false; }
-                if !*input_strand && fixed_starts.contains(&input_rc.borrow().number) { shift_okay = false; }
-            }
-            if shift_okay {
+            let can_shift = inputs.iter().all(|(input_rc, input_strand)| {
+                !(*input_strand && fixed_ends.contains(&input_rc.borrow().number) ||
+                  !*input_strand && fixed_starts.contains(&input_rc.borrow().number))});
+            if can_shift {
                 total_shifted_seq += shift_sequence_1(&inputs, &unitig_rc, half_k);
             }
         }
         let outputs = get_exclusive_outputs(&unitig_rc);
         if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
-            let mut shift_okay = true;
-            for (output_rc, output_strand) in &outputs {
-                if *output_strand && fixed_starts.contains(&output_rc.borrow().number) { shift_okay = false; }
-                if !*output_strand && fixed_ends.contains(&output_rc.borrow().number) { shift_okay = false; }
-            }
-            if shift_okay {
+            let can_shift = outputs.iter().all(|(output_rc, output_strand)| {
+                !(*output_strand && fixed_starts.contains(&output_rc.borrow().number) ||
+                  !*output_strand && fixed_ends.contains(&output_rc.borrow().number))});
+            if can_shift {
                 total_shifted_seq += shift_sequence_2(&unitig_rc, &outputs, half_k);
             }
         }
@@ -89,86 +82,95 @@ fn shift_sequence_1(sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
     //
     // This function also guards against a couple of potential complications with sequence paths
     // (which could result in a path having more than one starting unitig):
-    // * won't let unitigs get down to a length of zero
-    // * won't add sequence to the destination unitig causing any of its positions to reach the
-    //   start of a path
+    // * It won't let unitigs get down to a length of zero. This requires some extra logic for when
+    //   both strands of one unitig appears in the sources (and will therefore be have sequence
+    //   removed from both ends).
+    // * It won't add sequence to the destination unitig causing any of its positions to reach the
+    //   start of a path.
     //
     // The return value is the amount of sequence shifted.
     let mut common_seq = get_common_end_seq(sources);
-    if common_seq.len() == 0 { return 0; }
-
-    let dup = if check_for_duplicates(&sources) {2} else {1};
-    let min_source_len = sources.iter().map(|(source_rc, _)| source_rc.borrow().length()).min().unwrap();
-    while min_source_len <= (common_seq.len() as u32) * dup {
-        common_seq.remove(0);
-        if common_seq.len() == 0 { return 0; }
+    avoid_zero_len_unitigs(&mut common_seq, &sources, true);
+    avoid_start_of_path(&mut common_seq, &destination_rc, half_k, true);
+    let shifted_amount = common_seq.len();
+    if shifted_amount == 0 {
+        return 0;
     }
-
-    let destination = destination_rc.borrow();
-    while let Some(_) = destination.forward_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
-        common_seq.remove(0);
-    }
-    drop(destination);
-    if common_seq.len() == 0 { return 0; }
-
     for (source_rc, strand) in sources {
-        let mut source = source_rc.borrow_mut();
         if *strand {
-            source.remove_seq_from_end(common_seq.len());
+            source_rc.borrow_mut().remove_seq_from_end(shifted_amount);
         } else {
-            source.remove_seq_from_start(common_seq.len());
+            source_rc.borrow_mut().remove_seq_from_start(shifted_amount);
         }
     }
-    let mut destination = destination_rc.borrow_mut();
-    let shifted_amount = common_seq.len();
-    destination.add_seq_to_start(common_seq);
+    destination_rc.borrow_mut().add_seq_to_start(common_seq);
     shifted_amount
 }
 
 
 fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>,
                     sources: &Vec<(Rc<RefCell<Unitig>>, bool)>, half_k: u32) -> usize {
-    // This function:
+    // This function does the same thing as shift_sequence_1, but for the other side of a unitig:
     // * removes any common sequence from the starts of the source unitigs
     // * adds that common sequence to the end of the destination unitig
-    //
-    // This function also guards against a couple of potential complications with sequence paths
-    // (which could result in a path having more than one starting unitig):
-    // * won't let unitigs get down to a length of zero
-    // * won't add sequence to the destination unitig causing any of its positions to reach the
-    //   start of a path
-    //
-    // The return value is the amount of sequence shifted.
     let mut common_seq = get_common_start_seq(sources);
-    if common_seq.len() == 0 { return 0; }
-
-    let dup = if check_for_duplicates(&sources) {2} else {1};
-    let min_source_len = sources.iter().map(|(source_rc, _)| source_rc.borrow().length()).min().unwrap();
-    while min_source_len <= (common_seq.len() as u32) * dup {
-        common_seq.pop();
-        if common_seq.len() == 0 { return 0; }
+    avoid_zero_len_unitigs(&mut common_seq, &sources, false);
+    avoid_start_of_path(&mut common_seq, &destination_rc, half_k, false);
+    let shifted_amount = common_seq.len();
+    if shifted_amount == 0 {
+        return 0;
     }
-
-    let destination = destination_rc.borrow();
-    while let Some(_) = destination.reverse_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
-        common_seq.pop();
-    }
-    drop(destination);
-    if common_seq.len() == 0 { return 0; }
-
     for (source_rc, strand) in sources {
-        let mut source = source_rc.borrow_mut();
         if *strand {
-            source.remove_seq_from_start(common_seq.len());
+            source_rc.borrow_mut().remove_seq_from_start(shifted_amount);
         } else {
-            source.remove_seq_from_end(common_seq.len());
+            source_rc.borrow_mut().remove_seq_from_end(shifted_amount);
         }
     }
-    let mut destination = destination_rc.borrow_mut();
-    let shifted_amount = common_seq.len();
-    destination.add_seq_to_end(common_seq);
+    destination_rc.borrow_mut().add_seq_to_end(common_seq);
     shifted_amount
 }
+
+
+fn avoid_zero_len_unitigs(common_seq: &mut Vec<u8>, sources: &Vec<(Rc<RefCell<Unitig>>, bool)>,
+                          trim_from_start: bool) {
+    // This function takes some common sequence (sequence that will be shifted from some unitigs
+    // onto another) and trims it down to ensure that none of the source unitigs will end up with
+    // a length of zero.
+    if common_seq.len() == 0 {
+        return;
+    }
+    let dup = if check_for_duplicates(&sources) { 2 } else { 1 };
+    let min_source_len = sources.iter().map(|(source_rc, _)| source_rc.borrow().length()).min().unwrap();
+    while min_source_len <= (common_seq.len() as u32) * dup {
+        if trim_from_start {
+            common_seq.remove(0);
+        } else {
+            common_seq.pop();
+        }
+    }
+}
+
+
+fn avoid_start_of_path(common_seq: &mut Vec<u8>, destination_rc: &Rc<RefCell<Unitig>>, half_k: u32,
+                       trim_from_start: bool) {
+    // This function takes some common sequence (sequence that will be shifted from some unitigs
+    // onto another) and trims it down to ensure that the destination unitig's positions will not
+    // end up at the start of a path, as this can cause problems.
+    if common_seq.len() == 0 {
+        return;
+    }
+    if trim_from_start {
+        while let Some(_) = destination_rc.borrow().forward_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
+            common_seq.remove(0);
+        }
+    } else {
+        while let Some(_) = destination_rc.borrow().reverse_positions.iter().find(|p| p.pos <= common_seq.len() as u32 + half_k) {
+            common_seq.pop();
+        }
+    }
+}
+
 
 fn check_for_duplicates(unitigs: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> bool {
     // Returns true if any two unitigs in the vector have the same number.
