@@ -11,6 +11,8 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
+
 use crate::misc::{quit_with_error, reverse_complement};
 
 
@@ -45,4 +47,14 @@ impl Sequence {
     pub fn contig_name(&self) -> String {
         self.contig_header.split_whitespace().next().unwrap_or("").to_string()
     }
+}
+
+impl fmt::Display for Sequence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.filename, self.contig_name())
+    }
+}
+
+impl fmt::Debug for Sequence {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
 }

@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand, crate_version};
 
+mod cluster;
 mod compress;
 mod decompress;
 mod kmer_graph;
@@ -78,6 +79,17 @@ enum Commands {
         out_dir: PathBuf,
     },
 
+    /// cluster contigs using the De Bruijn graph
+    Cluster {
+        /// Autocycler GFA file (required)
+        #[clap(short = 'i', long = "in_gfa", required = true)]
+        in_gfa: PathBuf,
+
+        /// Directory where clustering results will be saved (required)
+        #[clap(short = 'o', long = "out_dir", required = true)]
+        out_dir: PathBuf,
+    },
+
     /// resolve De Bruijn graph to a consensus assembly
     Resolve {
         /// Autocycler GFA file (required)
@@ -100,6 +112,9 @@ fn main() {
         },
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
+        },
+        Some(Commands::Cluster { in_gfa, out_dir }) => {
+            cluster::cluster(in_gfa, out_dir);
         },
         Some(Commands::Resolve { in_gfa, out_dir }) => {
             resolve::resolve(in_gfa, out_dir);
