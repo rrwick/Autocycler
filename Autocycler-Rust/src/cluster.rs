@@ -11,6 +11,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
@@ -26,9 +28,12 @@ pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf) {
     print_settings(&in_gfa, &out_dir);
     create_output_dir(&out_dir);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
-    let distances = pairwise_contig_distances(unitig_graph, &sequences);
-
-    // TODO: save distance matrix
+    let asymmetrical_distances = pairwise_contig_distances(unitig_graph, &sequences);
+    save_distance_matrix(&asymmetrical_distances, &sequences, &out_dir,
+                         "distances_asymmetrical.phylip");
+    let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
+    save_distance_matrix(&symmetrical_distances, &sequences, &out_dir,
+                         "distances_symmetrical.phylip");
     // TODO: cluster using distance
 }
 
@@ -80,6 +85,41 @@ fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence
     distances
 }
 
+
 fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32>) -> u32 {
     unitigs.iter().map(|u| unitig_lengths.get(u).unwrap()).sum()
+}
+
+
+fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
+                        out_dir: &PathBuf, filename: &str) {
+    let file_path = out_dir.join(filename);
+    let mut f = File::create(&file_path).unwrap();
+    write!(f, "{}\n", sequences.len()).unwrap();
+    for seq_a in sequences {
+        write!(f, "{}", seq_a).unwrap();
+        for seq_b in sequences {
+            write!(f, "\t{:.8}", distances.get(&(seq_a.id, seq_b.id)).unwrap()).unwrap();
+        }
+        write!(f, "\n").unwrap();
+    }
+}
+
+
+fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
+    // This function takes in an asymmetrical distance matrix (where A vs B is not necessarily
+    // equal to B vs A) and makes it symmetric by setting each distance (both orders) to the
+    // minimum distance of the two orders.
+    let mut symmetrical_distances: HashMap<(u16, u16), f64> = HashMap::new();
+    for seq_a in sequences {
+        for seq_b in sequences {
+            let a_vs_b = asymmetrical_distances.get(&(seq_a.id, seq_b.id)).unwrap();
+            let b_vs_a = asymmetrical_distances.get(&(seq_b.id, seq_a.id)).unwrap();
+            // let distance = f64::min(*a_vs_b, *b_vs_a);
+            let distance = f64::max(*a_vs_b, *b_vs_a);
+            // let distance = (a_vs_b + b_vs_a) / 2.0;
+            symmetrical_distances.insert((seq_a.id, seq_b.id), distance);
+        }
+    }
+    symmetrical_distances
 }

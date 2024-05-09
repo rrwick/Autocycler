@@ -51,7 +51,7 @@ impl Sequence {
 
 impl fmt::Display for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.filename, self.contig_name())
+        write!(f, "{}__{}__{}bp", self.filename, self.contig_name(), self.length)
     }
 }
 

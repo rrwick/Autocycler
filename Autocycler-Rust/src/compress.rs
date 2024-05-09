@@ -72,6 +72,8 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
             sequences.push(Sequence::new(seq_id as u16, seq, filename, contig_header, seq_len));
         }
     }
+    // TODO: I should make sure that all sequences have a unique string (assembly filename
+    // followed by contig name), because any duplicates could cause problems later.
     eprintln!();
     (sequences, assemblies.len())
 }
