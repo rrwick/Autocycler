@@ -89,13 +89,14 @@ enum Commands {
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
-        /// ε value for DBSCAN* clustering
-        #[clap(short = 's', long = "eps", default_value = "0.03")]
-        eps: f64,
+        /// ε parameter for DBSCAN* clustering
+        #[clap(short = 's', long = "eps", hide_default_value = true,
+        help = "ε parameter for DBSCAN* clustering [default: automatic]")]
+        eps: Option<f64>,
 
-        /// minPts value for DBSCAN* clustering
+        /// minPts parameter for DBSCAN* clustering
         #[clap(short = 'm', long = "minpts", hide_default_value = true,
-               help = "minPts value for DBSCAN* clustering [default: automatic]")]
+               help = "minPts parameter for DBSCAN* clustering [default: automatic]")]
         minpts: Option<usize>,
     },
 

@@ -16,17 +16,17 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{format_float, quit_with_error, usize_division_rounded};
+use crate::misc::{format_float, round_float, quit_with_error, usize_division_rounded};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: Option<usize>) {
-    check_settings(eps, &minpts);
+pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: Option<f64>, minpts: Option<usize>) {
+    check_settings(&eps, &minpts);
     section_header("Starting autocycler cluster");
     explanation("This command will take a compacted De Bruijn graph (made by autocycler \
                  compress) and cluster the contigs based on their similarity.");
-    print_settings(&in_gfa, &out_dir, eps, &minpts);
+    print_settings(&in_gfa, &out_dir, &eps, &minpts);
     create_output_dir(&out_dir);
     let (unitig_graph, mut sequences) = load_graph(&in_gfa);
     let asymmetrical_distances = pairwise_contig_distances(unitig_graph, &sequences);
@@ -36,28 +36,32 @@ pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: Option<usize
     save_distance_matrix(&symmetrical_distances, &sequences, &out_dir,
                          "distances_symmetrical.phylip");
     dbscan_cluster(&symmetrical_distances, &mut sequences, eps, minpts);
-    // TODO: exclude any clusters that aren't spread over enough assemblies
+    // TODO: exclude any clusters that aren't spread over enough assemblies (needs an argument)
+    // TODO: reorder clusters based on their median sequence length
     print_clusters(&sequences);
+    // TODO: save clustering results to a TSV file
 }
 
 
-fn check_settings(eps: f64, minpts: &Option<usize>) {
-    if eps <= 0.0 || eps >= 1.0 {
+fn check_settings(eps: &Option<f64>, minpts: &Option<usize>) {
+    if eps.is_some() && (eps.unwrap() <= 0.0 || eps.unwrap() >= 1.0) {
         quit_with_error("--eps must be between 0 and 1 (exclusive)");
     }
-    if minpts.is_some() {
-        if minpts.unwrap() < 2 {
-            quit_with_error("--minpts must be 2 or greater");
-        }
+    if minpts.is_some() && minpts.unwrap() < 2 {
+        quit_with_error("--minpts must be 2 or greater");
     }
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf, eps: f64, minpts: &Option<usize>) {
+fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
-    eprintln!("  --eps {}", format_float(eps));
+    if eps.is_none() {
+        eprintln!("  --eps (automatically set)");
+    } else {
+        eprintln!("  --eps {}", format_float(eps.unwrap()));
+    }
     if minpts.is_none() {
         eprintln!("  --minpts (automatically set)");
     } else {
@@ -151,18 +155,18 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 
 
 fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
-                  eps: f64, min_pts_option: Option<usize>) {
+                  eps_option: Option<f64>, min_pts_option: Option<usize>) {
                     section_header("Clustering sequences");
-                    explanation("Contigs are clustered using the DBSCAN* algorithm. This is a \
-                                 variant of the DBSCAN algorithm where all border points are \
-                                 treated as noise. Contigs will be either put into a cluster \
-                                 (defined by sufficient density) or be classified as noise (no \
-                                 cluster).");
+                    explanation("Contigs are clustered using the DBSCAN* algorithm, a variant of \
+                                 the DBSCAN algorithm where all border points are treated as \
+                                 noise. Contigs will be either put into a cluster (defined by \
+                                 sufficient density) or be classified as noise (no cluster).");
     // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
     // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
     // sensitive to the order of sequences).
-    eprintln!("ε value: {}", format_float(eps));
+    let eps = set_eps(eps_option, distances);
     let min_pts = set_min_pts(min_pts_option, sequences);
+    eprintln!();
     let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
     let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
     let mut c = 0;
@@ -201,10 +205,36 @@ fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps
 }
 
 
+fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64 {
+    // This function automatically sets the ε parameter, if the user didn't supply one.
+    // The auto-set value be 2x the median close distance, where close distances are all distances
+    // less than 0.2. The auto-set value can't be less than 0.01 or more than 0.1.
+    if eps_option.is_some() {
+        eprintln!("ε parameter: {} (user-suppled)", eps_option.unwrap());
+        return eps_option.unwrap();
+    }
+    let mut close_distances: Vec<_> = distances.values().cloned().filter(|&val| val < 0.2).collect();
+    close_distances.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut auto_eps = 0.05;
+    if close_distances.len() > 0 {
+        auto_eps = 2.0 * round_float(close_distances[close_distances.len() / 2], 3);
+    }
+    if auto_eps < 0.01 {
+        auto_eps = 0.01
+    }
+    if auto_eps > 0.1 {
+        auto_eps = 0.1
+    }
+    eprintln!("ε parameter: {} (automatically set)", format_float(auto_eps));
+    auto_eps
+}
+
+
 fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> usize {
     // This function automatically sets the minPts parameter, if the user didn't supply one.
+    // The auto-set value will be one-quarter of the assembly count (rounded) but no less than 3.
     if min_pts_option.is_some() {
-        eprintln!("minPts value: {} (user-suppled)\n", min_pts_option.unwrap());
+        eprintln!("minPts parameter: {} (user-suppled)", min_pts_option.unwrap());
         return min_pts_option.unwrap();
     }
     let assembly_count = sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len();
@@ -212,7 +242,7 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> 
     if auto_min_pts < 3 {
         auto_min_pts = 3;
     }
-    eprintln!("minPts value: {} (automatically set)\n", auto_min_pts);
+    eprintln!("minPts parameter: {} (automatically set)", auto_min_pts);
     auto_min_pts
 }
 

@@ -272,9 +272,20 @@ pub fn format_float(num: f64) -> String {
 }
 
 
+pub fn round_float(num: f64, digits: u32) -> f64 {
+    // Rounds a float to the given number of digits.
+    let multiplier = 10f64.powi(digits as i32);
+    (num * multiplier).round() / multiplier
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
+        assert!((a - b).abs() < epsilon, "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
+    }
 
     #[test]
     fn test_format_duration() {
@@ -322,5 +333,21 @@ mod tests {
         assert_eq!(format_float(0.1111111), "0.111111");
         assert_eq!(format_float(0.11111111), "0.111111");
         assert_eq!(format_float(10.0), "10");
+    }
+
+    #[test]
+    fn test_round_float() {
+        assert_almost_eq(round_float(0.1234, 1), 0.1, 1e-8);
+        assert_almost_eq(round_float(0.1234, 2), 0.12, 1e-8);
+        assert_almost_eq(round_float(0.1234, 3), 0.123, 1e-8);
+        assert_almost_eq(round_float(0.1234, 4), 0.1234, 1e-8);
+        assert_almost_eq(round_float(0.1234, 5), 0.1234, 1e-8);
+        assert_almost_eq(round_float(0.1234, 6), 0.1234, 1e-8);
+        assert_almost_eq(round_float(0.9876, 1), 1.0, 1e-8);
+        assert_almost_eq(round_float(0.9876, 2), 0.99, 1e-8);
+        assert_almost_eq(round_float(0.9876, 3), 0.988, 1e-8);
+        assert_almost_eq(round_float(0.9876, 4), 0.9876, 1e-8);
+        assert_almost_eq(round_float(0.9876, 5), 0.9876, 1e-8);
+        assert_almost_eq(round_float(0.9876, 6), 0.9876, 1e-8);
     }
 }
