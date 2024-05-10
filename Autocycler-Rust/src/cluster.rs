@@ -16,16 +16,17 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::quit_with_error;
+use crate::misc::{format_float, quit_with_error, usize_division_rounded};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: usize) {
+pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: Option<usize>) {
+    check_settings(eps, &minpts);
     section_header("Starting autocycler cluster");
     explanation("This command will take a compacted De Bruijn graph (made by autocycler \
                  compress) and cluster the contigs based on their similarity.");
-    print_settings(&in_gfa, &out_dir);
+    print_settings(&in_gfa, &out_dir, eps, &minpts);
     create_output_dir(&out_dir);
     let (unitig_graph, mut sequences) = load_graph(&in_gfa);
     let asymmetrical_distances = pairwise_contig_distances(unitig_graph, &sequences);
@@ -40,10 +41,29 @@ pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: usize) {
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
+fn check_settings(eps: f64, minpts: &Option<usize>) {
+    if eps <= 0.0 || eps >= 1.0 {
+        quit_with_error("--eps must be between 0 and 1 (exclusive)");
+    }
+    if minpts.is_some() {
+        if minpts.unwrap() < 2 {
+            quit_with_error("--minpts must be 2 or greater");
+        }
+    }
+}
+
+
+fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf, eps: f64, minpts: &Option<usize>) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!("  --eps {}", format_float(eps));
+    if minpts.is_none() {
+        eprintln!("  --minpts (automatically set)");
+    } else {
+        eprintln!("  --minpts {}", minpts.unwrap());
+    }
+    eprintln!();
 }
 
 
@@ -59,14 +79,19 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
+    let assembly_count = sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len();
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.get_link_count());
-    eprintln!("{} contigs", sequences.len());
+    eprintln!("{} contigs from {} assemblies", sequences.len(), assembly_count);
+    eprintln!();
     (unitig_graph, sequences)
 }
 
 
 fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
+    section_header("Calculating pairwise distances");
+    explanation("Every pairwise distance between contigs is calculated based on the similarity of \
+                 their paths through the compressed sequence graph.");
     let unitig_lengths: HashMap<u32, u32> = unitig_graph.unitigs.iter()
         .map(|rc| {let u = rc.borrow(); (u.number, u.length())}).collect();
     let sequence_unitigs: HashMap<u16, HashSet<u32>> = sequences.iter()
@@ -126,13 +151,18 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 
 
 fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
-                  eps: f64, min_pts: usize) {
+                  eps: f64, min_pts_option: Option<usize>) {
                     section_header("Clustering sequences");
                     explanation("Contigs are clustered using the DBSCAN* algorithm. This is a \
                                  variant of the DBSCAN algorithm where all border points are \
-                                 treated as noise.");
-    // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm
-    // 
+                                 treated as noise. Contigs will be either put into a cluster \
+                                 (defined by sufficient density) or be classified as noise (no \
+                                 cluster).");
+    // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
+    // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
+    // sensitive to the order of sequences).
+    eprintln!("ε value: {}", format_float(eps));
+    let min_pts = set_min_pts(min_pts_option, sequences);
     let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
     let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
     let mut c = 0;
@@ -171,6 +201,22 @@ fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps
 }
 
 
+fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> usize {
+    // This function automatically sets the minPts parameter, if the user didn't supply one.
+    if min_pts_option.is_some() {
+        eprintln!("minPts value: {} (user-suppled)\n", min_pts_option.unwrap());
+        return min_pts_option.unwrap();
+    }
+    let assembly_count = sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len();
+    let mut auto_min_pts = usize_division_rounded(assembly_count, 4);
+    if auto_min_pts < 3 {
+        auto_min_pts = 3;
+    }
+    eprintln!("minPts value: {} (automatically set)\n", auto_min_pts);
+    auto_min_pts
+}
+
+
 fn print_clusters(sequences: &Vec<Sequence>) {
     let max_cluster = sequences.iter().map(|s| s.cluster).max().unwrap();
     for c in 1..max_cluster+1 {
@@ -180,13 +226,13 @@ fn print_clusters(sequences: &Vec<Sequence>) {
                 eprintln!("  {}", s);
             }
         }
-        eprintln!("\n");
+        eprintln!();
     }
     let noise_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
     if noise_sequences.len() == 0 {
-        eprintln!("No noise contigs")
+        eprintln!("No noise")
     } else {
-        eprintln!("Noise contigs:");
+        eprintln!("Noise:");
         for s in noise_sequences {
             eprintln!("  {}", s);
         }

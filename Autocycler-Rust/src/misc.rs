@@ -247,6 +247,31 @@ pub fn format_duration(duration: std::time::Duration) -> String {
 }
 
 
+pub fn usize_division_rounded(dividend: usize, divisor: usize) -> usize {
+    // Divides an integer by another integer, giving the result rounded to the nearest integer.
+    if divisor == 0 {
+        panic!("Attempt to divide by zero");
+    }
+    (dividend + divisor / 2) / divisor
+}
+
+
+pub fn format_float(num: f64) -> String {
+    // Formats a float with up to six decimal places but then drops trailing zeros.
+    let mut formatted = format!("{:.6}", num);
+    if !formatted.contains('.') {
+        return formatted
+    }
+    while formatted.chars().last().unwrap() == '0' {
+        formatted.pop();
+    }
+    if formatted.chars().last().unwrap() == '.' {
+        formatted.pop();
+    }
+    formatted
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +290,37 @@ mod tests {
     fn test_reverse_complement() {
         assert_eq!(reverse_complement(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
         assert_eq!(reverse_complement(b"XYZ"), b"NNN");
+    }
+
+    #[test]
+    fn test_usize_division_rounded() {
+        assert_eq!(usize_division_rounded(0, 3), 0);
+        assert_eq!(usize_division_rounded(1, 3), 0);
+        assert_eq!(usize_division_rounded(2, 3), 1);
+        assert_eq!(usize_division_rounded(3, 3), 1);
+        assert_eq!(usize_division_rounded(4, 3), 1);
+        assert_eq!(usize_division_rounded(5, 3), 2);
+        assert_eq!(usize_division_rounded(6, 3), 2);
+        assert_eq!(usize_division_rounded(7, 3), 2);
+        assert_eq!(usize_division_rounded(8, 3), 3);
+        assert_eq!(usize_division_rounded(9, 3), 3);
+        assert_eq!(usize_division_rounded(10, 3), 3);
+        assert_eq!(usize_division_rounded(0, 1), 0);
+        assert_eq!(usize_division_rounded(1, 1), 1);
+        assert_eq!(usize_division_rounded(10, 1), 10);
+    }
+
+    #[test]
+    fn test_format_float() {
+        assert_eq!(format_float(0.0), "0");
+        assert_eq!(format_float(0.1), "0.1");
+        assert_eq!(format_float(0.11), "0.11");
+        assert_eq!(format_float(0.111), "0.111");
+        assert_eq!(format_float(0.1111), "0.1111");
+        assert_eq!(format_float(0.11111), "0.11111");
+        assert_eq!(format_float(0.111111), "0.111111");
+        assert_eq!(format_float(0.1111111), "0.111111");
+        assert_eq!(format_float(0.11111111), "0.111111");
+        assert_eq!(format_float(10.0), "10");
     }
 }

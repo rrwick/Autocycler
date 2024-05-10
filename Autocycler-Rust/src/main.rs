@@ -89,13 +89,14 @@ enum Commands {
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
-        /// K-mer size for De Bruijn graph
+        /// ε value for DBSCAN* clustering
         #[clap(short = 's', long = "eps", default_value = "0.03")]
         eps: f64,
 
-        /// K-mer size for De Bruijn graph
-        #[clap(short = 'm', long = "minpts", default_value = "3")]
-        minpts: usize,
+        /// minPts value for DBSCAN* clustering
+        #[clap(short = 'm', long = "minpts", hide_default_value = true,
+               help = "minPts value for DBSCAN* clustering [default: automatic]")]
+        minpts: Option<usize>,
     },
 
     /// resolve De Bruijn graph to a consensus assembly
