@@ -23,6 +23,7 @@ pub struct Sequence {
     pub filename: String,
     pub contig_header: String,
     pub length: usize,
+    pub cluster: i32,
 }
 
 impl Sequence {
@@ -41,6 +42,7 @@ impl Sequence {
             filename,
             contig_header,
             length,
+            cluster: 0,
         }
     }
 

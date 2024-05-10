@@ -88,6 +88,14 @@ enum Commands {
         /// Directory where clustering results will be saved (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
+
+        /// K-mer size for De Bruijn graph
+        #[clap(short = 's', long = "eps", default_value = "0.03")]
+        eps: f64,
+
+        /// K-mer size for De Bruijn graph
+        #[clap(short = 'm', long = "minpts", default_value = "3")]
+        minpts: usize,
     },
 
     /// resolve De Bruijn graph to a consensus assembly
@@ -113,8 +121,8 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { in_gfa, out_dir }) => {
-            cluster::cluster(in_gfa, out_dir);
+        Some(Commands::Cluster { in_gfa, out_dir, eps, minpts }) => {
+            cluster::cluster(in_gfa, out_dir, eps, minpts);
         },
         Some(Commands::Resolve { in_gfa, out_dir }) => {
             resolve::resolve(in_gfa, out_dir);

@@ -21,20 +21,22 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf) {
+pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: f64, minpts: usize) {
     section_header("Starting autocycler cluster");
     explanation("This command will take a compacted De Bruijn graph (made by autocycler \
                  compress) and cluster the contigs based on their similarity.");
     print_settings(&in_gfa, &out_dir);
     create_output_dir(&out_dir);
-    let (unitig_graph, sequences) = load_graph(&in_gfa);
+    let (unitig_graph, mut sequences) = load_graph(&in_gfa);
     let asymmetrical_distances = pairwise_contig_distances(unitig_graph, &sequences);
     save_distance_matrix(&asymmetrical_distances, &sequences, &out_dir,
                          "distances_asymmetrical.phylip");
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     save_distance_matrix(&symmetrical_distances, &sequences, &out_dir,
                          "distances_symmetrical.phylip");
-    // TODO: cluster using distance
+    dbscan_cluster(&symmetrical_distances, &mut sequences, eps, minpts);
+    // TODO: exclude any clusters that aren't spread over enough assemblies
+    print_clusters(&sequences);
 }
 
 
@@ -115,11 +117,79 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
         for seq_b in sequences {
             let a_vs_b = asymmetrical_distances.get(&(seq_a.id, seq_b.id)).unwrap();
             let b_vs_a = asymmetrical_distances.get(&(seq_b.id, seq_a.id)).unwrap();
-            // let distance = f64::min(*a_vs_b, *b_vs_a);
-            let distance = f64::max(*a_vs_b, *b_vs_a);
-            // let distance = (a_vs_b + b_vs_a) / 2.0;
+            let distance = (a_vs_b + b_vs_a) / 2.0;
             symmetrical_distances.insert((seq_a.id, seq_b.id), distance);
         }
     }
     symmetrical_distances
+}
+
+
+fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
+                  eps: f64, min_pts: usize) {
+                    section_header("Clustering sequences");
+                    explanation("Contigs are clustered using the DBSCAN* algorithm. This is a \
+                                 variant of the DBSCAN algorithm where all border points are \
+                                 treated as noise.");
+    // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm
+    // 
+    let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
+    let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
+    let mut c = 0;
+    for p in &ids {
+        let p_seq: &mut Sequence = index.get_mut(p).unwrap();
+        if p_seq.cluster != 0 { continue; }
+        let n = range_query(&ids, distances, *p, eps);
+        if n.len() < min_pts {
+            p_seq.cluster = -1;
+            continue;
+        }
+        c += 1;
+        p_seq.cluster = c;
+        let mut seed_set: Vec<u16> = n.into_iter().filter(|&id| id != *p).collect();
+        while let Some(q) = seed_set.pop() {
+            let q_seq = index.get_mut(&q).unwrap();
+            if q_seq.cluster != 0 { continue; }
+            q_seq.cluster = c;
+            let n_prime = range_query(&ids, distances, q, eps);
+            if n_prime.len() >= min_pts {
+                seed_set.extend(n_prime);
+            }
+        }
+    }
+}
+
+
+fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps: f64) -> Vec<u16> {
+    let mut neighbours = Vec::new();
+    for p in ids {
+        if distances.get(&(q, *p)).unwrap() <= &eps {
+            neighbours.push(*p);
+        }
+    }
+    neighbours
+}
+
+
+fn print_clusters(sequences: &Vec<Sequence>) {
+    let max_cluster = sequences.iter().map(|s| s.cluster).max().unwrap();
+    for c in 1..max_cluster+1 {
+        eprintln!("Cluster {}:", c);
+        for s in sequences {
+            if s.cluster == c {
+                eprintln!("  {}", s);
+            }
+        }
+        eprintln!("\n");
+    }
+    let noise_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
+    if noise_sequences.len() == 0 {
+        eprintln!("No noise contigs")
+    } else {
+        eprintln!("Noise contigs:");
+        for s in noise_sequences {
+            eprintln!("  {}", s);
+        }
+    }
+    eprintln!("\n");
 }
