@@ -36,10 +36,11 @@ pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: Option<f64>, minpts: Opti
     save_distance_matrix(&symmetrical_distances, &sequences, &out_dir,
                          "distances_symmetrical.phylip");
     dbscan_cluster(&symmetrical_distances, &mut sequences, eps, minpts);
-    // TODO: exclude any clusters that aren't spread over enough assemblies (needs an argument)
+    select_clusters(&mut sequences);
     // TODO: reorder clusters based on their median sequence length
     print_clusters(&sequences);
-    // TODO: save clustering results to a TSV file
+    save_clusters(&sequences, &out_dir);
+    // TODO: save an easy-to-interpret image or HTML to show the clustering results to the user?
 }
 
 
@@ -83,7 +84,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
-    let assembly_count = sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len();
+    let assembly_count = get_assembly_count(&sequences);
     eprintln!("{} unitigs", unitig_graph.unitigs.len());
     eprintln!("{} links", unitig_graph.get_link_count());
     eprintln!("{} contigs from {} assemblies", sequences.len(), assembly_count);
@@ -156,11 +157,11 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 
 fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
                   eps_option: Option<f64>, min_pts_option: Option<usize>) {
-                    section_header("Clustering sequences");
-                    explanation("Contigs are clustered using the DBSCAN* algorithm, a variant of \
-                                 the DBSCAN algorithm where all border points are treated as \
-                                 noise. Contigs will be either put into a cluster (defined by \
-                                 sufficient density) or be classified as noise (no cluster).");
+    section_header("Clustering sequences");
+    explanation("Contigs are clustered using the DBSCAN* algorithm, a variant of the DBSCAN \
+                 algorithm where all border points are treated as noise. Contigs will be either \
+                 put into a cluster (defined by sufficient density) or be classified as noise (no \
+                 cluster).");
     // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
     // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
     // sensitive to the order of sequences).
@@ -191,6 +192,8 @@ fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequ
             }
         }
     }
+    eprintln!("cluster count: {}", get_max_cluster(sequences));
+    eprintln!();
 }
 
 
@@ -237,7 +240,7 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> 
         eprintln!("minPts parameter: {} (user-suppled)", min_pts_option.unwrap());
         return min_pts_option.unwrap();
     }
-    let assembly_count = sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len();
+    let assembly_count = get_assembly_count(&sequences);
     let mut auto_min_pts = usize_division_rounded(assembly_count, 4);
     if auto_min_pts < 3 {
         auto_min_pts = 3;
@@ -247,11 +250,33 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> 
 }
 
 
+fn select_clusters(sequences: &mut Vec<Sequence>) {
+    section_header("Selecting clusters");
+    explanation("Clusters are excluded if their sequences appear in too few of the input \
+                 assemblies");
+    for c in 1..get_max_cluster(sequences)+1 {
+        // TODO
+        for s in &mut *sequences {
+            if s.cluster == c {
+                eprintln!("  {}", s);  // TEMP
+                // TODO
+                // TODO
+                // TODO
+            }
+        }
+        // TODO
+        eprintln!("Cluster {}:", c);
+    }
+    eprintln!();
+}
+
+
 fn print_clusters(sequences: &Vec<Sequence>) {
-    let max_cluster = sequences.iter().map(|s| s.cluster).max().unwrap();
-    for c in 1..max_cluster+1 {
+    section_header("Final clusters");
+    for c in 1..get_max_cluster(sequences)+1 {
         eprintln!("Cluster {}:", c);
         for s in sequences {
+            assert!(s.cluster != 0);
             if s.cluster == c {
                 eprintln!("  {}", s);
             }
@@ -268,4 +293,33 @@ fn print_clusters(sequences: &Vec<Sequence>) {
         }
     }
     eprintln!("\n");
+}
+
+
+fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) {
+    let file_path = out_dir.join("clusters.tsv");
+    let mut f = File::create(&file_path).unwrap();
+    write!(f, "assembly\tcontig_name\tlength\tcluster\n").unwrap();
+    for c in 1..get_max_cluster(sequences)+1 {
+        for s in sequences {
+            if s.cluster == c {
+                write!(f, "{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c).unwrap();
+            }
+        }
+    }
+    for s in sequences {
+        if s.cluster == -1 {
+            write!(f, "{}\t{}\t{}\tnone\n", s.filename, s.contig_name(), s.length).unwrap();
+        }
+    }
+}
+
+
+fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
+    sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len()
+}
+
+
+fn get_max_cluster(sequences: &Vec<Sequence>) -> i32 {
+    sequences.iter().map(|s| s.cluster).max().unwrap()
 }
