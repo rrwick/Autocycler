@@ -118,8 +118,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 
 fn finished_message(start_time: Instant, out_gfa: PathBuf) {
     section_header("Finished!");
-    explanation("You can now run autocycler resolve to generate a consensus assembly from the \
-                 unitig graph.");
+    explanation("You can now run autocycler cluster to group contigs based on their similarity.");
     eprintln!("Final unitig graph: {}", out_gfa.display());
     eprintln!();
     eprintln!("Time to run: {}", format_duration(start_time.elapsed()));

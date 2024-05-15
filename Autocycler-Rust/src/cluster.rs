@@ -9,6 +9,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use maud::{html, Markup, DOCTYPE, PreEscaped};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
@@ -16,7 +17,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{format_float, round_float, quit_with_error, usize_division_rounded};
+use crate::misc::{format_float, median, round_float, quit_with_error, usize_division_rounded};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -29,18 +30,14 @@ pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: Option<f64>, minpts: Opti
     print_settings(&in_gfa, &out_dir, &eps, &minpts);
     create_output_dir(&out_dir);
     let (unitig_graph, mut sequences) = load_graph(&in_gfa);
-    let asymmetrical_distances = pairwise_contig_distances(unitig_graph, &sequences);
-    save_distance_matrix(&asymmetrical_distances, &sequences, &out_dir,
-                         "distances_asymmetrical.phylip");
-    let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
-    save_distance_matrix(&symmetrical_distances, &sequences, &out_dir,
-                         "distances_symmetrical.phylip");
-    dbscan_cluster(&symmetrical_distances, &mut sequences, eps, minpts);
-    select_clusters(&mut sequences);
-    // TODO: reorder clusters based on their median sequence length
+    let distances = pairwise_contig_distances(unitig_graph, &sequences, &out_dir);
+    let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
+    select_clusters(&mut sequences, minpts);
+    reorder_clusters(&mut sequences);
     print_clusters(&sequences);
-    save_clusters(&sequences, &out_dir);
-    // TODO: save an easy-to-interpret image or HTML to show the clustering results to the user?
+    let cluster_tsv = save_clusters(&sequences, &out_dir);
+    let cluster_html = save_html_table(&sequences, &out_dir);
+    finished_message(&cluster_tsv, &cluster_html);
 }
 
 
@@ -93,7 +90,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
+fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
     section_header("Calculating pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
                  their paths through the compressed sequence graph.");
@@ -114,6 +111,13 @@ fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence
             distances.insert((seq_a.id, seq_b.id), distance);
         }
     }
+    eprintln!("{} total pairwise distances", distances.len());
+    eprintln!();
+    eprintln!("Saving distance matrix files:");
+    save_distance_matrix(&distances, &sequences, &out_dir, "distances_asymmetrical.phylip");
+    let distances = make_symmetrical_distances(&distances, &sequences);
+    save_distance_matrix(&distances, &sequences, &out_dir, "distances_symmetrical.phylip");
+    eprintln!();
     distances
 }
 
@@ -135,6 +139,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Se
         }
         write!(f, "\n").unwrap();
     }
+    eprintln!("  {}", file_path.display());
 }
 
 
@@ -156,7 +161,7 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 
 
 fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
-                  eps_option: Option<f64>, min_pts_option: Option<usize>) {
+                  eps_option: Option<f64>, min_pts_option: Option<usize>) -> usize {
     section_header("Clustering sequences");
     explanation("Contigs are clustered using the DBSCAN* algorithm, a variant of the DBSCAN \
                  algorithm where all border points are treated as noise. Contigs will be either \
@@ -192,8 +197,7 @@ fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequ
             }
         }
     }
-    eprintln!("cluster count: {}", get_max_cluster(sequences));
-    eprintln!();
+    min_pts
 }
 
 
@@ -250,29 +254,44 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> 
 }
 
 
-fn select_clusters(sequences: &mut Vec<Sequence>) {
-    section_header("Selecting clusters");
-    explanation("Clusters are excluded if their sequences appear in too few of the input \
-                 assemblies");
+fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
+    // Clusters that appear in too few assemblies are excluded.
     for c in 1..get_max_cluster(sequences)+1 {
-        // TODO
-        for s in &mut *sequences {
-            if s.cluster == c {
-                eprintln!("  {}", s);  // TEMP
-                // TODO
-                // TODO
-                // TODO
+        let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
+        if assemblies.len() < minpts {
+            for s in &mut *sequences {
+                if s.cluster == c {
+                    s.cluster = -1;
+                }
             }
         }
-        // TODO
-        eprintln!("Cluster {}:", c);
     }
-    eprintln!();
+}
+
+
+fn reorder_clusters(sequences: &mut Vec<Sequence>) {
+    // Reorder clusters based on their median sequence length (large to small).
+    let mut cluster_lengths = HashMap::new();
+    for c in 1..get_max_cluster(sequences)+1 {
+        let mut lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+        cluster_lengths.insert(c, median(&mut lengths));
+    }
+    let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
+    sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
+    let mut old_to_new = HashMap::new();
+    let mut new_c: i32 = 0;
+    for (old_c, _length) in sorted_cluster_lengths {
+        new_c += 1;
+        old_to_new.insert(old_c, new_c);
+    }
+    for s in sequences {
+        if s.cluster < 1 {continue;}
+        s.cluster = *old_to_new.get(&s.cluster).unwrap();
+    }
 }
 
 
 fn print_clusters(sequences: &Vec<Sequence>) {
-    section_header("Final clusters");
     for c in 1..get_max_cluster(sequences)+1 {
         eprintln!("Cluster {}:", c);
         for s in sequences {
@@ -285,18 +304,18 @@ fn print_clusters(sequences: &Vec<Sequence>) {
     }
     let noise_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
     if noise_sequences.len() == 0 {
-        eprintln!("No noise")
+        eprintln!("No contigs excluded")
     } else {
-        eprintln!("Noise:");
+        eprintln!("Excluded:");
         for s in noise_sequences {
             eprintln!("  {}", s);
         }
     }
-    eprintln!("\n");
+    eprintln!();
 }
 
 
-fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) {
+fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
     let file_path = out_dir.join("clusters.tsv");
     let mut f = File::create(&file_path).unwrap();
     write!(f, "assembly\tcontig_name\tlength\tcluster\n").unwrap();
@@ -312,6 +331,15 @@ fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) {
             write!(f, "{}\t{}\t{}\tnone\n", s.filename, s.contig_name(), s.length).unwrap();
         }
     }
+    file_path
+}
+
+
+fn save_html_table(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
+    let file_path = out_dir.join("clusters.html");
+    let markup = create_html(sequences);
+    std::fs::write(file_path.clone(), markup.into_string()).unwrap();
+    file_path
 }
 
 
@@ -322,4 +350,189 @@ fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
 
 fn get_max_cluster(sequences: &Vec<Sequence>) -> i32 {
     sequences.iter().map(|s| s.cluster).max().unwrap()
+}
+
+
+fn get_assemblies(sequences: &[Sequence]) -> Vec<String> {
+    // Returns the assembly filenames, without duplicates, in the same order as they are first seen
+    // in Sequence objects.
+    let mut seen = HashSet::new();
+    let mut assemblies = Vec::new();
+    for s in sequences.iter() {
+        let a = s.filename.clone();
+        if seen.insert(a.clone()) {
+            assemblies.push(a);
+        }
+    }
+    assemblies
+}
+
+
+fn create_html(sequences: &Vec<Sequence>) -> Markup {
+    let headers: Vec<String> = std::iter::once("Assembly".to_string())
+        .chain((1..=get_max_cluster(&sequences)).map(|c| format!("cluster {}", c)))
+        .chain(std::iter::once("excluded".to_string())).collect();
+    let mut rows = vec![];
+    for a in get_assemblies(sequences) {
+        let mut row = vec![a.clone()];
+        for c in 1..get_max_cluster(sequences)+1 {
+            let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == c)
+                .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
+            row.push(cell_seqs.join("<br>"));
+        }
+        let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == -1)
+            .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
+        row.push(cell_seqs.join("<br>"));
+        rows.push(row);
+    }
+
+    html! {
+        (DOCTYPE)
+        html {
+            head {
+                meta charset="utf-8";
+                title { "Autocycler clustering" }
+                link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css";
+                style { "td { vertical-align: middle !important; }" }
+            }
+            body {
+                h2 { "Autocycler clustering" }
+                table class="table" {
+                    thead class="thead-dark" { tr { @for h in headers { th { (h) } } } }
+                    tbody { @for row in rows { tr { @for d in row { td { (PreEscaped(d)) } } } } }
+                }
+            }
+        }
+    }
+}
+
+
+fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf) {
+    section_header("Finished!");
+    explanation("You can now run autocycler resolve to generate a consensus assembly. If you \
+                 would like to manually override the clustering, you can edit the clusters.tsv \
+                 file.");
+    eprintln!("Cluster table (TSV):  {}", cluster_tsv.display());
+    eprintln!("Cluster table (HTML): {}", cluster_html.display());
+    eprintln!();
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_assembly_count() {
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
+        assert_eq!(get_assembly_count(&sequences), 2);
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1)];
+        assert_eq!(get_assembly_count(&sequences), 5);
+    }
+
+    #[test]
+    fn test_get_max_cluster() {
+        let mut sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                                 Sequence::new(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3; sequences[3].cluster = 1; sequences[4].cluster = 2;
+        assert_eq!(get_max_cluster(&sequences), 3);
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3; sequences[3].cluster = 5; sequences[4].cluster = 4;
+        assert_eq!(get_max_cluster(&sequences), 5);
+    }
+
+    #[test]
+    fn test_get_assemblies() {
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
+        assert_eq!(get_assemblies(&sequences), vec!["assembly_1.fasta".to_string(), "assembly_2.fasta".to_string()]);
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(5, "A".to_string(), "assembly_3.fasta".to_string(), "contig_2".to_string(), 1)];
+        assert_eq!(get_assemblies(&sequences), vec!["assembly_2.fasta".to_string(), "assembly_1.fasta".to_string(), "assembly_4.fasta".to_string(), "assembly_3.fasta".to_string()]);
+    }
+
+    #[test]
+    fn test_select_clusters() {
+        let mut sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                                 Sequence::new(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1),
+                                 Sequence::new(6, "A".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new(7, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new(8, "A".to_string(), "assembly_3.fasta".to_string(), "contig_2".to_string(), 1)];
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        sequences[6].cluster = 1; sequences[7].cluster = 2;
+        select_clusters(&mut sequences, 1);
+        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
+        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
+        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
+        
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        sequences[6].cluster = 1; sequences[7].cluster = 2;
+        select_clusters(&mut sequences, 2);
+        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
+        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
+        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
+        
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        sequences[6].cluster = 1; sequences[7].cluster = 2;
+        select_clusters(&mut sequences, 3);
+        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, -1);
+        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, -1);
+        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
+        
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        sequences[6].cluster = 4; sequences[7].cluster = 4;
+        select_clusters(&mut sequences, 1);
+        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
+        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
+        assert_eq!(sequences[6].cluster, 4); assert_eq!(sequences[7].cluster, 4);
+        
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        sequences[6].cluster = 4; sequences[7].cluster = 4;
+        select_clusters(&mut sequences, 2);
+        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
+        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
+        assert_eq!(sequences[6].cluster, -1); assert_eq!(sequences[7].cluster, -1);
+    }
+
+    #[test]
+    fn test_reoder_clusters() {
+        let mut sequences = vec![Sequence::new(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
+                                 Sequence::new(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
+                                 Sequence::new(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
+                                 Sequence::new(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        reorder_clusters(&mut sequences);
+        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+        reorder_clusters(&mut sequences);
+        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    }
 }

@@ -279,6 +279,21 @@ pub fn round_float(num: f64, digits: u32) -> f64 {
 }
 
 
+pub fn median(values: &mut Vec<usize>) -> usize {
+    // Returns the median of the vector, and modifies the given vector (sorts it) while doing so.
+    if values.is_empty() {
+        return 0;
+    }
+    values.sort();
+    let len = values.len();
+    if len % 2 == 0 {
+        (values[len / 2 - 1] + values[len / 2]) / 2
+    } else {
+        values[len / 2]
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +364,15 @@ mod tests {
         assert_almost_eq(round_float(0.9876, 4), 0.9876, 1e-8);
         assert_almost_eq(round_float(0.9876, 5), 0.9876, 1e-8);
         assert_almost_eq(round_float(0.9876, 6), 0.9876, 1e-8);
+    }
+
+    #[test]
+    fn test_median() {
+        assert_eq!(median(&mut vec![0, 1, 2, 3, 4]), 2);
+        assert_eq!(median(&mut vec![4, 3, 2, 1, 0]), 2);
+        assert_eq!(median(&mut vec![0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median(&mut vec![5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median(&mut vec![0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median(&mut vec![10, 8, 6, 4, 2, 0]), 5);
     }
 }
