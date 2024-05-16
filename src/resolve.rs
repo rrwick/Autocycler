@@ -20,6 +20,13 @@ pub fn resolve(in_gfa: PathBuf, out_dir: PathBuf) {
                  compress) and simplify it into a consensus assembly. It does this by resolving \
                  repeats and removing errors from the graph.");
     print_settings(&in_gfa, &out_dir);
+    // TODO: load graph
+    // TODO: load clustering
+    // TODO: remove excluded contigs from the graph
+    // TODO: find initial single-copy contigs
+    // TODO: expand set of single-copy contigs based on graph structure
+    // TODO: find the ordering of single-copy contigs
+    // TODO: resolve repeats by duplicating unitigs
 }
 
 
