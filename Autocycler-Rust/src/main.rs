@@ -33,7 +33,8 @@ mod graph_simplification;
 #[derive(Parser)]
 #[clap(name = "Autocycler",
        version = concat!("v", crate_version!()),
-       about = "consensus bacterial genome assemblies\ngithub.com/rrwick/Autocycler",
+       about = "a tool for generating consensus bacterial genome assemblies\n\
+                Documenation: https://github.com/rrwick/Autocycler/wiki",
        before_help = concat!(r#"                _                        _           "#, "\n",
                              r#"     /\        | |                      | |          "#, "\n",
                              r#"    /  \  _   _| |_ ___   ___ _   _  ___| | ___ _ __ "#, "\n",
@@ -42,7 +43,7 @@ mod graph_simplification;
                              r#" /_/    \_\__,_|\__\___/ \___|\__, |\___|_|\___|_|   "#, "\n",
                              r#"                               __/ |                 "#, "\n",
                              r#"                              |___/                  "#))]
-#[command(author, version, about, long_about = None, disable_help_subcommand = true,
+#[command(author, version, long_about = None, disable_help_subcommand = true,
           propagate_version = true)]
 #[clap(subcommand_required = true)]
 #[clap(arg_required_else_help = true)]
@@ -68,7 +69,7 @@ enum Commands {
         kmer: u32,
     },
 
-    /// decompress De Bruijn graph back into assemblies
+    /// decompress the De Bruijn graph back into assemblies
     Decompress {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
@@ -79,7 +80,7 @@ enum Commands {
         out_dir: PathBuf,
     },
 
-    /// cluster contigs using the De Bruijn graph
+    /// cluster contigs in the De Bruijn graph based on similarity
     Cluster {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
@@ -100,7 +101,7 @@ enum Commands {
         minpts: Option<usize>,
     },
 
-    /// resolve De Bruijn graph to a consensus assembly
+    /// resolve the De Bruijn graph to a consensus assembly
     Resolve {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]

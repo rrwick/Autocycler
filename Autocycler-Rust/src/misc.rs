@@ -11,13 +11,14 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use indicatif::ProgressBar;
 use flate2::read::GzDecoder;
-
 use std::collections::HashSet;
 use std::fs::{File, read_dir};
 use std::io;
 use std::io::{prelude::*, BufReader};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 
 // This module lets me use strand::FORWARD for true and strand::REVERSE for false.
@@ -291,6 +292,13 @@ pub fn median(values: &mut Vec<usize>) -> usize {
     } else {
         values[len / 2]
     }
+}
+
+pub fn spinner(message: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_message(message.to_string().clone());
+    pb
 }
 
 

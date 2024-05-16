@@ -25,8 +25,9 @@ use crate::unitig_graph::UnitigGraph;
 pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: Option<f64>, minpts: Option<usize>) {
     check_settings(&eps, &minpts);
     section_header("Starting autocycler cluster");
-    explanation("This command will take a compacted De Bruijn graph (made by autocycler \
-                 compress) and cluster the contigs based on their similarity.");
+    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress) and \
+                 clusters the contigs based on their similarity. Ideally, each cluster will then \
+                 contain contigs which can be combined into a consensus sequence.");
     print_settings(&in_gfa, &out_dir, &eps, &minpts);
     create_output_dir(&out_dir);
     let (unitig_graph, mut sequences) = load_graph(&in_gfa);
@@ -91,7 +92,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 
 
 fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
-    section_header("Calculating pairwise distances");
+    section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
                  their paths through the compressed sequence graph.");
     let unitig_lengths: HashMap<u32, u32> = unitig_graph.unitigs.iter()

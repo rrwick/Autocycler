@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{find_all_assemblies, load_fasta, format_duration, quit_with_error};
+use crate::misc::{find_all_assemblies, load_fasta, format_duration, spinner, quit_with_error};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
@@ -36,7 +36,7 @@ pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
 
 fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
     section_header("Starting autocycler compress");
-    explanation("This command will find all assemblies in the given input directory and compress \
+    explanation("This command finds all assemblies in the given input directory and compresses \
                  them into a compacted De Bruijn graph. This graph can then be used to recover \
                  the assemblies (with autocycler decompress) or generate a consensus assembly \
                  (with autocycler resolve).");
@@ -50,9 +50,7 @@ fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
 
 pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
-    explanation("All contigs in the input assemblies are now loaded and given a unique integer \
-                 ID.");
-    eprintln!("Loading sequences:");
+    explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(in_dir);
     let mut seq_id = 0usize;
     let mut sequences = Vec::new();
@@ -63,7 +61,7 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
                 continue;
             }
             seq_id += 1;
-            eprintln!("  {:>2}: {} {} ({} bp)", seq_id, assembly.display(), name, seq_len);
+            eprintln!(" {:>3}: {} {} ({} bp)", seq_id, assembly.display(), name, seq_len);
             if seq_id > 32767 {
                 quit_with_error("no more than 32767 input sequences are allowed");
             }
@@ -81,10 +79,11 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
 
 fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence>) -> KmerGraph {
     section_header("Building k-mer De Bruijn graph");
-    explanation("All k-mers in the input sequences are now hashed to make a De Bruijn graph.");
+    explanation("K-mers in the input sequences are now hashed to make a De Bruijn graph.");
     let mut kmer_graph = KmerGraph::new(k_size);
-    eprintln!("Adding k-mers to graph...");
+    let pb = spinner("adding k-mers to graph...");
     kmer_graph.add_sequences(&sequences, assembly_count);
+    pb.finish_and_clear();
     eprintln!("Graph contains {} k-mers", kmer_graph.kmers.len());
     eprintln!();
     kmer_graph
@@ -95,9 +94,10 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
     section_header("Building compacted unitig graph");
     explanation("All non-branching paths are now collapsed to form a compacted De Bruijn graph, \
                  a.k.a. a unitig graph.");
+    let pb = spinner("building graph...");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
-    eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.get_link_count());
+    pb.finish_and_clear();
+    eprintln!("{} unitigs, {} links", unitig_graph.unitigs.len(), unitig_graph.get_link_count());
     eprintln!("total length: {} bp", unitig_graph.get_total_length());
     eprintln!();
     unitig_graph
@@ -106,11 +106,12 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
 
 fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
     section_header("Simplifying unitig graph");
-    explanation("Then graph structure is now simplified by moving sequence into repeat unitigs \
+    explanation("The graph structure is now simplified by moving sequence into repeat unitigs \
                  when possible.");
+    let pb = spinner("simplifying graph...");
     simplify_structure(unitig_graph, &sequences);
-    eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.get_link_count());
+    pb.finish_and_clear();
+    eprintln!("{} unitigs, {} links", unitig_graph.unitigs.len(), unitig_graph.get_link_count());
     eprintln!("total length: {} bp", unitig_graph.get_total_length());
     eprintln!();
 }
@@ -120,7 +121,6 @@ fn finished_message(start_time: Instant, out_gfa: PathBuf) {
     section_header("Finished!");
     explanation("You can now run autocycler cluster to group contigs based on their similarity.");
     eprintln!("Final unitig graph: {}", out_gfa.display());
-    eprintln!();
     eprintln!("Time to run: {}", format_duration(start_time.elapsed()));
     eprintln!();
 }
