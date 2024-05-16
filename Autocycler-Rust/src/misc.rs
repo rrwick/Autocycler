@@ -11,7 +11,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::GzDecoder;
 use std::collections::HashSet;
 use std::fs::{File, read_dir};
@@ -313,6 +313,11 @@ pub fn median_f64(values: &[f64]) -> f64 {
 pub fn spinner(message: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&vec!["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners 
+            .template("{spinner} {msg}").unwrap(),
+    );
     pb.set_message(message.to_string().clone());
     pb
 }
