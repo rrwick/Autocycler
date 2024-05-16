@@ -485,4 +485,10 @@ impl UnitigGraph {
         }
         link_count.try_into().unwrap()
     }
+
+    pub fn print_basic_graph_info(&self) {
+        eprintln!("{} unitigs, {} links", self.unitigs.len(), self.get_link_count());
+        eprintln!("total length: {} bp", self.get_total_length());
+        eprintln!();
+    }
 }

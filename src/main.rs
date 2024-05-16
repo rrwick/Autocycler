@@ -60,9 +60,9 @@ enum Commands {
         #[clap(short = 'i', long = "in_dir", required = true)]
         in_dir: PathBuf,
 
-        /// Filename of output assembly graph (required)
-        #[clap(short = 'o', long = "out_gfa", required = true)]
-        out_gfa: PathBuf,
+        /// Autocycler directory to be created (required)
+        #[clap(short = 'o', long = "out_dir", required = true)]
+        out_dir: PathBuf,
 
         /// K-mer size for De Bruijn graph
         #[clap(short = 'k', long = "kmer", default_value = "51")]
@@ -82,11 +82,7 @@ enum Commands {
 
     /// cluster contigs in the De Bruijn graph based on similarity
     Cluster {
-        /// Autocycler GFA file (required)
-        #[clap(short = 'i', long = "in_gfa", required = true)]
-        in_gfa: PathBuf,
-
-        /// Directory where clustering results will be saved (required)
+        /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
@@ -103,11 +99,7 @@ enum Commands {
 
     /// resolve the De Bruijn graph to a consensus assembly
     Resolve {
-        /// Autocycler GFA file (required)
-        #[clap(short = 'i', long = "in_gfa", required = true)]
-        in_gfa: PathBuf,
-
-        /// Directory where resolved assembly graphs will be saved (required)
+        /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
     },
@@ -118,17 +110,17 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Compress { in_dir, out_gfa, kmer }) => {
-            compress::compress(in_dir, out_gfa, kmer);
+        Some(Commands::Compress { in_dir, out_dir, kmer }) => {
+            compress::compress(in_dir, out_dir, kmer);
         },
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { in_gfa, out_dir, eps, minpts }) => {
-            cluster::cluster(in_gfa, out_dir, eps, minpts);
+        Some(Commands::Cluster { out_dir, eps, minpts }) => {
+            cluster::cluster(out_dir, eps, minpts);
         },
-        Some(Commands::Resolve { in_gfa, out_dir }) => {
-            resolve::resolve(in_gfa, out_dir);
+        Some(Commands::Resolve { out_dir }) => {
+            resolve::resolve(out_dir);
         },
         None => {}
     }

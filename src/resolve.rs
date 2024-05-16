@@ -10,16 +10,17 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::log::{section_header, explanation};
+use crate::misc::{check_if_dir_exists, check_if_file_exists};
 
 use std::path::PathBuf;
 
 
-pub fn resolve(in_gfa: PathBuf, out_dir: PathBuf) {
-    section_header("Starting autocycler resolve");
-    explanation("This command will take a compacted De Bruijn graph (made by autocycler \
-                 compress) and simplify it into a consensus assembly. It does this by resolving \
-                 repeats and removing errors from the graph.");
-    print_settings(&in_gfa, &out_dir);
+pub fn resolve(out_dir: PathBuf) {
+    let gfa = out_dir.join("01_unitig_graph.gfa");
+    let clusters = out_dir.join("05_clusters.tsv");
+    check_settings(&out_dir, &gfa, &clusters);
+    starting_message();
+    print_settings(&out_dir);
     // TODO: load graph
     // TODO: load clustering
     // TODO: remove excluded contigs from the graph
@@ -30,8 +31,21 @@ pub fn resolve(in_gfa: PathBuf, out_dir: PathBuf) {
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
+fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, clusters: &PathBuf) {
+    check_if_dir_exists(&out_dir);
+    check_if_file_exists(&gfa);
+    check_if_file_exists(&clusters);
+}
+
+
+fn starting_message() {
+    section_header("Starting autocycler resolve");
+    explanation("This command resolves repeats in the unitig graph.");
+}
+
+
+fn print_settings(out_dir: &PathBuf) {
     eprintln!("Settings:");
-    eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!();
 }

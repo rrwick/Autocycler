@@ -14,7 +14,7 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::GzDecoder;
 use std::collections::HashSet;
-use std::fs::{File, read_dir};
+use std::fs::{File, read_dir, create_dir_all};
 use std::io;
 use std::io::{prelude::*, BufReader};
 use std::path::{Path, PathBuf};
@@ -25,6 +25,14 @@ use std::time::Duration;
 pub mod strand {
     pub const FORWARD: bool = true;
     pub const REVERSE: bool = false;
+}
+
+
+pub fn create_dir(out_dir: &PathBuf) {
+    match create_dir_all(&out_dir) {
+        Ok(_) => {},
+        Err(e) => quit_with_error(&format!("failed to create output directory\n{:?}", e)),
+    }
 }
 
 
@@ -64,8 +72,33 @@ fn is_assembly_file(path: &Path) -> bool {
 
 
 pub fn check_if_file_exists(filename: &PathBuf) {
-    if !Path::new(filename).exists() {
-        quit_with_error(&format!("{:?} file does not exist", filename));
+    // Quits with an error if the given path is not an existing file.
+    let path = Path::new(filename);
+    if !path.exists() {
+        quit_with_error(&format!("{:?} file does not exist", path));
+    }
+    if !path.is_file() {
+        quit_with_error(&format!("{:?} is not a file", path));
+    }
+}
+
+
+pub fn check_if_dir_exists(dir: &PathBuf) {
+    // Quits with an error if the given path is not an existing directory.
+    let path = Path::new(dir);
+    if !path.exists() {
+        quit_with_error(&format!("{:?} directory does not exist", path));
+    }
+    if !path.is_dir() {
+        quit_with_error(&format!("{:?} is not a directory", path));
+    }
+}
+
+
+pub fn check_if_dir_is_not_dir(dir: &PathBuf) {
+    // Quits with an error if the given path exists but is not a directory (not existing is okay).
+    if dir.exists() && !dir.is_dir() {
+        quit_with_error(&format!("{:?} exists but is not a directory", dir));
     }
 }
 

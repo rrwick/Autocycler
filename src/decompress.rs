@@ -10,27 +10,38 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{BufWriter, Write};
-use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_file_exists, quit_with_error};
+use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
 pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
-    section_header("Starting autocycler decompress");
-    explanation("This command will take a compacted De Bruijn graph (made by autocycler \
-                 compress), reconstruct the assemblies used to build that graph and save them \
-                 in the specified directory.");
+    check_settings(&in_gfa, &out_dir);
+    starting_message();
     print_settings(&in_gfa, &out_dir);
-    create_output_dir(&out_dir);
+    create_dir(&out_dir);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
     save_original_seqs(&out_dir, unitig_graph, sequences);
+}
+
+
+fn check_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
+    check_if_file_exists(&in_gfa);
+    check_if_dir_is_not_dir(&out_dir);
+}
+
+
+fn starting_message() {
+    section_header("Starting autocycler decompress");
+    explanation("This command will take a unitig graph (made by autocycler compress), reconstruct \
+                 the assemblies used to build that graph and save them in the specified \
+                 directory.");
 }
 
 
@@ -38,15 +49,6 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
-    check_if_file_exists(&in_gfa);
-}
-
-
-fn create_output_dir(out_dir: &PathBuf) {
-    match fs::create_dir_all(&out_dir) {
-        Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create output directory\n{:?}", e)),
-    }
 }
 
 
@@ -54,8 +56,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
-    eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.get_link_count());
+    unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
 }
 

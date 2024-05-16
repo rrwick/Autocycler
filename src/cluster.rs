@@ -11,39 +11,37 @@
 
 use maud::{html, Markup, DOCTYPE, PreEscaped};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{format_float, median_f64, median_usize, round_float, quit_with_error,
-                  usize_division_rounded};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_f64, median_usize,
+                  round_float, quit_with_error, usize_division_rounded};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(in_gfa: PathBuf, out_dir: PathBuf, eps: Option<f64>, minpts: Option<usize>) {
-    check_settings(&eps, &minpts);
-    section_header("Starting autocycler cluster");
-    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress) and \
-                 clusters the contigs based on their similarity. Ideally, each cluster will then \
-                 contain contigs which can be combined into a consensus sequence.");
-    print_settings(&in_gfa, &out_dir, &eps, &minpts);
-    create_output_dir(&out_dir);
-    let (unitig_graph, mut sequences) = load_graph(&in_gfa);
+pub fn cluster(out_dir: PathBuf, eps: Option<f64>, minpts: Option<usize>) {
+    let gfa = out_dir.join("01_unitig_graph.gfa");
+    check_settings(&out_dir, &gfa, &eps, &minpts);
+    starting_message();
+    print_settings(&out_dir, &eps, &minpts);
+    let (unitig_graph, mut sequences) = load_graph(&gfa);
     let distances = pairwise_contig_distances(unitig_graph, &sequences, &out_dir);
     let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
     select_clusters(&mut sequences, minpts);
     reorder_clusters(&mut sequences);
     print_clusters(&sequences);
-    let cluster_tsv = save_clusters(&sequences, &out_dir);
     let cluster_html = save_html_table(&sequences, &out_dir);
+    let cluster_tsv = save_clusters(&sequences, &out_dir);
     finished_message(&cluster_tsv, &cluster_html);
 }
 
 
-fn check_settings(eps: &Option<f64>, minpts: &Option<usize>) {
+fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
+    check_if_dir_exists(&out_dir);
+    check_if_file_exists(&gfa);
     if eps.is_some() && (eps.unwrap() <= 0.0 || eps.unwrap() >= 1.0) {
         quit_with_error("--eps must be between 0 and 1 (exclusive)");
     }
@@ -53,9 +51,16 @@ fn check_settings(eps: &Option<f64>, minpts: &Option<usize>) {
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
+fn starting_message() {
+    section_header("Starting autocycler cluster");
+    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress) and \
+                 clusters the contigs based on their similarity. Ideally, each cluster will then \
+                 contain contigs which can be combined into a consensus sequence.");
+}
+
+
+fn print_settings(out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
     eprintln!("Settings:");
-    eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
     if eps.is_none() {
         eprintln!("  --eps (automatically set)");
@@ -71,23 +76,11 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf, eps: &Option<f64>, minpts
 }
 
 
-fn create_output_dir(out_dir: &PathBuf) {
-    match fs::create_dir_all(&out_dir) {
-        Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create output directory\n{:?}", e)),
-    }
-}
-
-
-fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&in_gfa);
-    let assembly_count = get_assembly_count(&sequences);
-    eprintln!("{} unitigs", unitig_graph.unitigs.len());
-    eprintln!("{} links", unitig_graph.get_link_count());
-    eprintln!("{} contigs from {} assemblies", sequences.len(), assembly_count);
-    eprintln!();
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
 }
 
@@ -113,12 +106,12 @@ fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence
             distances.insert((seq_a.id, seq_b.id), distance);
         }
     }
-    eprintln!("{} total pairwise distances", distances.len());
+    eprintln!("{} sequences, {} total pairwise distances", sequences.len(), distances.len());
     eprintln!();
     eprintln!("Saving distance matrix files:");
-    save_distance_matrix(&distances, &sequences, &out_dir, "distances_asymmetrical.phylip");
+    save_distance_matrix(&distances, &sequences, &out_dir, "02_pairwise_distances_asymmetrical.phylip");
     let distances = make_symmetrical_distances(&distances, &sequences);
-    save_distance_matrix(&distances, &sequences, &out_dir, "distances_symmetrical.phylip");
+    save_distance_matrix(&distances, &sequences, &out_dir, "03_pairwise_distances_symmetrical.phylip");
     eprintln!();
     distances
 }
@@ -315,8 +308,16 @@ fn print_clusters(sequences: &Vec<Sequence>) {
 }
 
 
+fn save_html_table(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
+    let file_path = out_dir.join("04_clusters.html");
+    let markup = create_html(sequences);
+    std::fs::write(file_path.clone(), markup.into_string()).unwrap();
+    file_path
+}
+
+
 fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
-    let file_path = out_dir.join("clusters.tsv");
+    let file_path = out_dir.join("05_clusters.tsv");
     let mut f = File::create(&file_path).unwrap();
     write!(f, "assembly\tcontig_name\tlength\tcluster\n").unwrap();
     for c in 1..get_max_cluster(sequences)+1 {
@@ -331,14 +332,6 @@ fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
             write!(f, "{}\t{}\t{}\tnone\n", s.filename, s.contig_name(), s.length).unwrap();
         }
     }
-    file_path
-}
-
-
-fn save_html_table(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
-    let file_path = out_dir.join("clusters.html");
-    let markup = create_html(sequences);
-    std::fs::write(file_path.clone(), markup.into_string()).unwrap();
     file_path
 }
 
@@ -409,11 +402,10 @@ fn create_html(sequences: &Vec<Sequence>) -> Markup {
 
 fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf) {
     section_header("Finished!");
-    explanation("You can now run autocycler resolve to generate a consensus assembly. If you \
-                 would like to manually override the clustering, you can edit the clusters.tsv \
-                 file.");
-    eprintln!("Cluster table (TSV):  {}", cluster_tsv.display());
+    explanation("You can now run autocycler resolve to resolve repeats. If you  would like to \
+                 manually override the clustering, you can edit the clusters.tsv file.");
     eprintln!("Cluster table (HTML): {}", cluster_html.display());
+    eprintln!("Cluster table (TSV):  {}", cluster_tsv.display());
     eprintln!();
 }
 

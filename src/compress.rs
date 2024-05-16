@@ -15,34 +15,55 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{find_all_assemblies, load_fasta, format_duration, spinner, quit_with_error};
+use crate::misc::{check_if_dir_exists, check_if_dir_is_not_dir, create_dir, find_all_assemblies,
+                  load_fasta, format_duration, spinner, quit_with_error};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 use crate::graph_simplification::simplify_structure;
 
 
-pub fn compress(in_dir: PathBuf, out_gfa: PathBuf, k_size: u32) {
+pub fn compress(in_dir: PathBuf, out_dir: PathBuf, k_size: u32) {
     let start_time = Instant::now();
-    starting_message(&in_dir, &out_gfa, k_size);
+    check_settings(&in_dir, &out_dir, k_size);
+    starting_message();
+    print_settings(&in_dir, &out_dir, k_size);
+    create_dir(&out_dir);
     let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
+    let out_gfa = out_dir.join("01_unitig_graph.gfa");
     unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
     finished_message(start_time, out_gfa);
 }
 
 
-fn starting_message(in_dir: &PathBuf, out_gfa: &PathBuf, k_size: u32) {
+fn check_settings(in_dir: &PathBuf, out_dir: &PathBuf, k_size: u32) {
+    check_if_dir_exists(&in_dir);
+    check_if_dir_is_not_dir(&out_dir);
+    if k_size < 11 {
+        quit_with_error("--kmer cannot be less than 11");
+    }
+    if k_size > 501 {
+        quit_with_error("--kmer cannot be greater than 501");
+    }
+}
+
+
+fn starting_message() {
     section_header("Starting autocycler compress");
     explanation("This command finds all assemblies in the given input directory and compresses \
                  them into a compacted De Bruijn graph. This graph can then be used to recover \
                  the assemblies (with autocycler decompress) or generate a consensus assembly \
                  (with autocycler resolve).");
+}
+
+
+fn print_settings(in_dir: &PathBuf, out_dir: &PathBuf, k_size: u32) {
     eprintln!("Settings:");
     eprintln!("  --in_dir {}", in_dir.display());
-    eprintln!("  --out_gfa {}", out_gfa.display());
+    eprintln!("  --out_dir {}", out_dir.display());
     eprintln!("  --kmer {}", k_size);
     eprintln!();
 }
@@ -97,9 +118,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
     let pb = spinner("building graph...");
     let unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
     pb.finish_and_clear();
-    eprintln!("{} unitigs, {} links", unitig_graph.unitigs.len(), unitig_graph.get_link_count());
-    eprintln!("total length: {} bp", unitig_graph.get_total_length());
-    eprintln!();
+    unitig_graph.print_basic_graph_info();
     unitig_graph
 }
 
@@ -111,9 +130,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
     let pb = spinner("simplifying graph...");
     simplify_structure(unitig_graph, &sequences);
     pb.finish_and_clear();
-    eprintln!("{} unitigs, {} links", unitig_graph.unitigs.len(), unitig_graph.get_link_count());
-    eprintln!("total length: {} bp", unitig_graph.get_total_length());
-    eprintln!();
+    unitig_graph.print_basic_graph_info();
 }
 
 
