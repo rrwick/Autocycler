@@ -17,7 +17,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{format_float, median, round_float, quit_with_error, usize_division_rounded};
+use crate::misc::{format_float, median_f64, median_usize, round_float, quit_with_error,
+                  usize_division_rounded};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -94,7 +95,7 @@ fn load_graph(in_gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
-                 their paths through the compressed sequence graph.");
+                 their paths through the graph.");
     let unitig_lengths: HashMap<u32, u32> = unitig_graph.unitigs.iter()
         .map(|rc| {let u = rc.borrow(); (u.number, u.length())}).collect();
     let sequence_unitigs: HashMap<u16, HashSet<u32>> = sequences.iter()
@@ -164,9 +165,8 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
                   eps_option: Option<f64>, min_pts_option: Option<usize>) -> usize {
     section_header("Clustering sequences");
-    explanation("Contigs are clustered using the DBSCAN* algorithm, a variant of the DBSCAN \
-                 algorithm where all border points are treated as noise. Contigs will be either \
-                 put into a cluster (defined by sufficient density) or be classified as noise (no \
+    explanation("Contigs are clustered using the DBSCAN* algorithm. Contigs will be either put \
+                 into a cluster (defined by sufficient density) or be classified as noise (no \
                  cluster).");
     // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
     // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
@@ -221,11 +221,10 @@ fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64
         eprintln!("ε parameter: {} (user-suppled)", eps_option.unwrap());
         return eps_option.unwrap();
     }
-    let mut close_distances: Vec<_> = distances.values().cloned().filter(|&val| val < 0.2).collect();
-    close_distances.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let close_distances: Vec<_> = distances.values().cloned().filter(|&val| val > 0.0 && val < 0.2).collect();
     let mut auto_eps = 0.05;
     if close_distances.len() > 0 {
-        auto_eps = 2.0 * round_float(close_distances[close_distances.len() / 2], 3);
+        auto_eps = 2.0 * round_float(median_f64(&close_distances), 3);
     }
     if auto_eps < 0.01 {
         auto_eps = 0.01
@@ -238,7 +237,7 @@ fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64
 }
 
 
-fn set_min_pts(min_pts_option: Option<usize>, sequences: &mut Vec<Sequence>) -> usize {
+fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
     // This function automatically sets the minPts parameter, if the user didn't supply one.
     // The auto-set value will be one-quarter of the assembly count (rounded) but no less than 3.
     if min_pts_option.is_some() {
@@ -274,8 +273,8 @@ fn reorder_clusters(sequences: &mut Vec<Sequence>) {
     // Reorder clusters based on their median sequence length (large to small).
     let mut cluster_lengths = HashMap::new();
     for c in 1..get_max_cluster(sequences)+1 {
-        let mut lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-        cluster_lengths.insert(c, median(&mut lengths));
+        let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+        cluster_lengths.insert(c, median_usize(&lengths));
     }
     let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
     sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
@@ -423,6 +422,10 @@ fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf) {
 mod tests {
     use super::*;
 
+    fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
+        assert!((a - b).abs() < epsilon, "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
+    }
+
     #[test]
     fn test_get_assembly_count() {
         let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
@@ -520,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reoder_clusters() {
+    fn test_reorder_clusters() {
         let mut sequences = vec![Sequence::new(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
                                  Sequence::new(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
                                  Sequence::new(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
@@ -535,5 +538,66 @@ mod tests {
         reorder_clusters(&mut sequences);
         assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
         assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    }
+
+    #[test]
+    fn test_set_eps() {
+        let distances = HashMap::from_iter(vec![]);
+        assert_almost_eq(set_eps(Some(0.123), &distances), 0.123, 1e-8);
+        assert_almost_eq(set_eps(Some(0.321), &distances), 0.321, 1e-8);
+
+        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.01),((1, 3), 0.90),((1, 4), 0.02),
+                                                ((2, 1), 0.01),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
+                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
+                                                ((4, 1), 0.02),((4, 2), 0.01),((4, 3), 0.90),((4, 4), 0.00)]);
+        assert_almost_eq(set_eps(None, &distances), 0.02, 1e-8);
+
+        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.01),((1, 3), 0.90),((1, 4), 0.01),
+                                                ((2, 1), 0.02),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
+                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
+                                                ((4, 1), 0.02),((4, 2), 0.02),((4, 3), 0.90),((4, 4), 0.00)]);
+        assert_almost_eq(set_eps(None, &distances), 0.03, 1e-8);
+
+        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.02),((1, 3), 0.90),((1, 4), 0.02),
+                                                ((2, 1), 0.02),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
+                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
+                                                ((4, 1), 0.02),((4, 2), 0.01),((4, 3), 0.90),((4, 4), 0.00)]);
+        assert_almost_eq(set_eps(None, &distances), 0.04, 1e-8);
+
+    }
+
+    #[test]
+    fn test_set_minpts() {
+        let sequences = vec![];
+        assert_eq!(set_min_pts(Some(2), &sequences), 2);
+        assert_eq!(set_min_pts(Some(3), &sequences), 3);
+        assert_eq!(set_min_pts(Some(4), &sequences), 4);
+
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1)];
+        assert_eq!(set_min_pts(None, &sequences), 3);
+
+        let sequences = vec![Sequence::new(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(5, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_2".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_13.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_14.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_15.fasta".to_string(), "contig_1".to_string(), 1),
+                             Sequence::new(6, "A".to_string(), "assembly_16.fasta".to_string(), "contig_1".to_string(), 1)];
+        assert_eq!(set_min_pts(None, &sequences), 4);
     }
 }

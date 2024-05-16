@@ -280,19 +280,35 @@ pub fn round_float(num: f64, digits: u32) -> f64 {
 }
 
 
-pub fn median(values: &mut Vec<usize>) -> usize {
-    // Returns the median of the vector, and modifies the given vector (sorts it) while doing so.
+pub fn median_usize(values: &[usize]) -> usize {
     if values.is_empty() {
         return 0;
     }
-    values.sort();
-    let len = values.len();
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort();
+    let len = sorted_values.len();
     if len % 2 == 0 {
-        (values[len / 2 - 1] + values[len / 2]) / 2
+        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
     } else {
-        values[len / 2]
+        sorted_values[len / 2]
     }
 }
+
+
+pub fn median_f64(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let len = sorted_values.len();
+    if len % 2 == 0 {
+        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2.0
+    } else {
+        sorted_values[len / 2]
+    }
+}
+
 
 pub fn spinner(message: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
@@ -375,12 +391,24 @@ mod tests {
     }
 
     #[test]
-    fn test_median() {
-        assert_eq!(median(&mut vec![0, 1, 2, 3, 4]), 2);
-        assert_eq!(median(&mut vec![4, 3, 2, 1, 0]), 2);
-        assert_eq!(median(&mut vec![0, 1, 2, 3, 4, 5]), 2);
-        assert_eq!(median(&mut vec![5, 4, 3, 2, 1, 0]), 2);
-        assert_eq!(median(&mut vec![0, 2, 4, 6, 8, 10]), 5);
-        assert_eq!(median(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+    fn test_median_usize() {
+        assert_eq!(median_usize(&mut vec![]), 0);
+        assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4]), 2);
+        assert_eq!(median_usize(&mut vec![4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median_usize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_usize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median_usize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+    }
+
+    #[test]
+    fn test_median_f64() {
+        assert_almost_eq(median_f64(&mut vec![]), 0.0, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![0.0, 1.0, 2.0, 3.0, 4.0]), 2.0, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![4.0, 3.0, 2.0, 1.0, 0.0]), 2.0, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]), 2.5, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![5.0, 4.0, 3.0, 2.0, 1.0, 0.0]), 2.5, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0]), 5.0, 1e-8);
+        assert_almost_eq(median_f64(&mut vec![10.0, 8.0, 6.0, 4.0, 2.0, 0.0]), 5.0, 1e-8);
     }
 }
