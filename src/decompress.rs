@@ -1,3 +1,5 @@
+// This file contains the code for the autocycler decompress subcommand.
+
 // Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 

@@ -1,4 +1,4 @@
-// This file contains some high-level tests for Autocycler and other things that don't obviously
+// This file contains some high-level tests for Autocycler.
 
 // Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler

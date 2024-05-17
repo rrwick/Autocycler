@@ -1,3 +1,5 @@
+// This file contains functions for outputting formatted text to stderr.
+
 // Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
 
