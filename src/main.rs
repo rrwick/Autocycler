@@ -17,6 +17,7 @@ use clap::{Parser, Subcommand, crate_version};
 
 mod cluster;
 mod compress;
+mod correct;
 mod decompress;
 mod kmer_graph;
 mod log;
@@ -54,7 +55,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// compress input assemblies into a De Bruijn graph
+    /// compress input assemblies into a unitig graph
     Compress {
         /// Directory containing input assemblies (required)
         #[clap(short = 'i', long = "in_dir", required = true)]
@@ -69,7 +70,7 @@ enum Commands {
         kmer: u32,
     },
 
-    /// decompress the De Bruijn graph back into assemblies
+    /// decompress the unitig graph back into assemblies
     Decompress {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
@@ -80,7 +81,7 @@ enum Commands {
         out_dir: PathBuf,
     },
 
-    /// cluster contigs in the De Bruijn graph based on similarity
+    /// cluster contigs in the unitig graph based on similarity
     Cluster {
         /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
@@ -97,8 +98,15 @@ enum Commands {
         minpts: Option<usize>,
     },
 
-    /// resolve the De Bruijn graph to a consensus assembly
+    /// resolve repeats in the the unitig graph
     Resolve {
+        /// Autocycler directory (required)
+        #[clap(short = 'o', long = "out_dir", required = true)]
+        out_dir: PathBuf,
+    },
+
+    /// correct errors in the unitig graph to produce a consensus assembly
+    Correct {
         /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
@@ -121,6 +129,9 @@ fn main() {
         },
         Some(Commands::Resolve { out_dir }) => {
             resolve::resolve(out_dir);
+        },
+        Some(Commands::Correct { out_dir }) => {
+            correct::correct(out_dir);
         },
         None => {}
     }
