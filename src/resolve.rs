@@ -17,6 +17,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::cluster::load_graph;
+use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, quit_with_error};
 use crate::sequence::Sequence;
@@ -129,9 +130,13 @@ fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<S
     }
     graph.unitigs.retain(|u| u.borrow().depth > 0.0);
     graph.delete_dangling_links();
-    graph.renumber_unitigs();
+    let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
     eprintln!();
-    sequences.iter().filter(|s| s.cluster != -1).cloned().collect()
+    graph.print_basic_graph_info(); // TEMP
+    merge_linear_paths(graph, &sequences);
+    graph.print_basic_graph_info();
+    // graph.renumber_unitigs();
+    sequences
 }
 
 pub fn remove_contig_from_graph(graph: &mut UnitigGraph, seq_id: u16) {

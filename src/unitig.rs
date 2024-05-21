@@ -97,6 +97,31 @@ impl Unitig {
         }
     }
 
+    pub fn manual(number: u32, forward_seq: Vec<u8>, forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
+                  forward_next: Vec<(Rc<RefCell<Unitig>>, bool)>, forward_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
+                  reverse_next: Vec<(Rc<RefCell<Unitig>>, bool)>, reverse_prev: Vec<(Rc<RefCell<Unitig>>, bool)>) -> Self {
+        // This constructor is for manually building a Unitig object from a sequence and positions.
+        // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
+        let reverse_seq = reverse_complement(&forward_seq);
+        assert_eq!(forward_positions.len(), reverse_positions.len());
+        let depth = forward_positions.len() as f64;
+        Unitig {
+            number: number,
+            forward_kmers: VecDeque::new(),
+            reverse_kmers: VecDeque::new(),
+            forward_seq,
+            reverse_seq,
+            depth,
+            forward_positions,
+            reverse_positions,
+            forward_next,
+            forward_prev,
+            reverse_next,
+            reverse_prev,
+            trimmed: true,
+        }
+    }
+
     pub fn add_kmer_to_end(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
         self.forward_kmers.push_back(forward_kmer);
         self.reverse_kmers.push_front(reverse_kmer);
