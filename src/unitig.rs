@@ -289,6 +289,15 @@ impl Unitig {
         self.forward_seq.append(&mut seq);
         self.reverse_seq = reverse_complement(&self.forward_seq);
     }
+
+    pub fn remove_sequence(&mut self, id: u16) {
+        // Removes all Positions from the Unitig which have the given sequence ID. This can reduce
+        // the Unitig's depth.
+        self.forward_positions.retain(|p| p.seq_id() != id);
+        self.reverse_positions.retain(|p| p.seq_id() != id);
+        assert_eq!(self.forward_positions.len(), self.reverse_positions.len());
+        self.depth = self.forward_positions.len() as f64;
+    }
 }
 
 impl fmt::Display for Unitig {

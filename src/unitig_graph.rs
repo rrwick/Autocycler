@@ -491,4 +491,23 @@ impl UnitigGraph {
         eprintln!("total length: {} bp", self.get_total_length());
         eprintln!();
     }
+
+    pub fn delete_dangling_links(&mut self) {
+        // This method deletes any links to no-longer-existing unitigs. It should be run after any
+        // code which deletes Unitigs from the graph.
+        let unitig_numbers: HashSet<u32> = self.unitigs.iter().map(|u| u.borrow().number).collect();
+        for unitig_rc in &self.unitigs {
+            let unitig = unitig_rc.borrow();
+            let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+            drop(unitig);
+            let mut unitig = unitig_rc.borrow_mut();
+            for index in forward_next_to_remove.into_iter().rev() { unitig.forward_next.remove(index); }
+            for index in forward_prev_to_remove.into_iter().rev() { unitig.forward_prev.remove(index); }
+            for index in reverse_next_to_remove.into_iter().rev() { unitig.reverse_next.remove(index); }
+            for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
+        }
+    }
 }

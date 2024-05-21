@@ -18,7 +18,7 @@ use std::fmt;
 #[derive(Clone)]
 pub struct Position {
     pub pos: u32,
-    seq_id_and_strand: u16, // seq_id (15 bits) and strand (1 bit) are packed into a u16
+    seq_id_and_strand: u16,  // seq_id (15 bits) and strand (1 bit) are packed into a u16
 }
 
 impl Position {
@@ -27,7 +27,7 @@ impl Position {
     pub fn new(seq_id: u16, strand: bool, pos: usize) -> Position {
         let mut seq_id_and_strand = seq_id;
         if strand {
-            seq_id_and_strand |= Position::STRAND_BIT_MASK; // Set the strand bit
+            seq_id_and_strand |= Position::STRAND_BIT_MASK;  // set the strand bit
         }
         Position {
             pos: pos as u32,
@@ -36,7 +36,7 @@ impl Position {
     }
 
     pub fn seq_id(&self) -> u16 {
-        self.seq_id_and_strand & !Position::STRAND_BIT_MASK // Mask out the strand bit
+        self.seq_id_and_strand & !Position::STRAND_BIT_MASK  // mask out the strand bit
     }
 
     pub fn strand(&self) -> bool {

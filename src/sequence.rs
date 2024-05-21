@@ -16,6 +16,7 @@ use std::fmt;
 use crate::misc::{quit_with_error, reverse_complement};
 
 
+#[derive(Clone)]
 pub struct Sequence {
     pub id: u16,
     pub forward_seq: Vec<u8>,

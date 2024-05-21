@@ -26,13 +26,14 @@ use crate::unitig_graph::UnitigGraph;
 pub fn resolve(out_dir: PathBuf) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
     let clusters = out_dir.join("05_clusters.tsv");
+    let clean_gfa = out_dir.join("06_cleaned_graph.gfa");
     check_settings(&out_dir, &gfa, &clusters);
     starting_message();
     print_settings(&out_dir);
     let (mut unitig_graph, mut sequences) = load_graph(&gfa);
     load_clusters(&clusters, &mut sequences);
-    remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-    // TODO: save excluded-removed graph to file
+    let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+    unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure
     // TODO: find the ordering of single-copy contigs
@@ -112,11 +113,10 @@ fn get_cluster_line_parts(parts: &Vec<&str>, clusters: &PathBuf) -> (String, Str
 }
 
 
-fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
     section_header("Cleaning graph");
     explanation("Excluded contigs (those which could not be clustered) are now removed from the \
                  unitig graph.");
-    
     let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
     if seqs_to_remove.len() == 0 {
         eprintln!("No contigs needed to be removed");
@@ -124,15 +124,21 @@ fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<S
         eprintln!("Removed contigs:");
         for s in seqs_to_remove {
             eprintln!("  {}", s);
-            // TODO
-            // TODO
-            // TODO
-            // TODO
-            // TODO
-            // TODO
-            // TODO
-            // TODO
+            remove_contig_from_graph(graph, s.id);
         }
     }
+    graph.unitigs.retain(|u| u.borrow().depth > 0.0);
+    graph.delete_dangling_links();
+    graph.renumber_unitigs();
     eprintln!();
+    sequences.iter().filter(|s| s.cluster != -1).cloned().collect()
+}
+
+pub fn remove_contig_from_graph(graph: &mut UnitigGraph, seq_id: u16) {
+    // Removes all Positions from the Unitigs which have the given sequence ID. This reduces
+    // depths of affected Unitigs, and Unitigs which have their depths reduced to zero are
+    // removed from the graph.
+    for u in &graph.unitigs {
+        u.borrow_mut().remove_sequence(seq_id);
+    }
 }
