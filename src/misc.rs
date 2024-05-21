@@ -53,7 +53,7 @@ pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
     }
     all_assemblies.sort_unstable();
     if all_assemblies.is_empty() {
-        quit_with_error(&format!("Error: no assemblies found in {}", in_dir.display()));
+        quit_with_error(&format!("no assemblies found in {}", in_dir.display()));
     }
     all_assemblies
 }

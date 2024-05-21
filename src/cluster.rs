@@ -78,7 +78,7 @@ fn print_settings(out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) 
 }
 
 
-fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The compressed sequence graph is now loaded into memory.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);

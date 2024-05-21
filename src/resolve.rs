@@ -11,10 +11,16 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists};
-
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+
+use crate::cluster::load_graph;
+use crate::log::{section_header, explanation};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, quit_with_error};
+use crate::sequence::Sequence;
+use crate::unitig_graph::UnitigGraph;
 
 
 pub fn resolve(out_dir: PathBuf) {
@@ -23,9 +29,10 @@ pub fn resolve(out_dir: PathBuf) {
     check_settings(&out_dir, &gfa, &clusters);
     starting_message();
     print_settings(&out_dir);
-    // TODO: load graph
-    // TODO: load clustering
-    // TODO: remove excluded contigs from the graph
+    let (mut unitig_graph, mut sequences) = load_graph(&gfa);
+    load_clusters(&clusters, &mut sequences);
+    remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+    // TODO: save excluded-removed graph to file
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure
     // TODO: find the ordering of single-copy contigs
@@ -49,5 +56,83 @@ fn starting_message() {
 fn print_settings(out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!();
+}
+
+
+fn load_clusters(clusters: &PathBuf, sequences: &mut Vec<Sequence>) {
+    let file = File::open(clusters).unwrap();
+    let reader = BufReader::new(file);
+    let mut header = true;
+    let mut cluster_nums: HashMap<(String, String), i32> = HashMap::new();
+    for line_result in reader.lines() {
+        let line = line_result.unwrap();
+        let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
+        if header {
+            check_cluster_header(&parts, clusters);
+            header = false; continue;
+        }
+        let (assembly, contig_name, cluster) = get_cluster_line_parts(&parts, clusters);
+        cluster_nums.insert((assembly, contig_name), cluster);
+    }
+    for s in sequences {
+        if let Some(&cluster_num) = cluster_nums.get(&(s.filename.clone(), s.contig_name())) {
+            s.cluster = cluster_num;
+        } else {
+            quit_with_error(&format!("missing cluster for {}", s.filename));
+        }
+    }
+}
+
+fn check_cluster_header(parts: &Vec<&str>, clusters: &PathBuf) {
+    if parts != &vec!["assembly", "contig_name", "length", "cluster"] {
+        quit_with_error(&format!("cluster file ({}) does not contain expected header", clusters.display()));
+    }
+}
+
+
+fn get_cluster_line_parts(parts: &Vec<&str>, clusters: &PathBuf) -> (String, String, i32) {
+    if parts.len() != 4 {
+        quit_with_error(&format!("cluster file ({}) contains an unexpected number of columns", clusters.display()));
+    }
+    let assembly = parts[0].to_string();
+    let contig_name = parts[1].to_string();
+    let cluster_str = parts[3];
+    if cluster_str == "none" {
+        return (assembly, contig_name, -1);
+    }
+    if let Ok(num) = cluster_str.parse::<i32>() {
+        if num > 0 {
+            return (assembly, contig_name, num);
+        }
+    }
+    quit_with_error(&format!("cluster file ({}) contains an invalid cluster number: {}",
+                    clusters.display(), cluster_str));
+    unreachable!()
+}
+
+
+fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+    section_header("Cleaning graph");
+    explanation("Excluded contigs (those which could not be clustered) are now removed from the \
+                 unitig graph.");
+    
+    let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
+    if seqs_to_remove.len() == 0 {
+        eprintln!("No contigs needed to be removed");
+    } else {
+        eprintln!("Removed contigs:");
+        for s in seqs_to_remove {
+            eprintln!("  {}", s);
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+        }
+    }
     eprintln!();
 }
