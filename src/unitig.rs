@@ -103,7 +103,6 @@ impl Unitig {
         // This constructor is for manually building a Unitig object from a sequence and positions.
         // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
         let reverse_seq = reverse_complement(&forward_seq);
-        assert_eq!(forward_positions.len(), reverse_positions.len());
         let depth = forward_positions.len() as f64;
         Unitig {
             number: number,

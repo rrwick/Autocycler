@@ -114,7 +114,7 @@ fn get_cluster_line_parts(parts: &Vec<&str>, clusters: &PathBuf) -> (String, Str
 }
 
 
-fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
+pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
     section_header("Cleaning graph");
     explanation("Excluded contigs (those which could not be clustered) are now removed from the \
                  unitig graph.");
@@ -128,8 +128,7 @@ fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<S
             remove_contig_from_graph(graph, s.id);
         }
     }
-    graph.unitigs.retain(|u| u.borrow().depth > 0.0);
-    graph.delete_dangling_links();
+    graph.remove_zero_depth_unitigs();
     let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
     eprintln!();
     merge_linear_paths(graph, &sequences);

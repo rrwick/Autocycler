@@ -408,6 +408,9 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<(Rc<RefCell<Unitig>>, bool)>, 
 
 
 fn merge_unitig_seqs(path: &Vec<(Rc<RefCell<Unitig>>, bool)>) -> Vec<u8> {
+    // Given a path of unitigs (with their strand), this function returns their merged sequence. It
+    // assumes no overlap and it does not check that the given unitigs are actually linked to each
+    // other.
     let total_length: usize = path.iter().map(|(unitig_rc, _)| unitig_rc.borrow().length()).sum::<u32>().try_into().unwrap();
     let mut merged_seq = Vec::with_capacity(total_length);
     for (unitig_rc, unitig_strand) in path {

@@ -30,7 +30,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     print_settings(&in_gfa, &out_dir);
     create_dir(&out_dir);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
-    save_original_seqs(&out_dir, unitig_graph, sequences);
+    save_original_seqs(&out_dir, &unitig_graph, &sequences);
 }
 
 
@@ -55,10 +55,10 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
 }
 
 
-pub fn save_original_seqs(out_dir: &PathBuf, unitig_graph: UnitigGraph, sequences: Vec<Sequence>) {
+pub fn save_original_seqs(out_dir: &PathBuf, unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>) {
     section_header("Reconstructing assemblies from unitig graph");
     explanation("Each contig is reconstructed by tracing its path through the unitig graph");
-    let original_seqs = unitig_graph.reconstruct_original_sequences(&sequences);
+    let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
     for (filename, headers_seqs) in original_seqs {
         let file_path = out_dir.join(filename);
         let file = File::create(&file_path).unwrap();

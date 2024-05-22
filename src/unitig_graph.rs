@@ -510,4 +510,10 @@ impl UnitigGraph {
             for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
         }
     }
+
+    pub fn remove_zero_depth_unitigs(&mut self) {
+        self.unitigs.retain(|u| u.borrow().depth > 0.0);
+        // TODO: deal with newly-created dead-ends
+        self.delete_dangling_links();
+    }
 }
