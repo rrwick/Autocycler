@@ -132,10 +132,9 @@ fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<S
     graph.delete_dangling_links();
     let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
     eprintln!();
-    graph.print_basic_graph_info(); // TEMP
     merge_linear_paths(graph, &sequences);
     graph.print_basic_graph_info();
-    // graph.renumber_unitigs();
+    graph.renumber_unitigs();
     sequences
 }
 

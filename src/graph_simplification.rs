@@ -302,7 +302,8 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     //    ACTACTCAACTATCGACTACGCTACG
     //
     // To avoid messing with input sequence paths, this function will not merge sequences at the
-    // start/ends of such paths.
+    // start/ends of such paths. If no sequences are provided, then all possible linear paths will
+    // be merged.
     let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
     let mut already_used = HashSet::new();
     let mut merge_paths = Vec::new();
@@ -347,11 +348,13 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
 
 
 fn cannot_merge_start(unitig_number: u32, unitig_strand: bool, fixed_starts: &HashSet<u32>, fixed_ends: &HashSet<u32>) -> bool {
+    // Checks whether a given unitig (by number and strand) can have its start merged with other unitigs.
     (unitig_strand && fixed_starts.contains(&unitig_number)) || (!unitig_strand && fixed_ends.contains(&unitig_number))
 }
 
 
 fn cannot_merge_end(unitig_number: u32, unitig_strand: bool, fixed_starts: &HashSet<u32>, fixed_ends: &HashSet<u32>) -> bool {
+    // Checks whether a given unitig (by number and strand) can have its end merged with other unitigs.
     (unitig_strand && fixed_ends.contains(&unitig_number)) || (!unitig_strand && fixed_starts.contains(&unitig_number))
 }
 
@@ -362,34 +365,42 @@ fn has_single_exclusive_input(unitig_rc: &Rc<RefCell<Unitig>>, unitig_strand: bo
 }
 
 
-fn print_path(path: &Vec<(Rc<RefCell<Unitig>>, bool)>) {
-    let path_str: Vec<String> = path.iter().map(|(unitig_rc, unitig_strand)| format!("{}{}", unitig_rc.borrow().number, if *unitig_strand { "+" } else { "-" })).collect();
-    eprintln!("{}", path_str.join(","));
-}
-
-
 fn merge_path(graph: &mut UnitigGraph, path: &Vec<(Rc<RefCell<Unitig>>, bool)>, new_unitig_number: u32) {
-    print_path(&path);  // TEMP
-
     let merged_seq = merge_unitig_seqs(path);
     let (first_unitig, first_strand) = &path[0];
     let (last_unitig, last_strand) = path.last().unwrap();
-    let first_positions = if *first_strand {first_unitig.borrow().forward_positions.clone()} else {first_unitig.borrow().reverse_positions.clone()};
-    let last_positions = if *last_strand {last_unitig.borrow().forward_positions.clone()} else {last_unitig.borrow().reverse_positions.clone()};
+    let forward_positions = if *first_strand {first_unitig.borrow().forward_positions.clone()} else {first_unitig.borrow().reverse_positions.clone()};
+    let reverse_positions = if *last_strand {last_unitig.borrow().reverse_positions.clone()} else {last_unitig.borrow().forward_positions.clone()};
 
+    // For the new unitig, we take links (forward_prev, reverse_next, forward_next, reverse_prev)
+    // from the first/last unitigs in the path.
     let forward_prev = if *first_strand {first_unitig.borrow().forward_prev.clone()} else {first_unitig.borrow().reverse_prev.clone()};
     let reverse_next = if *first_strand {first_unitig.borrow().reverse_next.clone()} else {first_unitig.borrow().forward_next.clone()};
     let forward_next = if *last_strand {last_unitig.borrow().forward_next.clone()} else {last_unitig.borrow().reverse_next.clone()};
     let reverse_prev = if *last_strand {last_unitig.borrow().reverse_prev.clone()} else {last_unitig.borrow().forward_prev.clone()};
 
-    eprintln!("{}\n", new_unitig_number); // TEMP
-    let unitig = Unitig::manual(new_unitig_number, merged_seq, first_positions, last_positions,
+    let unitig = Unitig::manual(new_unitig_number, merged_seq, forward_positions, reverse_positions,
                                 forward_next, forward_prev, reverse_next, reverse_prev);
+    let unitig_rc = Rc::new(RefCell::new(unitig));
+    graph.unitigs.push(unitig_rc.clone());
 
-    // TODO: go through neighbouring unitigs (forward_prev, reverse_next, forward_next, reverse_prev)
-    //       and create new links to the new Unitig.
-
-    graph.unitigs.push(Rc::new(RefCell::new(unitig)));
+    // Create links to the new unitig from its neighbours.
+    for (u, strand) in &unitig_rc.borrow().forward_next {
+        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), true));}
+              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), true));}
+    }
+    for (u, strand) in &unitig_rc.borrow().forward_prev {
+        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), true));}
+              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), true));}
+    }
+    for (u, strand) in &unitig_rc.borrow().reverse_next {
+        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), false));}
+              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), false));}
+    }
+    for (u, strand) in &unitig_rc.borrow().reverse_prev {
+        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), false));}
+              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), false));}
+    }
 
     let path_numbers: HashSet<_> = path.iter().map(|(u, _)| u.borrow().number).collect();
     graph.unitigs.retain(|u| !path_numbers.contains(&u.borrow().number));
