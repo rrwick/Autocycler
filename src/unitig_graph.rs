@@ -28,7 +28,7 @@ use crate::misc::{reverse_complement, quit_with_error, strand};
 pub struct UnitigGraph {
     pub unitigs: Vec<Rc<RefCell<Unitig>>>,
     pub k_size: u32,
-    unitig_index: HashMap<u32, Rc<RefCell<Unitig>>>,
+    pub unitig_index: HashMap<u32, Rc<RefCell<Unitig>>>,
 }
 
 impl UnitigGraph {
@@ -74,7 +74,7 @@ impl UnitigGraph {
         (u_graph, sequences)
     }
 
-    fn build_unitig_index(&mut self) {
+    pub fn build_unitig_index(&mut self) {
         self.unitig_index = self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
     }
 
@@ -357,7 +357,7 @@ impl UnitigGraph {
         Ok(())
     }
 
-    fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
+    pub fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
         let mut links = Vec::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
@@ -538,5 +538,199 @@ impl UnitigGraph {
         self.delete_dangling_links();
         self.trim_overlaps();
         self.build_unitig_index();
+    }
+
+    pub fn link_exists(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
+        if let Some(unitig_a) = self.unitig_index.get(&a_num) {
+            if a_strand == strand::FORWARD {
+                for (next_unitig, next_strand) in &unitig_a.borrow().forward_next {
+                    if next_unitig.borrow().number == b_num && *next_strand == b_strand {
+                        return true;
+                    }
+                }
+            } else {
+                for (next_unitig, next_strand) in &unitig_a.borrow().reverse_next {
+                    if next_unitig.borrow().number == b_num && *next_strand == b_strand {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::fs::File;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn make_test_file(file_path: &PathBuf, contents: &str) {
+        let mut file = File::create(&file_path).unwrap();
+        write!(file, "{}", contents).unwrap();
+    }
+
+    fn get_test_gfa_1() -> String {
+        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+        S\t4\tGCTCGGCTCG\tDP:f:1\n\
+        S\t5\tCGAACCAT\tDP:f:1\n\
+        S\t6\tTACTTGT\tDP:f:1\n\
+        S\t7\tGCCTT\tDP:f:1\n\
+        S\t8\tATCT\tDP:f:1\n\
+        S\t9\tGC\tDP:f:1\n\
+        S\t10\tT\tDP:f:1\n\
+        L\t1\t+\t4\t+\t0M\n\
+        L\t4\t-\t1\t-\t0M\n\
+        L\t1\t+\t5\t-\t0M\n\
+        L\t5\t+\t1\t-\t0M\n\
+        L\t2\t+\t1\t+\t0M\n\
+        L\t1\t-\t2\t-\t0M\n\
+        L\t3\t-\t1\t+\t0M\n\
+        L\t1\t-\t3\t+\t0M\n\
+        L\t4\t+\t7\t-\t0M\n\
+        L\t7\t+\t4\t-\t0M\n\
+        L\t4\t+\t8\t+\t0M\n\
+        L\t8\t-\t4\t-\t0M\n\
+        L\t6\t-\t5\t-\t0M\n\
+        L\t5\t+\t6\t+\t0M\n\
+        L\t6\t+\t6\t-\t0M\n\
+        L\t7\t-\t9\t+\t0M\n\
+        L\t9\t-\t7\t+\t0M\n\
+        L\t8\t+\t10\t-\t0M\n\
+        L\t10\t+\t8\t-\t0M\n\
+        L\t9\t+\t7\t+\t0M\n\
+        L\t7\t-\t9\t-\t0M\n".to_string()
+    }
+
+    fn get_test_gfa_2() -> String {
+        "S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
+        S\t2\tATGAT\tDP:f:1\n\
+        S\t3\tGCGC\tDP:f:1\n\
+        L\t1\t+\t2\t+\t0M\n\
+        L\t2\t-\t1\t-\t0M\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t1\t-\t3\t+\t0M\n\
+        L\t3\t-\t1\t+\t0M\n\
+        L\t1\t-\t3\t-\t0M\n\
+        L\t3\t+\t1\t+\t0M\n".to_string()
+    }
+
+    fn get_test_gfa_3() -> String {
+        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+         S\t4\tGCTCGGCTCG\tDP:f:1\n\
+         S\t5\tCGAACCAT\tDP:f:1\n\
+         S\t6\tTACTTGT\tDP:f:1\n\
+         S\t7\tGCCTT\tDP:f:1\n\
+         L\t1\t+\t2\t-\t0M\n\
+         L\t2\t+\t1\t-\t0M\n\
+         L\t2\t-\t3\t+\t0M\n\
+         L\t3\t-\t2\t+\t0M\n\
+         L\t3\t+\t4\t+\t0M\n\
+         L\t4\t-\t3\t-\t0M\n\
+         L\t4\t+\t5\t-\t0M\n\
+         L\t5\t+\t4\t-\t0M\n\
+         L\t5\t-\t5\t+\t0M\n\
+         L\t3\t+\t6\t+\t0M\n\
+         L\t6\t-\t3\t-\t0M\n\
+         L\t6\t+\t7\t-\t0M\n\
+         L\t7\t+\t6\t-\t0M\n\
+         L\t7\t-\t6\t+\t0M\n\
+         L\t6\t-\t7\t+\t0M\n".to_string()
+    }
+
+    #[test]
+    fn test_link_exists_1() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists(1, strand::FORWARD, 4, strand::FORWARD));
+        assert!(graph.link_exists(4, strand::REVERSE, 1, strand::REVERSE));
+        assert!(graph.link_exists(1, strand::FORWARD, 5, strand::REVERSE));
+        assert!(graph.link_exists(5, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists(2, strand::FORWARD, 1, strand::FORWARD));
+        assert!(graph.link_exists(1, strand::REVERSE, 2, strand::REVERSE));
+        assert!(graph.link_exists(3, strand::REVERSE, 1, strand::FORWARD));
+        assert!(graph.link_exists(1, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists(4, strand::FORWARD, 7, strand::REVERSE));
+        assert!(graph.link_exists(7, strand::FORWARD, 4, strand::REVERSE));
+        assert!(graph.link_exists(4, strand::FORWARD, 8, strand::FORWARD));
+        assert!(graph.link_exists(8, strand::REVERSE, 4, strand::REVERSE));
+        assert!(graph.link_exists(6, strand::REVERSE, 5, strand::REVERSE));
+        assert!(graph.link_exists(5, strand::FORWARD, 6, strand::FORWARD));
+        assert!(graph.link_exists(6, strand::FORWARD, 6, strand::REVERSE));
+        assert!(graph.link_exists(7, strand::REVERSE, 9, strand::FORWARD));
+        assert!(graph.link_exists(9, strand::REVERSE, 7, strand::FORWARD));
+        assert!(graph.link_exists(8, strand::FORWARD, 10, strand::REVERSE));
+        assert!(graph.link_exists(10, strand::FORWARD, 8, strand::REVERSE));
+        assert!(graph.link_exists(9, strand::FORWARD, 7, strand::FORWARD));
+        assert!(graph.link_exists(7, strand::REVERSE, 9, strand::REVERSE));
+
+        assert!(!graph.link_exists(5, strand::REVERSE, 5, strand::FORWARD));
+        assert!(!graph.link_exists(7, strand::FORWARD, 9, strand::FORWARD));
+        assert!(!graph.link_exists(123, strand::FORWARD, 456, strand::FORWARD));
+    }
+
+    #[test]
+    fn test_link_exists_2() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists(1, strand::FORWARD, 2, strand::FORWARD));
+        assert!(graph.link_exists(2, strand::REVERSE, 1, strand::REVERSE));
+        assert!(graph.link_exists(1, strand::FORWARD, 2, strand::REVERSE));
+        assert!(graph.link_exists(2, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists(1, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists(3, strand::REVERSE, 1, strand::FORWARD));
+        assert!(graph.link_exists(1, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists(3, strand::FORWARD, 1, strand::FORWARD));
+
+        assert!(!graph.link_exists(2, strand::FORWARD, 1, strand::FORWARD));
+        assert!(!graph.link_exists(2, strand::FORWARD, 2, strand::REVERSE));
+        assert!(!graph.link_exists(2, strand::REVERSE, 3, strand::REVERSE));
+        assert!(!graph.link_exists(4, strand::FORWARD, 5, strand::FORWARD));
+        assert!(!graph.link_exists(6, strand::REVERSE, 7, strand::REVERSE));
+    }
+
+    #[test]
+    fn test_link_exists_3() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists(1, strand::FORWARD, 2, strand::REVERSE));
+        assert!(graph.link_exists(2, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists(2, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists(3, strand::REVERSE, 2, strand::FORWARD));
+        assert!(graph.link_exists(3, strand::FORWARD, 4, strand::FORWARD));
+        assert!(graph.link_exists(4, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists(4, strand::FORWARD, 5, strand::REVERSE));
+        assert!(graph.link_exists(5, strand::FORWARD, 4, strand::REVERSE));
+        assert!(graph.link_exists(5, strand::REVERSE, 5, strand::FORWARD));
+        assert!(graph.link_exists(3, strand::FORWARD, 6, strand::FORWARD));
+        assert!(graph.link_exists(6, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists(6, strand::FORWARD, 7, strand::REVERSE));
+        assert!(graph.link_exists(7, strand::FORWARD, 6, strand::REVERSE));
+        assert!(graph.link_exists(7, strand::REVERSE, 6, strand::FORWARD));
+        assert!(graph.link_exists(6, strand::REVERSE, 7, strand::FORWARD));
+
+        assert!(!graph.link_exists(1, strand::FORWARD, 3, strand::FORWARD));
+        assert!(!graph.link_exists(5, strand::FORWARD, 5, strand::REVERSE));
+        assert!(!graph.link_exists(7, strand::REVERSE, 4, strand::REVERSE));
+        assert!(!graph.link_exists(8, strand::FORWARD, 9, strand::FORWARD));
     }
 }
