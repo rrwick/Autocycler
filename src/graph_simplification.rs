@@ -345,6 +345,8 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
         merge_path(graph, &path, new_unitig_number);
     }
     graph.delete_dangling_links();
+    graph.build_unitig_index();
+    graph.check_links();
 }
 
 
@@ -372,6 +374,16 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<(Rc<RefCell<Unitig>>, bool)>, 
     let (last_unitig, last_strand) = path.last().unwrap();
     let forward_positions = if *first_strand {first_unitig.borrow().forward_positions.clone()} else {first_unitig.borrow().reverse_positions.clone()};
     let reverse_positions = if *last_strand {last_unitig.borrow().reverse_positions.clone()} else {last_unitig.borrow().forward_positions.clone()};
+
+    // Check to see if the path has any self links, so we can make those after the merge if needed.
+    let end_to_start_link = graph.link_exists(last_unitig.borrow().number, *last_strand,
+                                              first_unitig.borrow().number, *first_strand);
+    let start_flip_link = graph.link_exists(first_unitig.borrow().number, !*first_strand,
+                                            first_unitig.borrow().number, *first_strand);
+    let end_flip_link = graph.link_exists(last_unitig.borrow().number, *last_strand,
+                                          last_unitig.borrow().number, !*last_strand);
+
+    // TODO: check to see if either end of the path has a self pos-to-neg link.
 
     // For the new unitig, we take links (forward_prev, reverse_next, forward_next, reverse_prev)
     // from the first/last unitigs in the path.
@@ -401,6 +413,25 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<(Rc<RefCell<Unitig>>, bool)>, 
     for (u, strand) in &unitig_rc.borrow().reverse_prev {
         if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), strand::REVERSE));}
               else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), strand::REVERSE));}
+    }
+
+    // Create any needed links from the new unitig to itself.
+    if end_to_start_link {
+        let mut u = unitig_rc.borrow_mut();
+        u.forward_next.push((Rc::clone(&unitig_rc), strand::FORWARD));
+        u.forward_prev.push((Rc::clone(&unitig_rc), strand::FORWARD));
+        u.reverse_next.push((Rc::clone(&unitig_rc), strand::REVERSE));
+        u.reverse_prev.push((Rc::clone(&unitig_rc), strand::REVERSE));
+    }
+    if start_flip_link {
+        let mut u = unitig_rc.borrow_mut();
+        u.reverse_next.push((Rc::clone(&unitig_rc), strand::FORWARD));
+        u.forward_prev.push((Rc::clone(&unitig_rc), strand::REVERSE));
+    }
+    if end_flip_link {
+        let mut u = unitig_rc.borrow_mut();
+        u.forward_next.push((Rc::clone(&unitig_rc), strand::REVERSE));
+        u.reverse_prev.push((Rc::clone(&unitig_rc), strand::FORWARD));
     }
 
     let path_numbers: HashSet<_> = path.iter().map(|(u, _)| u.borrow().number).collect();
@@ -500,6 +531,31 @@ mod tests {
         L\t3\t-\t1\t+\t0M\n\
         L\t1\t-\t3\t-\t0M\n\
         L\t3\t+\t1\t+\t0M\n".to_string()
+    }
+
+    fn get_test_gfa_3() -> String {
+        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+         S\t4\tGCTCGGCTCG\tDP:f:1\n\
+         S\t5\tCGAACCAT\tDP:f:1\n\
+         S\t6\tTACTTGT\tDP:f:1\n\
+         S\t7\tGCCTT\tDP:f:1\n\
+         L\t1\t+\t2\t-\t0M\n\
+         L\t2\t+\t1\t-\t0M\n\
+         L\t2\t-\t3\t+\t0M\n\
+         L\t3\t-\t2\t+\t0M\n\
+         L\t3\t+\t4\t+\t0M\n\
+         L\t4\t-\t3\t-\t0M\n\
+         L\t4\t+\t5\t-\t0M\n\
+         L\t5\t+\t4\t-\t0M\n\
+         L\t5\t-\t5\t+\t0M\n\
+         L\t3\t+\t6\t+\t0M\n\
+         L\t6\t-\t3\t-\t0M\n\
+         L\t6\t+\t7\t-\t0M\n\
+         L\t7\t+\t6\t-\t0M\n\
+         L\t7\t-\t6\t+\t0M\n\
+         L\t6\t-\t7\t+\t0M\n".to_string()
     }
 
     #[test]
@@ -670,5 +726,33 @@ mod tests {
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
         let path = vec![(a, strand::FORWARD), (b, strand::REVERSE), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&merge_unitig_seqs(&path)).unwrap(), "ACGATCAGCGCTGATAGTACTACGACT");
+    }
+
+    #[test]
+    fn test_merge_linear_paths() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.unitigs.len(), 7);
+        merge_linear_paths(&mut graph, &seqs);
+        assert_eq!(graph.unitigs.len(), 3);
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&8).unwrap().borrow().forward_seq).unwrap(),
+                   "TTCGCTGCGCTCGCTTCGCTTTTGCACAGCGACGACGGCATGCCTGAATCGCCTA");
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&9).unwrap().borrow().forward_seq).unwrap(),
+                    "GCTCGGCTCGATGGTTCG");
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&10).unwrap().borrow().forward_seq).unwrap(),
+                    "TACTTGTAAGGC");
+        let mut links = graph.get_links_for_gfa();
+        let mut expected_links = vec![("8".to_string(), "+".to_string(), "9".to_string(), "+".to_string()),
+                                      ("9".to_string(), "-".to_string(), "8".to_string(), "-".to_string()),
+                                      ("9".to_string(), "+".to_string(), "9".to_string(), "-".to_string()),
+                                      ("8".to_string(), "+".to_string(), "10".to_string(), "+".to_string()),
+                                      ("10".to_string(), "-".to_string(), "8".to_string(), "-".to_string()),
+                                      ("10".to_string(), "+".to_string(), "10".to_string(), "+".to_string()),
+                                      ("10".to_string(), "-".to_string(), "10".to_string(), "-".to_string())];
+        links.sort();
+        expected_links.sort();
+        assert_eq!(links, expected_links);
     }
 }

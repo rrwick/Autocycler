@@ -43,6 +43,7 @@ impl UnitigGraph {
         u_graph.create_links();
         u_graph.trim_overlaps();
         u_graph.renumber_unitigs();
+        u_graph.check_links();
         u_graph
     }
 
@@ -71,6 +72,7 @@ impl UnitigGraph {
         u_graph.build_unitig_index();
         u_graph.build_links_from_gfa(&link_lines);
         let sequences = u_graph.build_paths_from_gfa(&path_lines);
+        u_graph.check_links();
         (u_graph, sequences)
     }
 
@@ -541,22 +543,79 @@ impl UnitigGraph {
     }
 
     pub fn link_exists(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
+        // Checks if the given link exists (looks for it in forward_next/reverse_next).
         if let Some(unitig_a) = self.unitig_index.get(&a_num) {
-            if a_strand == strand::FORWARD {
-                for (next_unitig, next_strand) in &unitig_a.borrow().forward_next {
-                    if next_unitig.borrow().number == b_num && *next_strand == b_strand {
-                        return true;
-                    }
-                }
-            } else {
-                for (next_unitig, next_strand) in &unitig_a.borrow().reverse_next {
-                    if next_unitig.borrow().number == b_num && *next_strand == b_strand {
-                        return true;
-                    }
+            let unitig_a = unitig_a.borrow();
+            let next_links = if a_strand {&unitig_a.forward_next} else {&unitig_a.reverse_next};
+            for (next_unitig, next_strand) in next_links {
+                if next_unitig.borrow().number == b_num && *next_strand == b_strand {
+                    return true;
                 }
             }
         }
         false
+    }
+
+    pub fn link_exists_prev(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
+        // This is like the link_exists method, but it checks in the opposite direction (looks for
+        // it in forward_prev/reverse_prev).
+        if let Some(unitig_b) = self.unitig_index.get(&b_num) {
+            let unitig_b = unitig_b.borrow();
+            let prev_links = if b_strand {&unitig_b.forward_prev} else {&unitig_b.reverse_prev};
+            for (prev_unitig, prev_strand) in prev_links {
+                if prev_unitig.borrow().number == a_num && *prev_strand == a_strand {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn check_links(&self) {
+        // Makes sure that all of the graph's links are valid:
+        // * Each link should have a corresponding link on the opposite strand.
+        // * Each next link should be matched with a prev link.
+        // * All linked Unitigs should be in the unitig_index.
+        // If any of the above aren't true, this method will panic.
+        for a_rc in &self.unitigs {
+            let a = a_rc.borrow();
+            for (b_rc, b_strand) in &a.forward_next {
+                let a_strand = strand::FORWARD;
+                let b = b_rc.borrow();
+                if !self.link_exists(a.number, a_strand, b.number, *b_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, a_strand, b.number, *b_strand) {panic!("missing prev link");}
+                if !self.link_exists(b.number, !*b_strand, a.number, !a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number, !*b_strand, a.number, !a_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+            }
+            for (b_rc, b_strand) in &a.reverse_next {
+                let a_strand = strand::REVERSE;
+                let b = b_rc.borrow();
+                if !self.link_exists(a.number, a_strand, b.number, *b_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, a_strand, b.number, *b_strand) {panic!("missing prev link");}
+                if !self.link_exists(b.number, !*b_strand, a.number, !a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number, !*b_strand, a.number, !a_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+            }
+            for (b_rc, b_strand) in &a.forward_prev {
+                let a_strand = strand::FORWARD;
+                let b = b_rc.borrow();
+                if !self.link_exists(b.number, *b_strand, a.number, a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number, *b_strand, a.number, a_strand) {panic!("missing prev link");}
+                if !self.link_exists(a.number, !a_strand, b.number, !*b_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, !a_strand, b.number, !*b_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+            }
+            for (b_rc, b_strand) in &a.reverse_prev {
+                let a_strand = strand::REVERSE;
+                let b = b_rc.borrow();
+                if !self.link_exists(b.number, *b_strand, a.number, a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number, *b_strand, a.number, a_strand) {panic!("missing prev link");}
+                if !self.link_exists(a.number, !a_strand, b.number, !*b_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, !a_strand, b.number, !*b_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+            }
+        }
     }
 }
 
@@ -733,4 +792,91 @@ mod tests {
         assert!(!graph.link_exists(7, strand::REVERSE, 4, strand::REVERSE));
         assert!(!graph.link_exists(8, strand::FORWARD, 9, strand::FORWARD));
     }
+
+    #[test]
+    fn test_link_exists_prev_1() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists_prev(1, strand::FORWARD, 4, strand::FORWARD));
+        assert!(graph.link_exists_prev(4, strand::REVERSE, 1, strand::REVERSE));
+        assert!(graph.link_exists_prev(1, strand::FORWARD, 5, strand::REVERSE));
+        assert!(graph.link_exists_prev(5, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists_prev(2, strand::FORWARD, 1, strand::FORWARD));
+        assert!(graph.link_exists_prev(1, strand::REVERSE, 2, strand::REVERSE));
+        assert!(graph.link_exists_prev(3, strand::REVERSE, 1, strand::FORWARD));
+        assert!(graph.link_exists_prev(1, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists_prev(4, strand::FORWARD, 7, strand::REVERSE));
+        assert!(graph.link_exists_prev(7, strand::FORWARD, 4, strand::REVERSE));
+        assert!(graph.link_exists_prev(4, strand::FORWARD, 8, strand::FORWARD));
+        assert!(graph.link_exists_prev(8, strand::REVERSE, 4, strand::REVERSE));
+        assert!(graph.link_exists_prev(6, strand::REVERSE, 5, strand::REVERSE));
+        assert!(graph.link_exists_prev(5, strand::FORWARD, 6, strand::FORWARD));
+        assert!(graph.link_exists_prev(6, strand::FORWARD, 6, strand::REVERSE));
+        assert!(graph.link_exists_prev(7, strand::REVERSE, 9, strand::FORWARD));
+        assert!(graph.link_exists_prev(9, strand::REVERSE, 7, strand::FORWARD));
+        assert!(graph.link_exists_prev(8, strand::FORWARD, 10, strand::REVERSE));
+        assert!(graph.link_exists_prev(10, strand::FORWARD, 8, strand::REVERSE));
+        assert!(graph.link_exists_prev(9, strand::FORWARD, 7, strand::FORWARD));
+        assert!(graph.link_exists_prev(7, strand::REVERSE, 9, strand::REVERSE));
+
+        assert!(!graph.link_exists_prev(5, strand::REVERSE, 5, strand::FORWARD));
+        assert!(!graph.link_exists_prev(7, strand::FORWARD, 9, strand::FORWARD));
+        assert!(!graph.link_exists_prev(123, strand::FORWARD, 456, strand::FORWARD));
+    }
+
+    #[test]
+    fn test_link_exists_prev_2() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::FORWARD));
+        assert!(graph.link_exists_prev(2, strand::REVERSE, 1, strand::REVERSE));
+        assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::REVERSE));
+        assert!(graph.link_exists_prev(2, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists_prev(1, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists_prev(3, strand::REVERSE, 1, strand::FORWARD));
+        assert!(graph.link_exists_prev(1, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists_prev(3, strand::FORWARD, 1, strand::FORWARD));
+
+        assert!(!graph.link_exists_prev(2, strand::FORWARD, 1, strand::FORWARD));
+        assert!(!graph.link_exists_prev(2, strand::FORWARD, 2, strand::REVERSE));
+        assert!(!graph.link_exists_prev(2, strand::REVERSE, 3, strand::REVERSE));
+        assert!(!graph.link_exists_prev(4, strand::FORWARD, 5, strand::FORWARD));
+        assert!(!graph.link_exists_prev(6, strand::REVERSE, 7, strand::REVERSE));
+    }
+
+    #[test]
+    fn test_link_exists_prev_3() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::REVERSE));
+        assert!(graph.link_exists_prev(2, strand::FORWARD, 1, strand::REVERSE));
+        assert!(graph.link_exists_prev(2, strand::REVERSE, 3, strand::FORWARD));
+        assert!(graph.link_exists_prev(3, strand::REVERSE, 2, strand::FORWARD));
+        assert!(graph.link_exists_prev(3, strand::FORWARD, 4, strand::FORWARD));
+        assert!(graph.link_exists_prev(4, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists_prev(4, strand::FORWARD, 5, strand::REVERSE));
+        assert!(graph.link_exists_prev(5, strand::FORWARD, 4, strand::REVERSE));
+        assert!(graph.link_exists_prev(5, strand::REVERSE, 5, strand::FORWARD));
+        assert!(graph.link_exists_prev(3, strand::FORWARD, 6, strand::FORWARD));
+        assert!(graph.link_exists_prev(6, strand::REVERSE, 3, strand::REVERSE));
+        assert!(graph.link_exists_prev(6, strand::FORWARD, 7, strand::REVERSE));
+        assert!(graph.link_exists_prev(7, strand::FORWARD, 6, strand::REVERSE));
+        assert!(graph.link_exists_prev(7, strand::REVERSE, 6, strand::FORWARD));
+        assert!(graph.link_exists_prev(6, strand::REVERSE, 7, strand::FORWARD));
+
+        assert!(!graph.link_exists_prev(1, strand::FORWARD, 3, strand::FORWARD));
+        assert!(!graph.link_exists_prev(5, strand::FORWARD, 5, strand::REVERSE));
+        assert!(!graph.link_exists_prev(7, strand::REVERSE, 4, strand::REVERSE));
+        assert!(!graph.link_exists_prev(8, strand::FORWARD, 9, strand::FORWARD));
+    }
+
 }
