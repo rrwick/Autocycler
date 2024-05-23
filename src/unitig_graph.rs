@@ -476,7 +476,7 @@ impl UnitigGraph {
     fn parse_unitig_path(path_str: &str) -> Vec<(u32, bool)> {
         path_str.split(',')
             .map(|u| {
-                let strand = if u.ends_with('+') { true } else if u.ends_with('-') { false }
+                let strand = if u.ends_with('+') { strand::FORWARD } else if u.ends_with('-') { strand::REVERSE }
                              else { panic!("Invalid path strand") };
                 let num = u[..u.len() - 1].parse::<u32>().expect("Error parsing unitig number");
                 (num, strand)

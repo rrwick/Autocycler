@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use crate::misc::strand;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
 use crate::unitig_graph::UnitigGraph;
@@ -309,7 +310,7 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     let mut merge_paths = Vec::new();
     for unitig_rc in &graph.unitigs {
         let unitig_number = unitig_rc.borrow().number;
-        for unitig_strand in [true, false] {
+        for unitig_strand in [strand::FORWARD, strand::REVERSE] {
 
             // Find unitigs which can potentially start a mergeable path.
             if already_used.contains(&unitig_number) {continue;}
@@ -386,20 +387,20 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<(Rc<RefCell<Unitig>>, bool)>, 
 
     // Create links to the new unitig from its neighbours.
     for (u, strand) in &unitig_rc.borrow().forward_next {
-        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), true));}
-              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), true));}
+        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), strand::FORWARD));}
+              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), strand::FORWARD));}
     }
     for (u, strand) in &unitig_rc.borrow().forward_prev {
-        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), true));}
-              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), true));}
+        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), strand::FORWARD));}
+              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), strand::FORWARD));}
     }
     for (u, strand) in &unitig_rc.borrow().reverse_next {
-        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), false));}
-              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), false));}
+        if *strand {u.borrow_mut().forward_prev.push((Rc::clone(&unitig_rc), strand::REVERSE));}
+              else {u.borrow_mut().reverse_prev.push((Rc::clone(&unitig_rc), strand::REVERSE));}
     }
     for (u, strand) in &unitig_rc.borrow().reverse_prev {
-        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), false));}
-              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), false));}
+        if *strand {u.borrow_mut().forward_next.push((Rc::clone(&unitig_rc), strand::REVERSE));}
+              else {u.borrow_mut().reverse_next.push((Rc::clone(&unitig_rc), strand::REVERSE));}
     }
 
     let path_numbers: HashSet<_> = path.iter().map(|(u, _)| u.borrow().number).collect();
@@ -506,19 +507,19 @@ mod tests {
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, true), (b, true), (c, true)];
+        let unitigs = vec![(a, strand::FORWARD), (b, strand::FORWARD), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "AC");
 
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, true), (b, true), (c, false)];
+        let unitigs = vec![(a, strand::FORWARD), (b, strand::FORWARD), (c, strand::REVERSE)];
         assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "A");
 
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, true), (b, false), (c, false)];
+        let unitigs = vec![(a, strand::FORWARD), (b, strand::REVERSE), (c, strand::REVERSE)];
         assert_eq!(std::str::from_utf8(&get_common_start_seq(&unitigs)).unwrap(), "");
     }
 
@@ -527,19 +528,19 @@ mod tests {
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, true), (b, true), (c, true)];
+        let unitigs = vec![(a, strand::FORWARD), (b, strand::FORWARD), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "");
 
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, false), (b, false), (c, true)];
+        let unitigs = vec![(a, strand::REVERSE), (b, strand::REVERSE), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "T");
 
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let unitigs = vec![(a, false), (b, false), (c, false)];
+        let unitigs = vec![(a, strand::REVERSE), (b, strand::REVERSE), (c, strand::REVERSE)];
         assert_eq!(std::str::from_utf8(&get_common_end_seq(&unitigs)).unwrap(), "GT");
     }
 
@@ -649,10 +650,10 @@ mod tests {
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
 
-        let unitigs_1 = vec![(a.clone(), true), (b.clone(), true), (c.clone(), true)];
+        let unitigs_1 = vec![(a.clone(), strand::FORWARD), (b.clone(), strand::FORWARD), (c.clone(), strand::FORWARD)];
         assert!(!check_for_duplicates(&unitigs_1));
         
-        let unitigs_2 = vec![(a.clone(), true), (b.clone(), true), (a.clone(), false)];
+        let unitigs_2 = vec![(a.clone(), strand::FORWARD), (b.clone(), strand::FORWARD), (a.clone(), strand::REVERSE)];
         assert!(check_for_duplicates(&unitigs_2));
     }
 
@@ -661,13 +662,13 @@ mod tests {
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let path = vec![(a, true), (b, true), (c, true)];
+        let path = vec![(a, strand::FORWARD), (b, strand::FORWARD), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&merge_unitig_seqs(&path)).unwrap(), "ACGATCAGCACTATCAGCACTACGACT");
 
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
         let b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tACTATCAGC\tDP:f:1")));
         let c = Rc::new(RefCell::new(Unitig::from_segment_line("S\t3\tACTACGACT\tDP:f:1")));
-        let path = vec![(a, true), (b, false), (c, true)];
+        let path = vec![(a, strand::FORWARD), (b, strand::REVERSE), (c, strand::FORWARD)];
         assert_eq!(std::str::from_utf8(&merge_unitig_seqs(&path)).unwrap(), "ACGATCAGCGCTGATAGTACTACGACT");
     }
 }
