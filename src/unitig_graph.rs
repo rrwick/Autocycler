@@ -297,13 +297,19 @@ impl UnitigGraph {
         }
     }
 
-    fn trim_overlaps(&mut self) {
+    pub fn trim_overlaps(&mut self) {
+        // This method trims all overlaps from the graph. Dead-ends will not be trimmed, as that
+        // would cause irreversible loss of sequence.
         for unitig in &self.unitigs {
             unitig.borrow_mut().trim_overlaps(self.k_size as usize);
         }
     }
 
-    fn restore_overlaps(&mut self) {
+    pub fn restore_overlaps(&mut self) {
+        // This method puts all overlaps back onto the graph. When deleting unitigs, it is necessary
+        // to first restore overlaps with this method, then delete the unitigs, then trim overlaps
+        // again. This is because deleting unitigs can create new dead-ends which changes the
+        // trimming.
         let overlap = self.k_size as usize / 2;
         let new_seqs: HashMap<_, _> = self.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number, u.get_seq(strand::FORWARD, overlap, overlap))}).collect();
         for rc in &self.unitigs {

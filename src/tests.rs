@@ -105,6 +105,14 @@ mod tests {
         unitig_graph.save_gfa(&gfa_2, &sequences).unwrap();
         assert_same_content(&gfa_1, &gfa_2);
 
+        // Restore overlaps, trim overlaps again, then save to GFA and ensure the content is
+        // unchanged.
+        let gfa_3 = graph_dir.path().join("graph_2.gfa");
+        unitig_graph.restore_overlaps();
+        unitig_graph.trim_overlaps();
+        unitig_graph.save_gfa(&gfa_3, &sequences).unwrap();
+        assert_same_content(&gfa_1, &gfa_3);
+
         // Reconstruct the sequences from the unitig graph.
         save_original_seqs(&reconstructed_dir_1.path().to_path_buf(), &unitig_graph, &sequences);
         let reconstructed_a = reconstructed_dir_1.path().join("a.fasta");
