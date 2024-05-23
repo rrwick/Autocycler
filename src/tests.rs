@@ -162,7 +162,7 @@ mod tests {
         // Exclude the first sequence, remove it from the graph, then reconstruct the remaining
         // sequences.
         sequences[0].cluster = -1;
-        let mut sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+        let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
         assert_eq!(sequences.len(), 1);
         save_original_seqs(&reconstructed_dir_5.path().to_path_buf(), &unitig_graph, &sequences);
         let reconstructed_e = reconstructed_dir_5.path().join("e.fna.gz");

@@ -22,7 +22,7 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::Unitig;
-use crate::misc::{quit_with_error, strand};
+use crate::misc::{reverse_complement, quit_with_error, strand};
 
 
 pub struct UnitigGraph {
@@ -303,6 +303,17 @@ impl UnitigGraph {
         }
     }
 
+    fn restore_overlaps(&mut self) {
+        let overlap = self.k_size as usize / 2;
+        let new_seqs: HashMap<_, _> = self.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number, u.get_seq(strand::FORWARD, overlap, overlap))}).collect();
+        for rc in &self.unitigs {
+            let mut u = rc.borrow_mut();
+            u.forward_seq = new_seqs.get(&u.number).unwrap().clone();
+            u.reverse_seq = reverse_complement(&u.forward_seq);
+            u.trimmed = false;
+        }
+    }
+
     pub fn renumber_unitigs(&mut self) {
         // This method sorts and renumbers Unitigs by: length (decreasing), sequence (lexicographic)
         // and depth (decreasing).
@@ -512,8 +523,12 @@ impl UnitigGraph {
     }
 
     pub fn remove_zero_depth_unitigs(&mut self) {
+        // Removes zero-depth unitigs from the graph. Doing so can create new dead-ends, so this
+        // function first un-trims the contigs (adds overlap back on) and then re-trims after the
+        // unitigs have been deleted.
+        self.restore_overlaps();
         self.unitigs.retain(|u| u.borrow().depth > 0.0);
-        // TODO: deal with newly-created dead-ends
         self.delete_dangling_links();
+        self.trim_overlaps();
     }
 }

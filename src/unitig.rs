@@ -34,7 +34,7 @@ pub struct Unitig {
     pub forward_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
     pub reverse_next: Vec<(Rc<RefCell<Unitig>>, bool)>,
     pub reverse_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
-    trimmed: bool,
+    pub trimmed: bool,
 }
 
 impl Unitig {
