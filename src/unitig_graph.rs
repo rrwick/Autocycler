@@ -339,6 +339,7 @@ impl UnitigGraph {
         for (new_number, unitig) in self.unitigs.iter().enumerate() {
             unitig.borrow_mut().number = (new_number + 1) as u32;
         }
+        self.build_unitig_index();
     }
 
     pub fn save_gfa(&self, gfa_filename: &PathBuf, sequences: &Vec<Sequence>) -> io::Result<()> {
@@ -536,5 +537,6 @@ impl UnitigGraph {
         self.unitigs.retain(|u| u.borrow().depth > 0.0);
         self.delete_dangling_links();
         self.trim_overlaps();
+        self.build_unitig_index();
     }
 }
