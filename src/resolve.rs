@@ -86,6 +86,7 @@ fn load_clusters(clusters: &PathBuf, sequences: &mut Vec<Sequence>) {
     }
 }
 
+
 fn check_cluster_header(parts: &Vec<&str>, clusters: &PathBuf) {
     if parts != &vec!["assembly", "contig_name", "length", "cluster"] {
         quit_with_error(&format!("cluster file ({}) does not contain expected header", clusters.display()));
@@ -136,6 +137,7 @@ pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &V
     graph.renumber_unitigs();
     sequences
 }
+
 
 pub fn remove_contig_from_graph(graph: &mut UnitigGraph, seq_id: u16) {
     // Removes all Positions from the Unitigs which have the given sequence ID. This reduces

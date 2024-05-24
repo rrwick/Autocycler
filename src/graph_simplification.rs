@@ -486,7 +486,8 @@ mod tests {
     }
 
     fn get_test_gfa_1() -> String {
-        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
         S\t4\tGCTCGGCTCG\tDP:f:1\n\
@@ -520,7 +521,8 @@ mod tests {
     }
 
     fn get_test_gfa_2() -> String {
-        "S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
         S\t2\tATGAT\tDP:f:1\n\
         S\t3\tGCGC\tDP:f:1\n\
         L\t1\t+\t2\t+\t0M\n\
@@ -534,28 +536,29 @@ mod tests {
     }
 
     fn get_test_gfa_3() -> String {
-        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-         S\t4\tGCTCGGCTCG\tDP:f:1\n\
-         S\t5\tCGAACCAT\tDP:f:1\n\
-         S\t6\tTACTTGT\tDP:f:1\n\
-         S\t7\tGCCTT\tDP:f:1\n\
-         L\t1\t+\t2\t-\t0M\n\
-         L\t2\t+\t1\t-\t0M\n\
-         L\t2\t-\t3\t+\t0M\n\
-         L\t3\t-\t2\t+\t0M\n\
-         L\t3\t+\t4\t+\t0M\n\
-         L\t4\t-\t3\t-\t0M\n\
-         L\t4\t+\t5\t-\t0M\n\
-         L\t5\t+\t4\t-\t0M\n\
-         L\t5\t-\t5\t+\t0M\n\
-         L\t3\t+\t6\t+\t0M\n\
-         L\t6\t-\t3\t-\t0M\n\
-         L\t6\t+\t7\t-\t0M\n\
-         L\t7\t+\t6\t-\t0M\n\
-         L\t7\t-\t6\t+\t0M\n\
-         L\t6\t-\t7\t+\t0M\n".to_string()
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+        S\t4\tGCTCGGCTCG\tDP:f:1\n\
+        S\t5\tCGAACCAT\tDP:f:1\n\
+        S\t6\tTACTTGT\tDP:f:1\n\
+        S\t7\tGCCTT\tDP:f:1\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t2\t-\t3\t+\t0M\n\
+        L\t3\t-\t2\t+\t0M\n\
+        L\t3\t+\t4\t+\t0M\n\
+        L\t4\t-\t3\t-\t0M\n\
+        L\t4\t+\t5\t-\t0M\n\
+        L\t5\t+\t4\t-\t0M\n\
+        L\t5\t-\t5\t+\t0M\n\
+        L\t3\t+\t6\t+\t0M\n\
+        L\t6\t-\t3\t-\t0M\n\
+        L\t6\t+\t7\t-\t0M\n\
+        L\t7\t+\t6\t-\t0M\n\
+        L\t7\t-\t6\t+\t0M\n\
+        L\t6\t-\t7\t+\t0M\n".to_string()
     }
 
     #[test]

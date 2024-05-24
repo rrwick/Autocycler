@@ -62,8 +62,7 @@ impl UnitigGraph {
             let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
             match parts.get(0) {
                 Some(&"H") => u_graph.read_gfa_header_line(&parts),
-                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(
-                                                   Unitig::from_segment_line(&line)))),
+                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(Unitig::from_segment_line(&line)))),
                 Some(&"L") => link_lines.push(line),
                 Some(&"P") => path_lines.push(line),
                 _ => {}
@@ -107,17 +106,10 @@ impl UnitigGraph {
             let strand_2 = parts[4] == "+";
             if let Some(unitig_1) = self.unitig_index.get(&seg_1) {
                 if let Some(unitig_2) = self.unitig_index.get(&seg_2) {
-                    if strand_1 {
-                        unitig_1.borrow_mut().forward_next.push((Rc::clone(unitig_2), strand_2));
-                    } else {
-                        unitig_1.borrow_mut().reverse_next.push((Rc::clone(unitig_2), strand_2));
-                    }
-                    if strand_2 {
-                        unitig_2.borrow_mut().forward_prev.push((Rc::clone(unitig_1), strand_1));
-                    } else {
-                        unitig_2.borrow_mut().reverse_prev.push((Rc::clone(unitig_1), strand_1));
-                    }
-
+                    if strand_1 {unitig_1.borrow_mut().forward_next.push((Rc::clone(unitig_2), strand_2));
+                         } else {unitig_1.borrow_mut().reverse_next.push((Rc::clone(unitig_2), strand_2));}
+                    if strand_2 {unitig_2.borrow_mut().forward_prev.push((Rc::clone(unitig_1), strand_1));
+                         } else {unitig_2.borrow_mut().reverse_prev.push((Rc::clone(unitig_1), strand_1));}
                 } else {
                     quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_2));
                 }
@@ -148,8 +140,8 @@ impl UnitigGraph {
                 quit_with_error("missing required tag in GFA path line.");
             }
             let length = length.unwrap();
-            let forward_path = Self::parse_unitig_path(parts[2]);
-            let reverse_path = Self::reverse_path(&forward_path);
+            let forward_path = parse_unitig_path(parts[2]);
+            let reverse_path = reverse_path(&forward_path);
             self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length);
             self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length);
             sequences.push(Sequence::new(seq_id, String::new(),
@@ -165,19 +157,12 @@ impl UnitigGraph {
         for (unitig_num, unitig_strand) in path {
             if let Some(unitig) = self.unitig_index.get(unitig_num) {
                 let mut u = unitig.borrow_mut();
-                let positions = if *unitig_strand {
-                    &mut u.forward_positions
-                } else {
-                    &mut u.reverse_positions
-                };
+                let positions = if *unitig_strand {&mut u.forward_positions} 
+                                             else {&mut u.reverse_positions};
                 positions.push(Position::new(seq_id, path_strand, pos as usize));
                 pos += u.length();
-                if u.dead_end_start(*unitig_strand) {
-                    pos -= half_k;
-                }
-                if u.dead_end_end(*unitig_strand) {
-                    pos -= half_k;
-                }
+                if u.dead_end_start(*unitig_strand) {pos -= half_k;}
+                if u.dead_end_end(*unitig_strand) {pos -= half_k;}
             } else {
                 quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
             }
@@ -475,26 +460,8 @@ impl UnitigGraph {
         unitig_path
     }
 
-    fn parse_unitig_path(path_str: &str) -> Vec<(u32, bool)> {
-        path_str.split(',')
-            .map(|u| {
-                let strand = if u.ends_with('+') { strand::FORWARD } else if u.ends_with('-') { strand::REVERSE }
-                             else { panic!("Invalid path strand") };
-                let num = u[..u.len() - 1].parse::<u32>().expect("Error parsing unitig number");
-                (num, strand)
-            }).collect()
-    }
-
-    fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
-        path.iter().rev().map(|&(num, strand)| (num, !strand)).collect()
-    }
-
     pub fn get_total_length(&self) -> u32 {
-        let mut total_length = 0;
-        for unitig in &self.unitigs {
-            total_length += unitig.borrow().length();
-        }
-        total_length
+        self.unitigs.iter().map(|u| u.borrow().length()).sum()
     }
 
     pub fn get_link_count(&self) -> u32 {
@@ -620,6 +587,22 @@ impl UnitigGraph {
 }
 
 
+fn parse_unitig_path(path_str: &str) -> Vec<(u32, bool)> {
+    path_str.split(',')
+        .map(|u| {
+            let strand = if u.ends_with('+') { strand::FORWARD } else if u.ends_with('-') { strand::REVERSE }
+                         else { panic!("Invalid path strand") };
+            let num = u[..u.len() - 1].parse::<u32>().expect("Error parsing unitig number");
+            (num, strand)
+        }).collect()
+}
+
+
+fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
+    path.iter().rev().map(|&(num, strand)| (num, !strand)).collect()
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -635,7 +618,8 @@ mod tests {
     }
 
     fn get_test_gfa_1() -> String {
-        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
         S\t4\tGCTCGGCTCG\tDP:f:1\n\
@@ -669,7 +653,8 @@ mod tests {
     }
 
     fn get_test_gfa_2() -> String {
-        "S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
         S\t2\tATGAT\tDP:f:1\n\
         S\t3\tGCGC\tDP:f:1\n\
         L\t1\t+\t2\t+\t0M\n\
@@ -683,28 +668,73 @@ mod tests {
     }
 
     fn get_test_gfa_3() -> String {
-        "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-         S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-         S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-         S\t4\tGCTCGGCTCG\tDP:f:1\n\
-         S\t5\tCGAACCAT\tDP:f:1\n\
-         S\t6\tTACTTGT\tDP:f:1\n\
-         S\t7\tGCCTT\tDP:f:1\n\
-         L\t1\t+\t2\t-\t0M\n\
-         L\t2\t+\t1\t-\t0M\n\
-         L\t2\t-\t3\t+\t0M\n\
-         L\t3\t-\t2\t+\t0M\n\
-         L\t3\t+\t4\t+\t0M\n\
-         L\t4\t-\t3\t-\t0M\n\
-         L\t4\t+\t5\t-\t0M\n\
-         L\t5\t+\t4\t-\t0M\n\
-         L\t5\t-\t5\t+\t0M\n\
-         L\t3\t+\t6\t+\t0M\n\
-         L\t6\t-\t3\t-\t0M\n\
-         L\t6\t+\t7\t-\t0M\n\
-         L\t7\t+\t6\t-\t0M\n\
-         L\t7\t-\t6\t+\t0M\n\
-         L\t6\t-\t7\t+\t0M\n".to_string()
+        "H\tVN:Z:1.0\tKM:i:9\n\
+        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
+        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
+        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
+        S\t4\tGCTCGGCTCG\tDP:f:1\n\
+        S\t5\tCGAACCAT\tDP:f:1\n\
+        S\t6\tTACTTGT\tDP:f:1\n\
+        S\t7\tGCCTT\tDP:f:1\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t2\t-\t3\t+\t0M\n\
+        L\t3\t-\t2\t+\t0M\n\
+        L\t3\t+\t4\t+\t0M\n\
+        L\t4\t-\t3\t-\t0M\n\
+        L\t4\t+\t5\t-\t0M\n\
+        L\t5\t+\t4\t-\t0M\n\
+        L\t5\t-\t5\t+\t0M\n\
+        L\t3\t+\t6\t+\t0M\n\
+        L\t6\t-\t3\t-\t0M\n\
+        L\t6\t+\t7\t-\t0M\n\
+        L\t7\t+\t6\t-\t0M\n\
+        L\t7\t-\t6\t+\t0M\n\
+        L\t6\t-\t7\t+\t0M\n".to_string()
+    }
+
+    #[test]
+    fn test_graph_stats() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        graph.check_links();
+        assert_eq!(graph.k_size, 9);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 21);
+
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        graph.check_links();
+        assert_eq!(graph.k_size, 9);
+        assert_eq!(graph.unitigs.len(), 3);
+        assert_eq!(graph.get_total_length(), 31);
+        assert_eq!(graph.get_link_count(), 8);
+
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        graph.check_links();
+        assert_eq!(graph.k_size, 9);
+        assert_eq!(graph.unitigs.len(), 7);
+        assert_eq!(graph.get_total_length(), 85);
+        assert_eq!(graph.get_link_count(), 15);
+    }
+
+    #[test]
+    fn test_parse_unitig_path() {
+        assert_eq!(parse_unitig_path("2+,1-"), vec![(2, strand::FORWARD), (1, strand::REVERSE)]);
+        assert_eq!(parse_unitig_path("3+,8-,4-"), vec![(3, strand::FORWARD), (8, strand::REVERSE), (4, strand::REVERSE)]);
+    }
+
+    #[test]
+    fn test_reverse_path() {
+        assert_eq!(reverse_path(&vec![(1, strand::FORWARD), (2, strand::REVERSE)]),
+                                 vec![(2, strand::FORWARD), (1, strand::REVERSE)]);
+        assert_eq!(reverse_path(&vec![(4, strand::FORWARD), (8, strand::FORWARD), (3, strand::REVERSE)]),
+                                 vec![(3, strand::FORWARD), (8, strand::REVERSE), (4, strand::REVERSE)]);
     }
 
     #[test]
