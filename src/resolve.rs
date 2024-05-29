@@ -21,6 +21,7 @@ use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, quit_with_error};
 use crate::sequence::Sequence;
+use crate::trim_path_overlap::trim_path_overlap;
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -34,6 +35,8 @@ pub fn resolve(out_dir: PathBuf) {
     let (mut unitig_graph, mut sequences) = load_graph(&gfa);
     load_clusters(&clusters, &mut sequences);
     let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+    let sequences = trim_path_overlap(&mut unitig_graph, &sequences, 0.95);  // TODO: make overlap alignment identity an argument
+    // TODO: trim over-long circular contigs (unless suppressed with an argument)
     unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure

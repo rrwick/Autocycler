@@ -19,6 +19,7 @@ mod cluster;
 mod compress;
 mod correct;
 mod decompress;
+mod graph_simplification;
 mod kmer_graph;
 mod log;
 mod misc;
@@ -26,9 +27,9 @@ mod position;
 mod resolve;
 mod sequence;
 mod tests;
+mod trim_path_overlap;
 mod unitig;
 mod unitig_graph;
-mod graph_simplification;
 
 
 #[derive(Parser)]

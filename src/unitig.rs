@@ -21,6 +21,10 @@ use crate::misc::{reverse_complement, quit_with_error, strand};
 use crate::position::Position;
 
 
+// TODO: create UnitigAndStrand struct
+//       will be useful whenever I need to work with (Rc<RefCell<Unitig>>, bool)
+
+
 pub struct Unitig {
     pub number: u32,
     forward_kmers: VecDeque<*const Kmer>,

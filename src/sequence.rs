@@ -25,6 +25,7 @@ pub struct Sequence {
     pub contig_header: String,
     pub length: usize,
     pub cluster: i32,
+    pub extend: bool
 }
 
 impl Sequence {
@@ -44,6 +45,7 @@ impl Sequence {
             contig_header,
             length,
             cluster: 0,
+            extend: true,
         }
     }
 
