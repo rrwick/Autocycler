@@ -21,10 +21,6 @@ use crate::misc::{reverse_complement, quit_with_error, strand};
 use crate::position::Position;
 
 
-// TODO: create UnitigAndStrand struct
-//       will be useful whenever I need to work with (Rc<RefCell<Unitig>>, bool)
-
-
 pub struct Unitig {
     pub number: u32,
     forward_kmers: VecDeque<*const Kmer>,
@@ -34,10 +30,10 @@ pub struct Unitig {
     pub depth: f64,
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
-    pub forward_next: Vec<(Rc<RefCell<Unitig>>, bool)>,
-    pub forward_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
-    pub reverse_next: Vec<(Rc<RefCell<Unitig>>, bool)>,
-    pub reverse_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
+    pub forward_next: Vec<UnitigStrand>,
+    pub forward_prev: Vec<UnitigStrand>,
+    pub reverse_next: Vec<UnitigStrand>,
+    pub reverse_prev: Vec<UnitigStrand>,
     pub trimmed: bool,
 }
 
@@ -102,8 +98,8 @@ impl Unitig {
     }
 
     pub fn manual(number: u32, forward_seq: Vec<u8>, forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
-                  forward_next: Vec<(Rc<RefCell<Unitig>>, bool)>, forward_prev: Vec<(Rc<RefCell<Unitig>>, bool)>,
-                  reverse_next: Vec<(Rc<RefCell<Unitig>>, bool)>, reverse_prev: Vec<(Rc<RefCell<Unitig>>, bool)>) -> Self {
+                  forward_next: Vec<UnitigStrand>, forward_prev: Vec<UnitigStrand>,
+                  reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>) -> Self {
         // This constructor is for manually building a Unitig object from a sequence and positions.
         // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
         let reverse_seq = reverse_complement(&forward_seq);
@@ -255,13 +251,13 @@ impl Unitig {
         if prev_unitigs.is_empty() {
             return Vec::new();
         }
-        let (prev_unitig, prev_strand) = prev_unitigs.first().unwrap();
-        let upstream_seq = prev_unitig.borrow().get_seq(*prev_strand, 0, 0);
+        let prev = prev_unitigs.first().unwrap();
+        let upstream_seq = prev.get_seq(0, 0);
         if amount <= upstream_seq.len() {  // got enough upstream seq
             let start = upstream_seq.len().saturating_sub(amount);
             upstream_seq[start..].to_vec()
         } else {  // need more upstream seq, call recursively
-            let mut more_seq = prev_unitig.borrow().get_upstream_seq(*prev_strand, amount - upstream_seq.len());
+            let mut more_seq = prev.unitig.borrow().get_upstream_seq(prev.strand, amount - upstream_seq.len());
             more_seq.extend(upstream_seq);
             more_seq
         }
@@ -272,13 +268,13 @@ impl Unitig {
         if next_unitigs.is_empty() {
             return Vec::new();
         }
-        let (next_unitig, next_strand) = next_unitigs.first().unwrap();
-        let mut downstream_seq = next_unitig.borrow().get_seq(*next_strand, 0, 0);
+        let next = next_unitigs.first().unwrap();
+        let mut downstream_seq = next.get_seq(0, 0);
         if amount <= downstream_seq.len() {  // got enough downstream seq
             let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
             downstream_seq[..end].to_vec()
         } else {  // need more downstream seq, call recursively
-            let more_seq = next_unitig.borrow().get_downstream_seq(*next_strand, amount - downstream_seq.len());
+            let more_seq = next.unitig.borrow().get_downstream_seq(next.strand, amount - downstream_seq.len());
             downstream_seq.extend(more_seq);
             downstream_seq
         }
@@ -346,6 +342,46 @@ impl fmt::Debug for Unitig {
 }
 
 
+// Since Unitigs are often dealt with in a strand-specific manner, this struct bundles up a Unitig
+// (via a reference-counted reference) along with its strand.
+#[derive(Clone)]
+pub struct UnitigStrand {
+    pub unitig: Rc<RefCell<Unitig>>,
+    pub strand: bool,
+}
+
+impl UnitigStrand {
+    pub fn new(unitig: &Rc<RefCell<Unitig>>, strand: bool) -> Self {
+        UnitigStrand {
+            unitig: Rc::clone(unitig),
+            strand: strand,
+        }
+    }
+
+    pub fn number(&self) -> u32 {
+        self.unitig.borrow().number
+    }
+
+    pub fn length(&self) -> u32 {
+        self.unitig.borrow().length()
+    }
+
+    pub fn get_seq(&self, upstream: usize, downstream: usize) -> Vec<u8> {
+        self.unitig.borrow().get_seq(self.strand, upstream, downstream)
+    }
+}
+
+impl fmt::Display for UnitigStrand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.unitig.borrow().number, if self.strand { "+" } else { "-" })
+    }
+}
+
+impl fmt::Debug for UnitigStrand {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,10 +433,10 @@ mod tests {
     fn test_dead_ends() {
         let unitig_a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1")));
         let unitig_b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tCGCGTTCGAC\tDP:f:1")));
-        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
-        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
-        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
-        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
+        unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
+        unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
+        unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
+        unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
 
         assert_eq!(unitig_a.borrow().dead_end_start(strand::FORWARD), true);
         assert_eq!(unitig_a.borrow().dead_end_end(strand::FORWARD), false);
@@ -417,10 +453,10 @@ mod tests {
     fn test_get_seq() {
         let unitig_a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1")));
         let unitig_b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tCGCGTTCGAC\tDP:f:1")));
-        unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
-        unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
-        unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
-        unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
+        unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
+        unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
+        unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
+        unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
 
         // no upstream/downstream seq
         assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 0)).unwrap(), "GCTGAAGGGC");

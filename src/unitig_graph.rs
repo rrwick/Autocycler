@@ -21,7 +21,7 @@ use std::rc::Rc;
 use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
-use crate::unitig::Unitig;
+use crate::unitig::{Unitig, UnitigStrand};
 use crate::misc::{reverse_complement, quit_with_error, strand};
 
 
@@ -106,10 +106,10 @@ impl UnitigGraph {
             let strand_2 = parts[4] == "+";
             if let Some(unitig_1) = self.unitig_index.get(&seg_1) {
                 if let Some(unitig_2) = self.unitig_index.get(&seg_2) {
-                    if strand_1 {unitig_1.borrow_mut().forward_next.push((Rc::clone(unitig_2), strand_2));
-                         } else {unitig_1.borrow_mut().reverse_next.push((Rc::clone(unitig_2), strand_2));}
-                    if strand_2 {unitig_2.borrow_mut().forward_prev.push((Rc::clone(unitig_1), strand_1));
-                         } else {unitig_2.borrow_mut().reverse_prev.push((Rc::clone(unitig_1), strand_1));}
+                    if strand_1 {unitig_1.borrow_mut().forward_next.push(UnitigStrand::new(unitig_2, strand_2));
+                         } else {unitig_1.borrow_mut().reverse_next.push(UnitigStrand::new(unitig_2, strand_2));}
+                    if strand_2 {unitig_2.borrow_mut().forward_prev.push(UnitigStrand::new(unitig_1, strand_1));
+                         } else {unitig_2.borrow_mut().reverse_prev.push(UnitigStrand::new(unitig_1, strand_1));}
                 } else {
                     quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_2));
                 }
@@ -253,12 +253,12 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a+ -> unitig_b+
-                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::FORWARD));
-                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
+                    unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
+                    unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
 
                     // unitig_b- -> unitig_a-
-                    unitig_b.borrow_mut().reverse_next.push((Rc::clone(&unitig_a), strand::REVERSE));
-                    unitig_a.borrow_mut().reverse_prev.push((Rc::clone(&unitig_b), strand::REVERSE));
+                    unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
+                    unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
                 }
             }
 
@@ -267,8 +267,8 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a+ -> unitig_b-
-                    unitig_a.borrow_mut().forward_next.push((Rc::clone(&unitig_b), strand::REVERSE));
-                    unitig_b.borrow_mut().reverse_prev.push((Rc::clone(&unitig_a), strand::FORWARD));
+                    unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
+                    unitig_b.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
                 }
             }
 
@@ -277,8 +277,8 @@ impl UnitigGraph {
                     let unitig_b = Rc::clone(&self.unitigs[j]);
 
                     // unitig_a- -> unitig_b+
-                    unitig_a.borrow_mut().reverse_next.push((Rc::clone(&unitig_b), strand::FORWARD));
-                    unitig_b.borrow_mut().forward_prev.push((Rc::clone(&unitig_a), strand::REVERSE));
+                    unitig_a.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
+                    unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
                 }
             }
         }
@@ -348,15 +348,13 @@ impl UnitigGraph {
         let mut links = Vec::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
-            for (b_rc, b_strand) in &a.forward_next {
-                let b = b_rc.borrow();
-                links.push((a.number.to_string(), "+".to_string(), b.number.to_string(),
-                            (if *b_strand {"+"} else {"-"}).to_string()));
+            for b in &a.forward_next {
+                links.push((a.number.to_string(), "+".to_string(), b.number().to_string(),
+                            (if b.strand {"+"} else {"-"}).to_string()));
             }
-            for (b_rc, b_strand) in &a.reverse_next {
-                let b = b_rc.borrow();
-                links.push((a.number.to_string(), "-".to_string(), b.number.to_string(),
-                            (if *b_strand {"+"} else {"-"}).to_string()));
+            for b in &a.reverse_next {
+                links.push((a.number.to_string(), "-".to_string(), b.number().to_string(),
+                            (if b.strand {"+"} else {"-"}).to_string()));
             }
         }
         links
@@ -403,7 +401,7 @@ impl UnitigGraph {
         sequence.into_iter().collect()
     }
 
-    fn find_starting_unitig(&self, seq_id: u16) -> (Rc<RefCell<Unitig>>, bool) {
+    fn find_starting_unitig(&self, seq_id: u16) -> UnitigStrand {
         // For a given sequence ID, this function returns the Unitig and strand where that sequence
         // begins.
         let half_k = self.k_size / 2;
@@ -411,12 +409,12 @@ impl UnitigGraph {
         for unitig in &self.unitigs {
             for p in &unitig.borrow().forward_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((Rc::clone(unitig), strand::FORWARD));
+                    starting_unitigs.push(UnitigStrand::new(unitig, strand::FORWARD));
                 }
             }
             for p in &unitig.borrow().reverse_positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
-                    starting_unitigs.push((Rc::clone(unitig), strand::REVERSE));
+                    starting_unitigs.push(UnitigStrand::new(unitig, strand::REVERSE));
                 }
             }
         }
@@ -425,18 +423,18 @@ impl UnitigGraph {
     }
 
     fn get_next_unitig(&self, seq_id: u16, unitig_rc: &Rc<RefCell<Unitig>>, strand: bool,
-                       pos: u32) -> Option<(Rc<RefCell<Unitig>>, bool, u32)> {
+                       pos: u32) -> Option<(UnitigStrand, u32)> {
         // For a given unitig that's part of a sequence's path, this function will return the next
         // unitig in that sequence's path.
         let unitig = unitig_rc.borrow();
         let next_pos = pos + unitig.untrimmed_length(self.k_size as usize) - self.k_size as u32 + 1;
         let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
-        for (next_unitig_rc, next_strand) in next_unitigs {
-            let u = next_unitig_rc.borrow();
-            let positions = if *next_strand { &u.forward_positions } else { &u.reverse_positions};
+        for next in next_unitigs {
+            let u = next.unitig.borrow();
+            let positions = if next.strand { &u.forward_positions } else { &u.reverse_positions};
             for p in positions {
                 if p.seq_id() == seq_id && p.strand() && p.pos == next_pos {
-                    return Some((Rc::clone(next_unitig_rc), *next_strand, next_pos));
+                    return Some((UnitigStrand::new(&next.unitig, next.strand), next_pos));
                 }
             }
         }
@@ -446,14 +444,14 @@ impl UnitigGraph {
     pub fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
         let half_k = self.k_size / 2;
         let mut unitig_path = Vec::new();
-        let (mut unitig, mut strand) = self.find_starting_unitig(seq.id);
+        let mut u = self.find_starting_unitig(seq.id);
         let mut pos = half_k;
         loop {
-            unitig_path.push((unitig.borrow().number, strand));
-            match self.get_next_unitig(seq.id, &unitig, strand, pos) {
+            unitig_path.push((u.number(), u.strand));
+            match self.get_next_unitig(seq.id, &u.unitig, u.strand, pos) {
                 None => break,
-                Some((next_unitig, next_strand, next_pos)) => {
-                    (unitig, strand, pos) = (next_unitig, next_strand, next_pos);
+                Some((next, next_pos)) => {
+                    (u, pos) = (next, next_pos);
                 }
             }
         }
@@ -485,10 +483,10 @@ impl UnitigGraph {
         let unitig_numbers: HashSet<u32> = self.unitigs.iter().map(|u| u.borrow().number).collect();
         for unitig_rc in &self.unitigs {
             let unitig = unitig_rc.borrow();
-            let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, (u, _strand))| {if !unitig_numbers.contains(&u.borrow().number) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
             drop(unitig);
             let mut unitig = unitig_rc.borrow_mut();
             for index in forward_next_to_remove.into_iter().rev() { unitig.forward_next.remove(index); }
@@ -514,8 +512,8 @@ impl UnitigGraph {
         if let Some(unitig_a) = self.unitig_index.get(&a_num) {
             let unitig_a = unitig_a.borrow();
             let next_links = if a_strand {&unitig_a.forward_next} else {&unitig_a.reverse_next};
-            for (next_unitig, next_strand) in next_links {
-                if next_unitig.borrow().number == b_num && *next_strand == b_strand {
+            for next in next_links {
+                if next.number() == b_num && next.strand == b_strand {
                     return true;
                 }
             }
@@ -529,8 +527,8 @@ impl UnitigGraph {
         if let Some(unitig_b) = self.unitig_index.get(&b_num) {
             let unitig_b = unitig_b.borrow();
             let prev_links = if b_strand {&unitig_b.forward_prev} else {&unitig_b.reverse_prev};
-            for (prev_unitig, prev_strand) in prev_links {
-                if prev_unitig.borrow().number == a_num && *prev_strand == a_strand {
+            for prev in prev_links {
+                if prev.number() == a_num && prev.strand == a_strand {
                     return true;
                 }
             }
@@ -546,41 +544,37 @@ impl UnitigGraph {
         // If any of the above aren't true, this method will panic.
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
-            for (b_rc, b_strand) in &a.forward_next {
+            for b in &a.forward_next {
                 let a_strand = strand::FORWARD;
-                let b = b_rc.borrow();
-                if !self.link_exists(a.number, a_strand, b.number, *b_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, a_strand, b.number, *b_strand) {panic!("missing prev link");}
-                if !self.link_exists(b.number, !*b_strand, a.number, !a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number, !*b_strand, a.number, !a_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+                if !self.link_exists(a.number, a_strand, b.number(), b.strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, a_strand, b.number(), b.strand) {panic!("missing prev link");}
+                if !self.link_exists(b.number(), !b.strand, a.number, !a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number(), !b.strand, a.number, !a_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
-            for (b_rc, b_strand) in &a.reverse_next {
+            for b in &a.reverse_next {
                 let a_strand = strand::REVERSE;
-                let b = b_rc.borrow();
-                if !self.link_exists(a.number, a_strand, b.number, *b_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, a_strand, b.number, *b_strand) {panic!("missing prev link");}
-                if !self.link_exists(b.number, !*b_strand, a.number, !a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number, !*b_strand, a.number, !a_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+                if !self.link_exists(a.number, a_strand, b.number(), b.strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, a_strand, b.number(), b.strand) {panic!("missing prev link");}
+                if !self.link_exists(b.number(), !b.strand, a.number, !a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number(), !b.strand, a.number, !a_strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
-            for (b_rc, b_strand) in &a.forward_prev {
+            for b in &a.forward_prev {
                 let a_strand = strand::FORWARD;
-                let b = b_rc.borrow();
-                if !self.link_exists(b.number, *b_strand, a.number, a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number, *b_strand, a.number, a_strand) {panic!("missing prev link");}
-                if !self.link_exists(a.number, !a_strand, b.number, !*b_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, !a_strand, b.number, !*b_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+                if !self.link_exists(b.number(), b.strand, a.number, a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number(), b.strand, a.number, a_strand) {panic!("missing prev link");}
+                if !self.link_exists(a.number, !a_strand, b.number(), !b.strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, !a_strand, b.number(), !b.strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
-            for (b_rc, b_strand) in &a.reverse_prev {
+            for b in &a.reverse_prev {
                 let a_strand = strand::REVERSE;
-                let b = b_rc.borrow();
-                if !self.link_exists(b.number, *b_strand, a.number, a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number, *b_strand, a.number, a_strand) {panic!("missing prev link");}
-                if !self.link_exists(a.number, !a_strand, b.number, !*b_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, !a_strand, b.number, !*b_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number) {panic!("unitig missing from index");}
+                if !self.link_exists(b.number(), b.strand, a.number, a_strand) {panic!("missing next link");}
+                if !self.link_exists_prev(b.number(), b.strand, a.number, a_strand) {panic!("missing prev link");}
+                if !self.link_exists(a.number, !a_strand, b.number(), !b.strand) {panic!("missing next link");}
+                if !self.link_exists_prev(a.number, !a_strand, b.number(), !b.strand) {panic!("missing prev link");}
+                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
         }
     }
