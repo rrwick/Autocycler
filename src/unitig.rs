@@ -228,7 +228,16 @@ impl Unitig {
         untrimmed_length as u32
     }
 
-    pub fn get_seq(&self, strand: bool, upstream: usize, downstream: usize) -> Vec<u8> {
+    pub fn get_seq(&self, strand: bool) -> Vec<u8> {
+        // This function returns the unitig's sequence on the given strand.
+        if strand {
+            self.forward_seq.clone()
+        } else {
+            self.reverse_seq.clone()
+        }
+    }
+
+    pub fn get_extended_seq(&self, strand: bool, upstream: usize, downstream: usize) -> Vec<u8> {
         // This function returns the unitig's sequence on the given strand. It can also add on a
         // bit of upstream or downstream sequence, if available.
         let mut seq = Vec::new();
@@ -252,7 +261,7 @@ impl Unitig {
             return Vec::new();
         }
         let prev = prev_unitigs.first().unwrap();
-        let upstream_seq = prev.get_seq(0, 0);
+        let upstream_seq = prev.get_seq();
         if amount <= upstream_seq.len() {  // got enough upstream seq
             let start = upstream_seq.len().saturating_sub(amount);
             upstream_seq[start..].to_vec()
@@ -269,7 +278,7 @@ impl Unitig {
             return Vec::new();
         }
         let next = next_unitigs.first().unwrap();
-        let mut downstream_seq = next.get_seq(0, 0);
+        let mut downstream_seq = next.get_seq();
         if amount <= downstream_seq.len() {  // got enough downstream seq
             let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
             downstream_seq[..end].to_vec()
@@ -366,8 +375,8 @@ impl UnitigStrand {
         self.unitig.borrow().length()
     }
 
-    pub fn get_seq(&self, upstream: usize, downstream: usize) -> Vec<u8> {
-        self.unitig.borrow().get_seq(self.strand, upstream, downstream)
+    pub fn get_seq(&self) -> Vec<u8> {
+        self.unitig.borrow().get_seq(self.strand)
     }
 }
 
@@ -459,28 +468,34 @@ mod tests {
         unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
 
         // no upstream/downstream seq
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 0, 0)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 0, 0)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 0)).unwrap(), "GTCGAACGCG");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE)).unwrap(), "GTCGAACGCG");
+
+        // no upstream/downstream seq
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 0)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 0, 0)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 0, 0)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 0)).unwrap(), "GTCGAACGCG");
 
         // asking for upstream/downstream seq that doesn't exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 5, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 0, 5)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 0, 5)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 5, 0)).unwrap(), "GTCGAACGCG");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 5, 0)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 0, 5)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 0, 5)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 5, 0)).unwrap(), "GTCGAACGCG");
 
         // asking for upstream/downstream seq that does exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 5)).unwrap(), "GCTGAAGGGCCGCGT");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 5, 0)).unwrap(), "ACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 5, 0)).unwrap(), "AGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 5)).unwrap(), "GTCGAACGCGGCCCT");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 5)).unwrap(), "GCTGAAGGGCCGCGT");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 5, 0)).unwrap(), "ACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 5, 0)).unwrap(), "AGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 5)).unwrap(), "GTCGAACGCGGCCCT");
 
         // asking for more upstream/downstream seq than exists
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD, 0, 15)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD, 15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 15)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
     }
 
     #[test]

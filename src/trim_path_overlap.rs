@@ -33,7 +33,10 @@ pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
         eprintln!("  untrimmed lengths: {:?}", cluster_lengths); // TEMP
         for s in cluster_sequences {
             let sequence_path = graph.get_unitig_path_for_sequence(&s);
-            eprintln!("  {:?}", sequence_path); // TEMP
+
+            let path_str: Vec<String> = sequence_path.iter().map(|(num, strand)| format!("{}{}", num, if *strand { "+" } else { "-" })).collect();
+            let path_str = path_str.join(",");
+            eprintln!("  {:?}", path_str); // TEMP
         }
         eprintln!();
     }

@@ -298,7 +298,7 @@ impl UnitigGraph {
         // again. This is because deleting unitigs can create new dead-ends which changes the
         // trimming.
         let overlap = self.k_size as usize / 2;
-        let new_seqs: HashMap<_, _> = self.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number, u.get_seq(strand::FORWARD, overlap, overlap))}).collect();
+        let new_seqs: HashMap<_, _> = self.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number, u.get_extended_seq(strand::FORWARD, overlap, overlap))}).collect();
         for rc in &self.unitigs {
             let mut u = rc.borrow_mut();
             u.forward_seq = new_seqs.get(&u.number).unwrap().clone();
@@ -396,7 +396,7 @@ impl UnitigGraph {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
             let upstream = if i == 0 { half_k } else { 0 };
             let downstream = if i == path.len() - 1 { half_k } else { 0 };
-            sequence.push(String::from_utf8(unitig.borrow().get_seq(*strand, upstream, downstream)).unwrap());
+            sequence.push(String::from_utf8(unitig.borrow().get_extended_seq(*strand, upstream, downstream)).unwrap());
         }
         sequence.into_iter().collect()
     }

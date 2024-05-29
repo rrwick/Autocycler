@@ -259,7 +259,7 @@ fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<UnitigStrand> {
 
 fn get_common_start_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
     // This function returns the common sequence at the start of all given unitigs.
-    let seqs: Vec<_> = unitigs.iter().map(|u| u.get_seq(0, 0)).collect();
+    let seqs: Vec<_> = unitigs.iter().map(|u| u.get_seq()).collect();
     if seqs.is_empty() { return Vec::new(); }
     let mut prefix = seqs[0].clone();
     for seq in seqs.iter() {
@@ -274,7 +274,7 @@ fn get_common_start_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
 
 fn get_common_end_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
     // This function returns the common sequence at the end of all given unitigs.
-    let seqs: Vec<Vec<u8>> = unitigs.iter().map(|u| u.get_seq(0, 0))
+    let seqs: Vec<Vec<u8>> = unitigs.iter().map(|u| u.get_seq())
         .map(|mut seq| { seq.reverse(); seq }).collect();
     if seqs.is_empty() { return Vec::new(); }
     let mut suffix = seqs[0].clone();
@@ -438,7 +438,7 @@ fn merge_unitig_seqs(path: &Vec<UnitigStrand>) -> Vec<u8> {
     let total_length: usize = path.iter().map(|u| u.length()).sum::<u32>().try_into().unwrap();
     let mut merged_seq = Vec::with_capacity(total_length);
     for u in path {
-        merged_seq.extend(u.get_seq(0, 0));
+        merged_seq.extend(u.get_seq());
     }
     merged_seq
 }
