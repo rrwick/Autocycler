@@ -104,6 +104,10 @@ enum Commands {
         /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
+
+        /// Minimum alignment identity when searching for start-end overlaps
+        #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
+        min_overlap_id: f64,
     },
 
     /// correct errors in the unitig graph to produce a consensus assembly
@@ -128,8 +132,8 @@ fn main() {
         Some(Commands::Cluster { out_dir, eps, minpts }) => {
             cluster::cluster(out_dir, eps, minpts);
         },
-        Some(Commands::Resolve { out_dir }) => {
-            resolve::resolve(out_dir);
+        Some(Commands::Resolve { out_dir, min_overlap_id }) => {
+            resolve::resolve(out_dir, min_overlap_id);
         },
         Some(Commands::Correct { out_dir }) => {
             correct::correct(out_dir);

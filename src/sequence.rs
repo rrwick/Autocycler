@@ -29,8 +29,10 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
-
+    pub fn new_with_seq(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
+        // This constructor creates a Sequence object with the actual sequence stored. This is used
+        // when creating a k-mer graph from Sequences, because the actual sequence is needed to get
+        // the k-mers.
         let forward_seq = seq.into_bytes();
         if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
             quit_with_error(&format!("{} contains non-ACGT characters", filename));
@@ -46,6 +48,22 @@ impl Sequence {
             length,
             cluster: 0,
             extend: true,
+        }
+    }
+
+    pub fn new_without_seq(id: u16, filename: String, contig_header: String, length: usize, cluster: i32, extend: bool) -> Sequence {
+        // This constructor creates a Sequence object without storing the sequence. This is used at
+        // later stages in Autocycler where the sequence is stored in the UnitigGraph and so doesn't
+        // need to be stored here as well.
+        Sequence {
+            id,
+            forward_seq: vec![],
+            reverse_seq: vec![],
+            filename,
+            contig_header,
+            length,
+            cluster,
+            extend,
         }
     }
 

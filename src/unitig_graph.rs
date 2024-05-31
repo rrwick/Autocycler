@@ -127,6 +127,8 @@ impl UnitigGraph {
             let mut length = None;
             let mut filename = None;
             let mut header = None;
+            let mut cluster = 0;
+            let mut extend = true;
             for p in &parts[2..] {
                 if p.starts_with("LN:i:") {
                     length = Some(p[5..].parse::<u32>().expect("Error parsing length"));
@@ -134,24 +136,36 @@ impl UnitigGraph {
                     filename = Some(p[5..].to_string());
                 } else if p.starts_with("HD:Z:") {
                     header = Some(p[5..].to_string());
+                } else if p.starts_with("CL:i:") {
+                    cluster = p[5..].parse::<i32>().expect("Error parsing cluster");
+                } else if *p == "EX:Z:false" {
+                    extend = false;
                 }
             }
             if length.is_none() || filename.is_none() || header.is_none() {
                 quit_with_error("missing required tag in GFA path line.");
             }
             let length = length.unwrap();
-            let forward_path = parse_unitig_path(parts[2]);
-            let reverse_path = reverse_path(&forward_path);
-            self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length);
-            self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length);
-            sequences.push(Sequence::new(seq_id, String::new(),
-                                         filename.unwrap(), header.unwrap(), length as usize));
+            let filename = filename.unwrap();
+            let header = header.unwrap();
+            let path = parse_unitig_path(parts[2]);
+            let sequence = self.create_sequence_and_positions(seq_id, length, filename, header, cluster, extend, path);
+            sequences.push(sequence);
         }
         sequences
     }
 
+    pub fn create_sequence_and_positions(&mut self, seq_id: u16, length: u32,
+                                         filename: String, header: String, cluster: i32, extend: bool,
+                                         forward_path: Vec<(u32, bool)>) -> Sequence {
+        let reverse_path = reverse_path(&forward_path);
+        self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length, extend);
+        self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length, extend);
+        Sequence::new_without_seq(seq_id, filename, header, length as usize, cluster, extend)
+    }
+
     fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
-                               length: u32) {
+                               length: u32, extend: bool) {
         let half_k = self.k_size / 2;
         let mut pos = half_k;
         for (unitig_num, unitig_strand) in path {
@@ -167,7 +181,11 @@ impl UnitigGraph {
                 quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
             }
         }
-        assert!(pos + half_k == length, "Position calculation mismatch");
+        if extend {
+            assert!(pos + half_k == length, "Position calculation mismatch");
+        } else {
+            assert!(pos - half_k == length, "Position calculation mismatch");
+        }
     }
 
     fn build_unitigs_from_kmer_graph(&mut self, k_graph: &KmerGraph) {
@@ -365,8 +383,10 @@ impl UnitigGraph {
         let path_str: Vec<String> = unitig_path.iter()
             .map(|(num, strand)| format!("{}{}", num, if *strand { "+" } else { "-" })).collect();
         let path_str = path_str.join(",");
-        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}",
-                seq.id, path_str, seq.length, seq.filename, seq.contig_header)
+        let cluster_tag = if seq.cluster > 0 {format!("\tCL:i:{}", seq.cluster)} else {"".to_string()};
+        let extend_tag = if !seq.extend {"\tEX:Z:false"} else {""};
+        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}{}{}",
+                seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag, extend_tag)
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
@@ -381,12 +401,12 @@ impl UnitigGraph {
     fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
-        let sequence = self.get_sequence_from_path(&path);
+        let sequence = self.get_sequence_from_path(&path, seq.extend);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
-    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>) -> String {
+    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>, extend: bool) -> String {
         // Given a path (vector of unitig IDs and strands), this function returns the sequence
         // traced by that path. It also requires a unitig index so it can quickly look up unitigs
         // by their number.
@@ -394,8 +414,8 @@ impl UnitigGraph {
         let mut sequence = Vec::new();
         for (i, (unitig_num, strand)) in path.iter().enumerate() {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
-            let upstream = if i == 0 { half_k } else { 0 };
-            let downstream = if i == path.len() - 1 { half_k } else { 0 };
+            let upstream = if !extend { 0 } else if i == 0 { half_k } else { 0 };
+            let downstream = if !extend { 0 } else if i == path.len() - 1 { half_k } else { 0 };
             sequence.push(String::from_utf8(unitig.borrow().get_extended_seq(*strand, upstream, downstream)).unwrap());
         }
         sequence.into_iter().collect()
@@ -493,6 +513,15 @@ impl UnitigGraph {
             for index in forward_prev_to_remove.into_iter().rev() { unitig.forward_prev.remove(index); }
             for index in reverse_next_to_remove.into_iter().rev() { unitig.reverse_next.remove(index); }
             for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
+        }
+    }
+
+    pub fn remove_sequence_from_graph(&mut self, seq_id: u16) {
+        // Removes all Positions from the Unitigs which have the given sequence ID. This reduces
+        // depths of affected Unitigs, and can result in zero-depth unitigs, so it may be necessary
+        // to run remove_zero_depth_unitigs after this.
+        for u in &self.unitigs {
+            u.borrow_mut().remove_sequence(seq_id);
         }
     }
 
@@ -902,5 +931,4 @@ mod tests {
         assert!(!graph.link_exists_prev(7, strand::REVERSE, 4, strand::REVERSE));
         assert!(!graph.link_exists_prev(8, strand::FORWARD, 9, strand::FORWARD));
     }
-
 }

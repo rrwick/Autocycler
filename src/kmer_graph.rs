@@ -198,8 +198,8 @@ mod tests {
     #[test]
     fn test_kmer_graph() {
         let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         kmer_graph.add_sequence(&seq, 1);
         // Graph contains these 28 4-mers:
         // ACAT ACGA ACTG AGCA AGTC AGTG ATCA ATGT CACT CAGC CAGT CATC CGAC CTGA
@@ -210,8 +210,8 @@ mod tests {
     #[test]
     fn test_next_kmers() {
         let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         kmer_graph.add_sequence(&seq, 1);
 
         let next = kmer_graph.next_kmers(b"ACAT");
@@ -235,8 +235,8 @@ mod tests {
     #[test]
     fn test_prev_kmers() {
         let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         kmer_graph.add_sequence(&seq, 1);
 
         let prev = kmer_graph.prev_kmers(b"ACAT");
@@ -260,8 +260,8 @@ mod tests {
     #[test]
     fn test_iterate_kmers() {
         let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         kmer_graph.add_sequence(&seq, 1);
         let expected_kmers = vec![
             "ACAT", "ACGA", "ACTG", "AGCA", "AGTC", "AGTG", "ATCA",

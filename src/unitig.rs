@@ -240,6 +240,9 @@ impl Unitig {
     pub fn get_extended_seq(&self, strand: bool, upstream: usize, downstream: usize) -> Vec<u8> {
         // This function returns the unitig's sequence on the given strand. It can also add on a
         // bit of upstream or downstream sequence, if available.
+        if upstream == 0 && downstream == 0 {
+            return self.get_seq(strand);
+        }
         let mut seq = Vec::new();
         if upstream > 0 {
             seq.extend(self.get_upstream_seq(strand, upstream));
@@ -407,8 +410,8 @@ mod tests {
 
     #[test]
     fn test_from_kmers() {
-        let seq = Sequence::new(1, "ACGCATAGCACTAGCTACGA".to_string(),
-                                "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let seq = Sequence::new_with_seq(1, "ACGCATAGCACTAGCTACGA".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
         let forward_raw = seq.forward_seq.as_ptr();
         let reverse_raw = seq.reverse_seq.as_ptr();
 

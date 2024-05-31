@@ -25,17 +25,17 @@ use crate::trim_path_overlap::trim_path_overlap;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn resolve(out_dir: PathBuf) {
+pub fn resolve(out_dir: PathBuf, min_overlap_id: f64) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
     let clusters = out_dir.join("05_clusters.tsv");
     let clean_gfa = out_dir.join("06_cleaned_graph.gfa");
-    check_settings(&out_dir, &gfa, &clusters);
+    check_settings(&out_dir, min_overlap_id, &gfa, &clusters);
     starting_message();
     print_settings(&out_dir);
     let (mut unitig_graph, mut sequences) = load_graph(&gfa);
     load_clusters(&clusters, &mut sequences);
     let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-    let sequences = trim_path_overlap(&mut unitig_graph, &sequences, 0.95);  // TODO: make overlap alignment identity an argument
+    let sequences = trim_path_overlap(&mut unitig_graph, &sequences, min_overlap_id);
     // TODO: trim over-long circular contigs (unless suppressed with an argument)
     unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
     // TODO: find initial single-copy contigs
@@ -45,10 +45,16 @@ pub fn resolve(out_dir: PathBuf) {
 }
 
 
-fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, clusters: &PathBuf) {
+fn check_settings(out_dir: &PathBuf, min_overlap_id: f64, gfa: &PathBuf, clusters: &PathBuf) {
     check_if_dir_exists(&out_dir);
     check_if_file_exists(&gfa);
     check_if_file_exists(&clusters);
+    if min_overlap_id < 0.0 {
+        quit_with_error("--min_overlap_id cannot be less than 0");
+    }
+    if min_overlap_id > 1.0 {
+        quit_with_error("--min_overlap_id cannot be greater than 1");
+    }
 }
 
 
@@ -129,7 +135,7 @@ pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &V
         eprintln!("Removed contigs:");
         for s in seqs_to_remove {
             eprintln!("  {}", s);
-            remove_contig_from_graph(graph, s.id);
+            graph.remove_sequence_from_graph(s.id);
         }
     }
     graph.remove_zero_depth_unitigs();
@@ -139,14 +145,4 @@ pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &V
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
     sequences
-}
-
-
-pub fn remove_contig_from_graph(graph: &mut UnitigGraph, seq_id: u16) {
-    // Removes all Positions from the Unitigs which have the given sequence ID. This reduces
-    // depths of affected Unitigs, and Unitigs which have their depths reduced to zero are
-    // removed from the graph.
-    for u in &graph.unitigs {
-        u.borrow_mut().remove_sequence(seq_id);
-    }
 }

@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
@@ -33,31 +34,49 @@ pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, min
     for c in clusters {
         eprintln!("Cluster {}", c);
         let cluster_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == c).cloned().collect();
-        for s in cluster_sequences {
-            let path = graph.get_unitig_path_for_sequence(&s);
+        for seq in cluster_sequences {
+            let path = graph.get_unitig_path_for_sequence(&seq);
             let path = path_to_signed_numbers(&path);
 
             let trimmed_path = trim_path(&path, &weights, min_identity);
             if trimmed_path.is_some() {
                 let trimmed_path = trimmed_path.unwrap();
                 let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-                eprintln!("  {} - trimmed to {} bp", s, trimmed_length);
-
-                // TODO: trim the sequence in the unitig graph
-                //       first remove the sequence, then add it back in with its smaller path
+                eprintln!("  {} - trimmed to {} bp", seq, trimmed_length);
+                graph.remove_sequence_from_graph(seq.id);
+                let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename, seq.contig_header, seq.cluster,
+                                                                           false, path_to_tuples(&trimmed_path));
+                trimmed_sequences.push(trimmed_sequence);
             } else {
-                eprintln!("  {} - not trimmed", s);
-                trimmed_sequences.push(s.clone());
+                eprintln!("  {} - not trimmed", seq);
+                trimmed_sequences.push(seq.clone());
             }
         }
         eprintln!();
     }
+    graph.remove_zero_depth_unitigs();
+    merge_linear_paths(graph, &sequences);
+    graph.print_basic_graph_info();
+    graph.renumber_unitigs();
     trimmed_sequences
 }
 
 
 fn path_to_signed_numbers(path: &Vec<(u32, bool)>) -> Vec<i32> {
+    // Paths can be represented either as a vector of tuples or as vector of signed integers:
+    //   [(1, true), (2, false), (3, true)]
+    //   [1, -2, 3]
+    // This function converts the former to the latter.
     path.iter().map(|p| if p.1 {p.0 as i32} else {-(p.0 as i32)}).collect()
+}
+
+
+fn path_to_tuples(path: &Vec<i32>) -> Vec<(u32, bool)> {
+    // Paths can be represented either as a vector of tuples or as vector of signed integers:
+    //   [(1, true), (2, false), (3, true)]
+    //   [1, -2, 3]
+    // This function converts the latter to the former.
+    path.iter().map(|p| if *p > 0 {(*p as u32, true)} else {(-*p as u32, false)}).collect()
 }
 
 
@@ -212,6 +231,17 @@ mod tests {
         assert_eq!(path_to_signed_numbers(&path), vec![-4, 5, -6]);
 
         assert_eq!(path_to_signed_numbers(&vec![]), vec![]);
+    }
+
+    #[test]
+    fn test_path_to_tuples() {
+        let path = vec![1, 2, -3];
+        assert_eq!(path_to_tuples(&path), vec![(1, strand::FORWARD), (2, strand::FORWARD), (3, strand::REVERSE)]);
+
+        let path = vec![-4, 5, -6];
+        assert_eq!(path_to_tuples(&path), vec![(4, strand::REVERSE), (5, strand::FORWARD), (6, strand::REVERSE)]);
+
+        assert_eq!(path_to_tuples(&vec![]), vec![]);
     }
 
     #[test]

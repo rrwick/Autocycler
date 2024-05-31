@@ -88,7 +88,7 @@ pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
             }
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-            sequences.push(Sequence::new(seq_id as u16, seq, filename, contig_header, seq_len));
+            sequences.push(Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header, seq_len));
         }
     }
     // TODO: I should make sure that all sequences have a unique string (assembly filename
