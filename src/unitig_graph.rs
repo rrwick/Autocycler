@@ -525,6 +525,14 @@ impl UnitigGraph {
         }
     }
 
+    pub fn recalculate_depths(&mut self) {
+        // Sets each unitig's depth based on its Positions. Useful after adding/removing paths.
+        for u in &self.unitigs {
+            u.borrow_mut().recalculate_depth();
+        }
+    }
+
+
     pub fn remove_zero_depth_unitigs(&mut self) {
         // Removes zero-depth unitigs from the graph. Doing so can create new dead-ends, so this
         // function first un-trims the contigs (adds overlap back on) and then re-trims after the

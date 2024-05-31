@@ -332,6 +332,10 @@ impl Unitig {
         self.forward_positions.retain(|p| p.seq_id() != id);
         self.reverse_positions.retain(|p| p.seq_id() != id);
         assert_eq!(self.forward_positions.len(), self.reverse_positions.len());
+        self.recalculate_depth();
+    }
+
+    pub fn recalculate_depth(&mut self) {
         self.depth = self.forward_positions.len() as f64;
     }
 }

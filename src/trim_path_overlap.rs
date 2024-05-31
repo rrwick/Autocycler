@@ -54,6 +54,7 @@ pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, min
         }
         eprintln!();
     }
+    graph.recalculate_depths();
     graph.remove_zero_depth_unitigs();
     merge_linear_paths(graph, &sequences);
     graph.print_basic_graph_info();
