@@ -11,7 +11,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
@@ -23,37 +23,35 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, min_identity: f64) -> Vec<Sequence> {
+pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
+                         min_identity: f64, max_unitigs: u32) -> Vec<Sequence> {
+    if max_unitigs == 0 {
+        return sequences.clone();
+    }
     section_header("Trim path overlaps");
     explanation("Paths for circular replicons may contain start-end overlap. These overlaps are \
                  searched for and trimmed if found.");
     let weights: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
-    let mut clusters: Vec<_> = sequences.iter().map(|s| s.cluster).collect::<HashSet<_>>().into_iter().collect();
-    clusters.sort();
     let mut trimmed_sequences = vec![];
-    for c in clusters {
-        eprintln!("Cluster {}", c);
-        let cluster_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == c).cloned().collect();
-        for seq in cluster_sequences {
-            let path = graph.get_unitig_path_for_sequence(&seq);
-            let path = path_to_signed_numbers(&path);
+    for seq in sequences {
+        let path = graph.get_unitig_path_for_sequence(&seq);
+        let path = path_to_signed_numbers(&path);
 
-            let trimmed_path = trim_path(&path, &weights, min_identity);
-            if trimmed_path.is_some() {
-                let trimmed_path = trimmed_path.unwrap();
-                let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-                eprintln!("  {} - trimmed to {} bp", seq, trimmed_length);
-                graph.remove_sequence_from_graph(seq.id);
-                let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename, seq.contig_header, seq.cluster,
-                                                                           false, path_to_tuples(&trimmed_path));
-                trimmed_sequences.push(trimmed_sequence);
-            } else {
-                eprintln!("  {} - not trimmed", seq);
-                trimmed_sequences.push(seq.clone());
-            }
+        let trimmed_path = trim_path(&path, &weights, min_identity);
+        if trimmed_path.is_some() {
+            let trimmed_path = trimmed_path.unwrap();
+            let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+            eprintln!("{} - trimmed to {} bp", seq, trimmed_length);
+            graph.remove_sequence_from_graph(seq.id);
+            let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename.clone(), seq.contig_header.clone(), seq.cluster,
+                                                                        false, path_to_tuples(&trimmed_path));
+            trimmed_sequences.push(trimmed_sequence);
+        } else {
+            eprintln!("{} - not trimmed", seq);
+            trimmed_sequences.push(seq.clone());
         }
-        eprintln!();
     }
+    eprintln!();
     graph.recalculate_depths();
     graph.remove_zero_depth_unitigs();
     merge_linear_paths(graph, &sequences);

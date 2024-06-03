@@ -17,33 +17,51 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_f64, median_usize,
                   round_float, quit_with_error, usize_division_rounded};
 use crate::sequence::Sequence;
+use crate::trim_path_overlap::trim_path_overlap;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(out_dir: PathBuf, eps: Option<f64>, minpts: Option<usize>) {
+pub fn cluster(out_dir: PathBuf, min_overlap_id: f64, max_overlap_unitigs: u32,
+               eps: Option<f64>, minpts: Option<usize>, max_len_var: f64) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
-    check_settings(&out_dir, &gfa, &eps, &minpts);
+    let clusters_html = out_dir.join("04_clusters.html");
+    let clusters_tsv = out_dir.join("05_clusters.tsv");
+    let clean_gfa = out_dir.join("06_cleaned_graph.gfa");
+    check_settings(&out_dir, &gfa, min_overlap_id, &eps, &minpts, max_len_var);
     starting_message();
-    print_settings(&out_dir, &eps, &minpts);
-    let (unitig_graph, mut sequences) = load_graph(&gfa);
-    let distances = pairwise_contig_distances(unitig_graph, &sequences, &out_dir);
+    print_settings(&out_dir, min_overlap_id, max_overlap_unitigs, &eps, &minpts, max_len_var);
+    let (mut unitig_graph, sequences) = load_graph(&gfa);
+    let mut sequences = trim_path_overlap(&mut unitig_graph, &sequences, min_overlap_id, max_overlap_unitigs);
+    // TODO: add in some way for a user to manually define clusters.
+    let distances = pairwise_contig_distances(&unitig_graph, &sequences, &out_dir);
     let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
     select_clusters(&mut sequences, minpts);
+    exclude_sequences_by_length(&mut sequences, max_len_var);
     reorder_clusters(&mut sequences);
     print_clusters(&sequences);
-    let cluster_html = save_html_table(&sequences, &out_dir);
-    let cluster_tsv = save_clusters(&sequences, &out_dir);
-    finished_message(&cluster_tsv, &cluster_html);
+    save_html_table(&sequences, &clusters_html);
+    save_tsv_table(&sequences, &clusters_tsv);
+    let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+    unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
+    finished_message(&clusters_tsv, &clusters_html, &clean_gfa);
 }
 
 
-fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
+fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, min_overlap_id: f64,
+                  eps: &Option<f64>, minpts: &Option<usize>, max_len_var: f64) {
     check_if_dir_exists(&out_dir);
     check_if_file_exists(&gfa);
+    if min_overlap_id < 0.0 || min_overlap_id > 1.0 {
+        quit_with_error("--min_overlap_id must be between 0 and 1 (inclusive)");
+    }
+    if max_len_var < 0.0 {
+        quit_with_error("--max_len_var must be a positive value");
+    }
     if eps.is_some() && (eps.unwrap() <= 0.0 || eps.unwrap() >= 1.0) {
         quit_with_error("--eps must be between 0 and 1 (exclusive)");
     }
@@ -55,15 +73,19 @@ fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, eps: &Option<f64>, minpts: &
 
 fn starting_message() {
     section_header("Starting autocycler cluster");
-    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress) and \
-                 clusters the contigs based on their similarity. Ideally, each cluster will then \
-                 contain contigs which can be combined into a consensus sequence.");
+    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress), \
+                 trims any start-end overlap from the sequences and then clusters the sequences \
+                 based on their similarity. Ideally, each cluster will then contain sequences \
+                 which can be combined into a consensus.");
 }
 
 
-fn print_settings(out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) {
+fn print_settings(out_dir: &PathBuf, min_overlap_id: f64, max_overlap_unitigs: u32,
+                  eps: &Option<f64>, minpts: &Option<usize>, max_len_var: f64) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!("  --min_overlap_id {}", format_float(min_overlap_id));
+    eprintln!("  --max_overlap_unitigs {}", max_overlap_unitigs);
     if eps.is_none() {
         eprintln!("  --eps (automatically set)");
     } else {
@@ -74,6 +96,7 @@ fn print_settings(out_dir: &PathBuf, eps: &Option<f64>, minpts: &Option<usize>) 
     } else {
         eprintln!("  --minpts {}", minpts.unwrap());
     }
+    eprintln!("  --max_len_var {}", format_float(max_len_var));
     eprintln!();
 }
 
@@ -87,7 +110,7 @@ pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn pairwise_contig_distances(unitig_graph: UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
+fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
                  their paths through the graph.");
@@ -178,6 +201,7 @@ fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequ
         let n = range_query(&ids, distances, *p, eps);
         if n.len() < min_pts {
             p_seq.cluster = -1;
+            p_seq.cluster_fail_reason = "dbscan noise".to_string();
             continue;
         }
         c += 1;
@@ -257,10 +281,39 @@ fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
             for s in &mut *sequences {
                 if s.cluster == c {
                     s.cluster = -1;
+                    s.cluster_fail_reason = "cluster in too few assemblies".to_string();
                 }
             }
         }
     }
+}
+
+fn exclude_sequences_by_length(sequences: &mut Vec<Sequence>, max_len_var: f64) {
+    // This function will exclude sequences to ensure that within-cluster sequence lengths don't
+    // have too much variation.
+
+    for c in 1..get_max_cluster(sequences)+1 {
+        let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+        let cluster_median = median_usize(&lengths);
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(cluster_median, max_len_var);
+        for s in &mut *sequences {
+            if s.cluster == c && s.length < cluster_min {
+                s.cluster = -1;
+                s.cluster_fail_reason = "too short".to_string();
+            }
+            if s.cluster == c && s.length > cluster_max {
+                s.cluster = -1;
+                s.cluster_fail_reason = "too long".to_string();
+            }
+        }
+    }
+}
+
+
+fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, usize) {
+    let cluster_min = (median_length as f64 * (1.0 - max_len_var)).round() as usize;
+    let cluster_max = (median_length as f64 * (1.0 + max_len_var)).round() as usize;
+    (cluster_min, cluster_max)
 }
 
 
@@ -310,31 +363,45 @@ fn print_clusters(sequences: &Vec<Sequence>) {
 }
 
 
-fn save_html_table(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
-    let file_path = out_dir.join("04_clusters.html");
+fn save_html_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
     let markup = create_html(sequences);
     std::fs::write(file_path.clone(), markup.into_string()).unwrap();
-    file_path
 }
 
 
-fn save_clusters(sequences: &Vec<Sequence>, out_dir: &PathBuf) -> PathBuf {
-    let file_path = out_dir.join("05_clusters.tsv");
+fn save_tsv_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
     let mut f = File::create(&file_path).unwrap();
-    write!(f, "assembly\tcontig_name\tlength\tcluster\n").unwrap();
+    write!(f, "assembly\tcontig_name\tlength\tcluster\tfail_reason\n").unwrap();
     for c in 1..get_max_cluster(sequences)+1 {
         for s in sequences {
             if s.cluster == c {
-                write!(f, "{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c).unwrap();
+                write!(f, "{}\t{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c, s.cluster_fail_reason).unwrap();
             }
         }
     }
     for s in sequences {
         if s.cluster == -1 {
-            write!(f, "{}\t{}\t{}\tnone\n", s.filename, s.contig_name(), s.length).unwrap();
+            write!(f, "{}\t{}\t{}\tnone\t{}\n", s.filename, s.contig_name(), s.length, s.cluster_fail_reason).unwrap();
         }
     }
-    file_path
+}
+
+
+pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
+    section_header("Cleaning graph");
+    explanation("Excluded contigs (those which could not be clustered) are now removed from the \
+                 unitig graph.");
+    let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
+    for s in seqs_to_remove {
+        graph.remove_sequence_from_graph(s.id);
+    }
+    graph.remove_zero_depth_unitigs();
+    let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
+    eprintln!();
+    merge_linear_paths(graph, &sequences);
+    graph.print_basic_graph_info();
+    graph.renumber_unitigs();
+    sequences
 }
 
 
@@ -402,12 +469,12 @@ fn create_html(sequences: &Vec<Sequence>) -> Markup {
 }
 
 
-fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf) {
+fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf, clean_gfa: &PathBuf) {
     section_header("Finished!");
-    explanation("You can now run autocycler resolve to resolve repeats. If you  would like to \
-                 manually override the clustering, you can edit the clusters.tsv file.");
+    explanation("You can now run autocycler resolve to resolve repeats.");
     eprintln!("Cluster table (HTML): {}", cluster_html.display());
     eprintln!("Cluster table (TSV):  {}", cluster_tsv.display());
+    eprintln!("Cleaned unitig graph: {}", clean_gfa.display());
     eprintln!();
 }
 
@@ -593,5 +660,23 @@ mod tests {
                              Sequence::new_with_seq(6, "A".to_string(), "assembly_15.fasta".to_string(), "contig_1".to_string(), 1),
                              Sequence::new_with_seq(6, "A".to_string(), "assembly_16.fasta".to_string(), "contig_1".to_string(), 1)];
         assert_eq!(set_min_pts(None, &sequences), 4);
+    }
+
+    #[test]
+    fn test_cluster_min_max_lengths() {
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.1);
+        assert_eq!(cluster_min, 900); assert_eq!(cluster_max, 1100);
+
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(10000, 0.1);
+        assert_eq!(cluster_min, 9000); assert_eq!(cluster_max, 11000);
+
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.01);
+        assert_eq!(cluster_min, 990); assert_eq!(cluster_max, 1010);
+
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.5);
+        assert_eq!(cluster_min, 500); assert_eq!(cluster_max, 1500);
+
+        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.9);
+        assert_eq!(cluster_min, 100); assert_eq!(cluster_max, 1900);
     }
 }

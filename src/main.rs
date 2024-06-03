@@ -88,6 +88,14 @@ enum Commands {
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
+        /// Minimum alignment identity for start-end overlap trimming
+        #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
+        min_overlap_id: f64,
+
+        /// Maximum unitigs for start-end overlap trimming, set to 0 to disable trimming
+        #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "1000")]
+        max_overlap_unitigs: u32,
+
         /// ε parameter for DBSCAN* clustering
         #[clap(short = 's', long = "eps", hide_default_value = true,
         help = "ε parameter for DBSCAN* clustering [default: automatic]")]
@@ -97,6 +105,10 @@ enum Commands {
         #[clap(short = 'm', long = "minpts", hide_default_value = true,
                help = "minPts parameter for DBSCAN* clustering [default: automatic]")]
         minpts: Option<usize>,
+
+        /// Maximum variability for within-cluster sequence lengths
+        #[clap(short = 'l', long = "max_len_var", default_value = "0.1")]
+        max_len_var: f64,
     },
 
     /// resolve repeats in the the unitig graph
@@ -104,10 +116,6 @@ enum Commands {
         /// Autocycler directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
-
-        /// Minimum alignment identity when searching for start-end overlaps
-        #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
-        min_overlap_id: f64,
     },
 
     /// correct errors in the unitig graph to produce a consensus assembly
@@ -129,11 +137,11 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { out_dir, eps, minpts }) => {
-            cluster::cluster(out_dir, eps, minpts);
+        Some(Commands::Cluster { out_dir, min_overlap_id, max_overlap_unitigs, eps, minpts, max_len_var }) => {
+            cluster::cluster(out_dir, min_overlap_id, max_overlap_unitigs, eps, minpts, max_len_var);
         },
-        Some(Commands::Resolve { out_dir, min_overlap_id }) => {
-            resolve::resolve(out_dir, min_overlap_id);
+        Some(Commands::Resolve { out_dir }) => {
+            resolve::resolve(out_dir);
         },
         Some(Commands::Correct { out_dir }) => {
             correct::correct(out_dir);

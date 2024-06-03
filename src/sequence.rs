@@ -25,6 +25,7 @@ pub struct Sequence {
     pub contig_header: String,
     pub length: usize,
     pub cluster: i32,
+    pub cluster_fail_reason: String,
     pub extend: bool
 }
 
@@ -47,6 +48,7 @@ impl Sequence {
             contig_header,
             length,
             cluster: 0,
+            cluster_fail_reason: String::new(),
             extend: true,
         }
     }
@@ -63,6 +65,7 @@ impl Sequence {
             contig_header,
             length,
             cluster,
+            cluster_fail_reason: String::new(),
             extend,
         }
     }

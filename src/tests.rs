@@ -28,7 +28,7 @@ mod tests {
     use crate::decompress::save_original_seqs;
     use crate::graph_simplification::simplify_structure;
     use crate::kmer_graph::KmerGraph;
-    use crate::resolve::remove_excluded_contigs_from_graph;
+    use crate::cluster::remove_excluded_contigs_from_graph;
     use crate::unitig_graph::UnitigGraph;
 
     fn make_test_file(file_path: &PathBuf, contents: &str) {
