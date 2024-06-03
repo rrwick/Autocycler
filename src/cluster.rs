@@ -26,7 +26,7 @@ use crate::trim_path_overlap::trim_path_overlap;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(out_dir: PathBuf, min_overlap_id: f64, max_overlap_unitigs: u32,
+pub fn cluster(out_dir: PathBuf, min_overlap_id: f64, max_overlap_unitigs: usize,
                eps: Option<f64>, minpts: Option<usize>, max_len_var: f64) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
     let clusters_html = out_dir.join("04_clusters.html");
@@ -80,7 +80,7 @@ fn starting_message() {
 }
 
 
-fn print_settings(out_dir: &PathBuf, min_overlap_id: f64, max_overlap_unitigs: u32,
+fn print_settings(out_dir: &PathBuf, min_overlap_id: f64, max_overlap_unitigs: usize,
                   eps: &Option<f64>, minpts: &Option<usize>, max_len_var: f64) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());

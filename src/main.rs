@@ -93,8 +93,8 @@ enum Commands {
         min_overlap_id: f64,
 
         /// Maximum unitigs for start-end overlap trimming, set to 0 to disable trimming
-        #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "1000")]
-        max_overlap_unitigs: u32,
+        #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "5000")]
+        max_overlap_unitigs: usize,
 
         /// ε parameter for DBSCAN* clustering
         #[clap(short = 's', long = "eps", hide_default_value = true,

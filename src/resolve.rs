@@ -25,7 +25,6 @@ pub fn resolve(out_dir: PathBuf) {
     print_settings(&out_dir);
     let (unitig_graph, sequences) = load_graph(&gfa);
 
-
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure
     // TODO: find the ordering of single-copy contigs
