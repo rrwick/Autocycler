@@ -88,28 +88,30 @@ enum Commands {
         #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
-        /// Minimum alignment identity for start-end overlap trimming
-        #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
-        min_overlap_id: f64,
+        /// cutoff distance threshold for hierarchical clustering
+        #[clap(short = 'c', long = "cutoff", default_value = "0.1")]
+        cutoff: f64,
 
-        /// Maximum unitigs for start-end overlap trimming, set to 0 to disable trimming
-        #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "5000")]
-        max_overlap_unitigs: usize,
-
-        /// ε parameter for DBSCAN* clustering
-        #[clap(short = 's', long = "eps", hide_default_value = true,
-        help = "ε parameter for DBSCAN* clustering [default: automatic]")]
-        eps: Option<f64>,
-
-        /// minPts parameter for DBSCAN* clustering
-        #[clap(short = 'm', long = "minpts", hide_default_value = true,
-               help = "minPts parameter for DBSCAN* clustering [default: automatic]")]
-        minpts: Option<usize>,
-
-        /// Maximum variability for within-cluster sequence lengths
-        #[clap(short = 'l', long = "max_len_var", default_value = "0.1")]
-        max_len_var: f64,
+        /// exclude clusters with fewer than this many assemblies
+        #[clap(short = 'm', long = "min_assemblies", hide_default_value = true,
+               help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
+        min_assemblies: Option<usize>,
     },
+
+    // /// trim contigs in a cluster
+    // Trim {
+    //     /// Autocycler directory (required)
+    //     #[clap(short = 'o', long = "out_dir", required = true)]
+    //     out_dir: PathBuf,
+
+    //     /// Minimum alignment identity for start-end overlap trimming
+    //     #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
+    //     min_overlap_id: f64,
+
+    //     /// Maximum unitigs for start-end overlap trimming, set to 0 to disable trimming
+    //     #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "5000")]
+    //     max_overlap_unitigs: usize,
+    // },
 
     /// resolve repeats in the the unitig graph
     Resolve {
@@ -137,8 +139,8 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { out_dir, min_overlap_id, max_overlap_unitigs, eps, minpts, max_len_var }) => {
-            cluster::cluster(out_dir, min_overlap_id, max_overlap_unitigs, eps, minpts, max_len_var);
+        Some(Commands::Cluster { out_dir, cutoff, min_assemblies }) => {
+            cluster::cluster(out_dir, cutoff, min_assemblies);
         },
         Some(Commands::Resolve { out_dir }) => {
             resolve::resolve(out_dir);

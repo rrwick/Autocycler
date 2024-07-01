@@ -20,53 +20,51 @@ use std::path::PathBuf;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_f64, median_usize,
-                  round_float, quit_with_error, usize_division_rounded};
+                  round_float, quit_with_error, usize_division_rounded, create_dir};
 use crate::sequence::Sequence;
-use crate::trim_path_overlap::trim_path_overlap;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(out_dir: PathBuf, min_overlap_id: f64, max_overlap_unitigs: usize,
-               eps: Option<f64>, minpts: Option<usize>, max_len_var: f64) {
+pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies: Option<usize>) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
+    let cluster_dir = out_dir.join("02_clusters");
+    create_dir(&cluster_dir);
     let clusters_html = out_dir.join("04_clusters.html");
     let clusters_tsv = out_dir.join("05_clusters.tsv");
     let clean_gfa = out_dir.join("06_cleaned_graph.gfa");
-    check_settings(&out_dir, &gfa, min_overlap_id, &eps, &minpts, max_len_var);
+    check_settings(&out_dir, &gfa, cutoff, &min_assemblies);
     starting_message();
-    print_settings(&out_dir, min_overlap_id, max_overlap_unitigs, &eps, &minpts, max_len_var);
-    let (mut unitig_graph, sequences) = load_graph(&gfa);
-    let mut sequences = trim_path_overlap(&mut unitig_graph, &sequences, min_overlap_id, max_overlap_unitigs);
-    // TODO: add in some way for a user to manually define clusters.
-    let distances = pairwise_contig_distances(&unitig_graph, &sequences, &out_dir);
-    let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
-    select_clusters(&mut sequences, minpts);
-    exclude_sequences_by_length(&mut sequences, max_len_var);
-    reorder_clusters(&mut sequences);
+    print_settings(&out_dir, cutoff, &min_assemblies);
+    let (mut unitig_graph, mut sequences) = load_graph(&gfa);
+    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &cluster_dir);
+    let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
+    let tree = hierarchical_clustering(&symmetrical_distances, &mut sequences);
+    save_tree_to_newick(&tree, &sequences, &cluster_dir, "clustering.newick");
     print_clusters(&sequences);
-    save_html_table(&sequences, &clusters_html);
-    save_tsv_table(&sequences, &clusters_tsv);
-    let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-    unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
-    finished_message(&clusters_tsv, &clusters_html, &clean_gfa);
+
+
+
+
+    // let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
+    // select_clusters(&mut sequences, minpts);
+    // exclude_sequences_by_length(&mut sequences, max_len_var);
+    // reorder_clusters(&mut sequences);
+    // save_html_table(&sequences, &clusters_html);
+    // save_tsv_table(&sequences, &clusters_tsv);
+    // let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
+    // unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
+    // finished_message(&clusters_tsv, &clusters_html, &clean_gfa);
 }
 
 
-fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, min_overlap_id: f64,
-                  eps: &Option<f64>, minpts: &Option<usize>, max_len_var: f64) {
+fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
     check_if_dir_exists(&out_dir);
     check_if_file_exists(&gfa);
-    if min_overlap_id < 0.0 || min_overlap_id > 1.0 {
-        quit_with_error("--min_overlap_id must be between 0 and 1 (inclusive)");
+    if cutoff <= 0.0 || cutoff >= 1.0 {
+        quit_with_error("--min_overlap_id must be between 0 and 1 (exclusive)");
     }
-    if max_len_var < 0.0 {
-        quit_with_error("--max_len_var must be a positive value");
-    }
-    if eps.is_some() && (eps.unwrap() <= 0.0 || eps.unwrap() >= 1.0) {
-        quit_with_error("--eps must be between 0 and 1 (exclusive)");
-    }
-    if minpts.is_some() && minpts.unwrap() < 2 {
-        quit_with_error("--minpts must be 2 or greater");
+    if min_assemblies.is_some() && min_assemblies.unwrap() < 1 {
+        quit_with_error("--min_assemblies must be 1 or greater");
     }
 }
 
@@ -80,23 +78,15 @@ fn starting_message() {
 }
 
 
-fn print_settings(out_dir: &PathBuf, min_overlap_id: f64, max_overlap_unitigs: usize,
-                  eps: &Option<f64>, minpts: &Option<usize>, max_len_var: f64) {
+fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());
-    eprintln!("  --min_overlap_id {}", format_float(min_overlap_id));
-    eprintln!("  --max_overlap_unitigs {}", max_overlap_unitigs);
-    if eps.is_none() {
-        eprintln!("  --eps (automatically set)");
+    eprintln!("  --cutoff {}", format_float(cutoff));
+    if min_assemblies.is_none() {
+        eprintln!("  --min_assemblies (automatically set)");
     } else {
-        eprintln!("  --eps {}", format_float(eps.unwrap()));
+        eprintln!("  --min_assemblies {}", min_assemblies.unwrap());
     }
-    if minpts.is_none() {
-        eprintln!("  --minpts (automatically set)");
-    } else {
-        eprintln!("  --minpts {}", minpts.unwrap());
-    }
-    eprintln!("  --max_len_var {}", format_float(max_len_var));
     eprintln!();
 }
 
@@ -133,10 +123,8 @@ fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequenc
     }
     eprintln!("{} sequences, {} total pairwise distances", sequences.len(), distances.len());
     eprintln!();
-    eprintln!("Saving distance matrix files:");
-    save_distance_matrix(&distances, &sequences, &out_dir, "02_pairwise_distances_asymmetrical.phylip");
-    let distances = make_symmetrical_distances(&distances, &sequences);
-    save_distance_matrix(&distances, &sequences, &out_dir, "03_pairwise_distances_symmetrical.phylip");
+    eprintln!("Saving distance matrix:");
+    save_distance_matrix(&distances, &sequences, &out_dir, "pairwise_distances.phylip");
     eprintln!();
     distances
 }
@@ -163,16 +151,17 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Se
 }
 
 
-fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
+fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
+                              sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
     // This function takes in an asymmetrical distance matrix (where A vs B is not necessarily
     // equal to B vs A) and makes it symmetric by setting each distance (both orders) to the
-    // minimum distance of the two orders.
+    // maximum distance of the two orders.
     let mut symmetrical_distances: HashMap<(u16, u16), f64> = HashMap::new();
     for seq_a in sequences {
         for seq_b in sequences {
             let a_vs_b = asymmetrical_distances.get(&(seq_a.id, seq_b.id)).unwrap();
             let b_vs_a = asymmetrical_distances.get(&(seq_b.id, seq_a.id)).unwrap();
-            let distance = (a_vs_b + b_vs_a) / 2.0;
+            let distance = a_vs_b.max(*b_vs_a);
             symmetrical_distances.insert((seq_a.id, seq_b.id), distance);
         }
     }
@@ -180,45 +169,163 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 }
 
 
-fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
-                  eps_option: Option<f64>, min_pts_option: Option<usize>) -> usize {
-    section_header("Clustering sequences");
-    explanation("Contigs are clustered using the DBSCAN* algorithm. Contigs will be either put \
-                 into a cluster (defined by sufficient density) or be classified as noise (no \
-                 cluster).");
-    // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
-    // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
-    // sensitive to the order of sequences).
-    let eps = set_eps(eps_option, distances);
-    let min_pts = set_min_pts(min_pts_option, sequences);
-    eprintln!();
-    let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
-    let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
-    let mut c = 0;
-    for p in &ids {
-        let p_seq: &mut Sequence = index.get_mut(p).unwrap();
-        if p_seq.cluster != 0 { continue; }
-        let n = range_query(&ids, distances, *p, eps);
-        if n.len() < min_pts {
-            p_seq.cluster = -1;
-            p_seq.cluster_fail_reason = "dbscan noise".to_string();
-            continue;
+#[derive(Debug)]
+struct TreeNode {
+    id: u16,
+    left: Option<Box<TreeNode>>,
+    right: Option<Box<TreeNode>>,
+    distance: f64,
+}
+
+
+fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
+    match (&node.left, &node.right) {
+        (Some(left), Some(right)) => {
+            let left_str = tree_to_newick(left, &index);
+            let right_str = tree_to_newick(right, &index);
+            format!("({}:{},{}:{})", left_str, node.distance - left.distance, right_str, node.distance - right.distance)
         }
-        c += 1;
-        p_seq.cluster = c;
-        let mut seed_set: Vec<u16> = n.into_iter().filter(|&id| id != *p).collect();
-        while let Some(q) = seed_set.pop() {
-            let q_seq = index.get_mut(&q).unwrap();
-            if q_seq.cluster != 0 { continue; }
-            q_seq.cluster = c;
-            let n_prime = range_query(&ids, distances, q, eps);
-            if n_prime.len() >= min_pts {
-                seed_set.extend(n_prime);
+        _ => format!("{}", index.get(&node.id).unwrap().string_for_newick()),
+    }
+}
+
+
+fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, out_dir: &PathBuf, filename: &str) {
+    let file_path = out_dir.join(filename);
+    let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
+    let newick_string = tree_to_newick(root, &index);
+    let mut file = File::create(file_path).unwrap();
+    write!(file, "{};\n", newick_string).unwrap();
+}
+
+
+fn hierarchical_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
+    section_header("Clustering sequences");
+    explanation("Contigs are clustered using complete-linkage hierarchical clustering. For each \
+                 pairwise combination, this clustering using the greater distance of the two \
+                 possible orders (A vs B, B vs A).");
+    let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
+    let mut cluster_distances: HashMap<(u16, u16), f64> = HashMap::new();
+    let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
+
+    // Initialise each sequence as its own cluster and create initial nodes.
+    for seq in sequences.iter() {
+        clusters.insert(seq.id, HashSet::from([seq.id]));
+        nodes.insert(seq.id, TreeNode {
+            id: seq.id,
+            left: None,
+            right: None,
+            distance: 0.0,
+        });
+    }
+
+    // Initialise distances between clusters.
+    for ((a, b), &dist) in distances.iter() {
+        cluster_distances.insert((*a, *b), dist);
+        cluster_distances.insert((*b, *a), dist);
+    }
+
+    while clusters.len() > 1 {
+        // Merge the closest pair of clusters
+        let (a, b, a_b_distance) = get_closest_pair(&cluster_distances);
+        let cluster_a = clusters.remove(&a).unwrap();
+        let cluster_b = clusters.remove(&b).unwrap();
+        let new_id = a.min(b);
+        let mut new_cluster = HashSet::new();
+        new_cluster.extend(cluster_a.iter());
+        new_cluster.extend(cluster_b.iter());
+        clusters.insert(new_id, new_cluster.clone());
+
+        // Create a new tree node for the merged cluster
+        let new_node = TreeNode {
+            id: new_id,
+            left: Some(Box::new(nodes.remove(&a).unwrap())),
+            right: Some(Box::new(nodes.remove(&b).unwrap())),
+            distance: a_b_distance,
+        };
+        nodes.insert(new_id, new_node);
+
+        // Update distances between the new cluster and remaining clusters
+        let mut new_distances = HashMap::new();
+        for (&(a, b), &dist) in cluster_distances.iter() {
+            if clusters.contains_key(&a) && clusters.contains_key(&b) {
+                new_distances.insert((a, b), dist);
             }
         }
+        for &other_id in clusters.keys() {
+            if other_id != new_id {
+                let mut max_dist = 0.0;
+                for &a in new_cluster.iter() {
+                    for &b in clusters[&other_id].iter() {
+                        let dist = *distances.get(&(a, b)).unwrap_or(&distances[&(b, a)]);
+                        if dist > max_dist {
+                            max_dist = dist;
+                        }
+                    }
+                }
+                new_distances.insert((new_id, other_id), max_dist);
+                new_distances.insert((other_id, new_id), max_dist);
+            }
+        }
+        cluster_distances = new_distances;
     }
-    min_pts
+
+    nodes.into_iter().next().unwrap().1  // root of the tree
 }
+
+
+fn get_closest_pair(distances: &HashMap<(u16, u16), f64>) -> (u16, u16, f64) {
+    let mut min_distance = f64::INFINITY;
+    let mut closest_pair = (0, 0);
+    for (&(a, b), &dist) in distances.iter() {
+        if dist < min_distance && a != b {
+            min_distance = dist;
+            closest_pair = (a, b);
+        }
+    }
+    (closest_pair.0, closest_pair.1, min_distance)
+}
+
+
+// fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
+//                   eps_option: Option<f64>, min_pts_option: Option<usize>) -> usize {
+//     section_header("Clustering sequences");
+//     explanation("Contigs are clustered using the DBSCAN* algorithm. Contigs will be either put \
+//                  into a cluster (defined by sufficient density) or be classified as noise (no \
+//                  cluster).");
+//     // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
+//     // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
+//     // sensitive to the order of sequences).
+//     let eps = set_eps(eps_option, distances);
+//     let min_pts = set_min_pts(min_pts_option, sequences);
+//     eprintln!();
+//     let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
+//     let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
+//     let mut c = 0;
+//     for p in &ids {
+//         let p_seq: &mut Sequence = index.get_mut(p).unwrap();
+//         if p_seq.cluster != 0 { continue; }
+//         let n = range_query(&ids, distances, *p, eps);
+//         if n.len() < min_pts {
+//             p_seq.cluster = -1;
+//             p_seq.cluster_fail_reason = "dbscan noise".to_string();
+//             continue;
+//         }
+//         c += 1;
+//         p_seq.cluster = c;
+//         let mut seed_set: Vec<u16> = n.into_iter().filter(|&id| id != *p).collect();
+//         while let Some(q) = seed_set.pop() {
+//             let q_seq = index.get_mut(&q).unwrap();
+//             if q_seq.cluster != 0 { continue; }
+//             q_seq.cluster = c;
+//             let n_prime = range_query(&ids, distances, q, eps);
+//             if n_prime.len() >= min_pts {
+//                 seed_set.extend(n_prime);
+//             }
+//         }
+//     }
+//     min_pts
+// }
 
 
 fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps: f64) -> Vec<u16> {
@@ -232,28 +339,28 @@ fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps
 }
 
 
-fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64 {
-    // This function automatically sets the ε parameter, if the user didn't supply one.
-    // The auto-set value be 2x the median close distance, where close distances are all distances
-    // less than 0.2. The auto-set value can't be less than 0.01 or more than 0.1.
-    if eps_option.is_some() {
-        eprintln!("ε parameter: {} (user-suppled)", eps_option.unwrap());
-        return eps_option.unwrap();
-    }
-    let close_distances: Vec<_> = distances.values().cloned().filter(|&val| val > 0.0 && val < 0.2).collect();
-    let mut auto_eps = 0.05;
-    if close_distances.len() > 0 {
-        auto_eps = 2.0 * round_float(median_f64(&close_distances), 3);
-    }
-    if auto_eps < 0.01 {
-        auto_eps = 0.01
-    }
-    if auto_eps > 0.1 {
-        auto_eps = 0.1
-    }
-    eprintln!("ε parameter: {} (automatically set)", format_float(auto_eps));
-    auto_eps
-}
+// fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64 {
+//     // This function automatically sets the ε parameter, if the user didn't supply one.
+//     // The auto-set value be 2x the median close distance, where close distances are all distances
+//     // less than 0.2. The auto-set value can't be less than 0.01 or more than 0.1.
+//     if eps_option.is_some() {
+//         eprintln!("ε parameter: {} (user-suppled)", eps_option.unwrap());
+//         return eps_option.unwrap();
+//     }
+//     let close_distances: Vec<_> = distances.values().cloned().filter(|&val| val > 0.0 && val < 0.2).collect();
+//     let mut auto_eps = 0.05;
+//     if close_distances.len() > 0 {
+//         auto_eps = 2.0 * round_float(median_f64(&close_distances), 3);
+//     }
+//     if auto_eps < 0.01 {
+//         auto_eps = 0.01
+//     }
+//     if auto_eps > 0.1 {
+//         auto_eps = 0.1
+//     }
+//     eprintln!("ε parameter: {} (automatically set)", format_float(auto_eps));
+//     auto_eps
+// }
 
 
 fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
@@ -273,41 +380,40 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usiz
 }
 
 
-fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
-    // Clusters that appear in too few assemblies are excluded.
-    for c in 1..get_max_cluster(sequences)+1 {
-        let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
-        if assemblies.len() < minpts {
-            for s in &mut *sequences {
-                if s.cluster == c {
-                    s.cluster = -1;
-                    s.cluster_fail_reason = "cluster in too few assemblies".to_string();
-                }
-            }
-        }
-    }
-}
+// fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
+//     // Clusters that appear in too few assemblies are excluded.
+//     for c in 1..get_max_cluster(sequences)+1 {
+//         let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
+//         if assemblies.len() < minpts {
+//             for s in &mut *sequences {
+//                 if s.cluster == c {
+//                     s.cluster = -1;
+//                     s.cluster_fail_reason = "cluster in too few assemblies".to_string();
+//                 }
+//             }
+//         }
+//     }
+// }
 
-fn exclude_sequences_by_length(sequences: &mut Vec<Sequence>, max_len_var: f64) {
-    // This function will exclude sequences to ensure that within-cluster sequence lengths don't
-    // have too much variation.
-
-    for c in 1..get_max_cluster(sequences)+1 {
-        let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-        let cluster_median = median_usize(&lengths);
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(cluster_median, max_len_var);
-        for s in &mut *sequences {
-            if s.cluster == c && s.length < cluster_min {
-                s.cluster = -1;
-                s.cluster_fail_reason = "too short".to_string();
-            }
-            if s.cluster == c && s.length > cluster_max {
-                s.cluster = -1;
-                s.cluster_fail_reason = "too long".to_string();
-            }
-        }
-    }
-}
+// fn exclude_sequences_by_length(sequences: &mut Vec<Sequence>, max_len_var: f64) {
+//     // This function will exclude sequences to ensure that within-cluster sequence lengths don't
+//     // have too much variation.
+//     for c in 1..get_max_cluster(sequences)+1 {
+//         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+//         let cluster_median = median_usize(&lengths);
+//         let (cluster_min, cluster_max) = cluster_min_max_lengths(cluster_median, max_len_var);
+//         for s in &mut *sequences {
+//             if s.cluster == c && s.length < cluster_min {
+//                 s.cluster = -1;
+//                 s.cluster_fail_reason = "too short".to_string();
+//             }
+//             if s.cluster == c && s.length > cluster_max {
+//                 s.cluster = -1;
+//                 s.cluster_fail_reason = "too long".to_string();
+//             }
+//         }
+//     }
+// }
 
 
 fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, usize) {
@@ -317,26 +423,26 @@ fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, us
 }
 
 
-fn reorder_clusters(sequences: &mut Vec<Sequence>) {
-    // Reorder clusters based on their median sequence length (large to small).
-    let mut cluster_lengths = HashMap::new();
-    for c in 1..get_max_cluster(sequences)+1 {
-        let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-        cluster_lengths.insert(c, median_usize(&lengths));
-    }
-    let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
-    sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
-    let mut old_to_new = HashMap::new();
-    let mut new_c: i32 = 0;
-    for (old_c, _length) in sorted_cluster_lengths {
-        new_c += 1;
-        old_to_new.insert(old_c, new_c);
-    }
-    for s in sequences {
-        if s.cluster < 1 {continue;}
-        s.cluster = *old_to_new.get(&s.cluster).unwrap();
-    }
-}
+// fn reorder_clusters(sequences: &mut Vec<Sequence>) {
+//     // Reorder clusters based on their median sequence length (large to small).
+//     let mut cluster_lengths = HashMap::new();
+//     for c in 1..get_max_cluster(sequences)+1 {
+//         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+//         cluster_lengths.insert(c, median_usize(&lengths));
+//     }
+//     let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
+//     sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
+//     let mut old_to_new = HashMap::new();
+//     let mut new_c: i32 = 0;
+//     for (old_c, _length) in sorted_cluster_lengths {
+//         new_c += 1;
+//         old_to_new.insert(old_c, new_c);
+//     }
+//     for s in sequences {
+//         if s.cluster < 1 {continue;}
+//         s.cluster = *old_to_new.get(&s.cluster).unwrap();
+//     }
+// }
 
 
 fn print_clusters(sequences: &Vec<Sequence>) {
@@ -350,59 +456,49 @@ fn print_clusters(sequences: &Vec<Sequence>) {
         }
         eprintln!();
     }
-    let noise_sequences: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
-    if noise_sequences.len() == 0 {
-        eprintln!("No contigs excluded")
-    } else {
-        eprintln!("Excluded:");
-        for s in noise_sequences {
-            eprintln!("  {}", s);
-        }
-    }
     eprintln!();
 }
 
 
-fn save_html_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
-    let markup = create_html(sequences);
-    std::fs::write(file_path.clone(), markup.into_string()).unwrap();
-}
+// fn save_html_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
+//     let markup = create_html(sequences);
+//     std::fs::write(file_path.clone(), markup.into_string()).unwrap();
+// }
 
 
-fn save_tsv_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
-    let mut f = File::create(&file_path).unwrap();
-    write!(f, "assembly\tcontig_name\tlength\tcluster\tfail_reason\n").unwrap();
-    for c in 1..get_max_cluster(sequences)+1 {
-        for s in sequences {
-            if s.cluster == c {
-                write!(f, "{}\t{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c, s.cluster_fail_reason).unwrap();
-            }
-        }
-    }
-    for s in sequences {
-        if s.cluster == -1 {
-            write!(f, "{}\t{}\t{}\tnone\t{}\n", s.filename, s.contig_name(), s.length, s.cluster_fail_reason).unwrap();
-        }
-    }
-}
+// fn save_tsv_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
+//     let mut f = File::create(&file_path).unwrap();
+//     write!(f, "assembly\tcontig_name\tlength\tcluster\tfail_reason\n").unwrap();
+//     for c in 1..get_max_cluster(sequences)+1 {
+//         for s in sequences {
+//             if s.cluster == c {
+//                 write!(f, "{}\t{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c, s.cluster_fail_reason).unwrap();
+//             }
+//         }
+//     }
+//     for s in sequences {
+//         if s.cluster == -1 {
+//             write!(f, "{}\t{}\t{}\tnone\t{}\n", s.filename, s.contig_name(), s.length, s.cluster_fail_reason).unwrap();
+//         }
+//     }
+// }
 
 
-pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
-    section_header("Cleaning graph");
-    explanation("Excluded contigs (those which could not be clustered) are now removed from the \
-                 unitig graph.");
-    let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
-    for s in seqs_to_remove {
-        graph.remove_sequence_from_graph(s.id);
-    }
-    graph.remove_zero_depth_unitigs();
-    let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
-    eprintln!();
-    merge_linear_paths(graph, &sequences);
-    graph.print_basic_graph_info();
-    graph.renumber_unitigs();
-    sequences
-}
+// pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
+//     section_header("Cleaning graph");
+//     explanation("Excluded contigs (those which could not be clustered) are now removed from the \
+//                  unitig graph.");
+//     let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
+//     for s in seqs_to_remove {
+//         graph.remove_sequence_from_graph(s.id);
+//     }
+//     graph.remove_zero_depth_unitigs();
+//     let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
+//     merge_linear_paths(graph, &sequences);
+//     graph.print_basic_graph_info();
+//     graph.renumber_unitigs();
+//     sequences
+// }
 
 
 fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
@@ -410,7 +506,7 @@ fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
 }
 
 
-fn get_max_cluster(sequences: &Vec<Sequence>) -> i32 {
+fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
     sequences.iter().map(|s| s.cluster).max().unwrap()
 }
 
@@ -430,43 +526,43 @@ fn get_assemblies(sequences: &[Sequence]) -> Vec<String> {
 }
 
 
-fn create_html(sequences: &Vec<Sequence>) -> Markup {
-    let headers: Vec<String> = std::iter::once("Assembly".to_string())
-        .chain((1..=get_max_cluster(&sequences)).map(|c| format!("cluster {}", c)))
-        .chain(std::iter::once("excluded".to_string())).collect();
-    let mut rows = vec![];
-    for a in get_assemblies(sequences) {
-        let mut row = vec![a.clone()];
-        for c in 1..get_max_cluster(sequences)+1 {
-            let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == c)
-                .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
-            row.push(cell_seqs.join("<br>"));
-        }
-        let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == -1)
-            .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
-        row.push(cell_seqs.join("<br>"));
-        rows.push(row);
-    }
+// fn create_html(sequences: &Vec<Sequence>) -> Markup {
+//     let headers: Vec<String> = std::iter::once("Assembly".to_string())
+//         .chain((1..=get_max_cluster(&sequences)).map(|c| format!("cluster {}", c)))
+//         .chain(std::iter::once("excluded".to_string())).collect();
+//     let mut rows = vec![];
+//     for a in get_assemblies(sequences) {
+//         let mut row = vec![a.clone()];
+//         for c in 1..get_max_cluster(sequences)+1 {
+//             let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == c)
+//                 .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
+//             row.push(cell_seqs.join("<br>"));
+//         }
+//         let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == -1)
+//             .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
+//         row.push(cell_seqs.join("<br>"));
+//         rows.push(row);
+//     }
 
-    html! {
-        (DOCTYPE)
-        html {
-            head {
-                meta charset="utf-8";
-                title { "Autocycler clustering" }
-                link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css";
-                style { "td { vertical-align: middle !important; }" }
-            }
-            body {
-                h2 { "Autocycler clustering" }
-                table class="table" {
-                    thead class="thead-dark" { tr { @for h in headers { th { (h) } } } }
-                    tbody { @for row in rows { tr { @for d in row { td { (PreEscaped(d)) } } } } }
-                }
-            }
-        }
-    }
-}
+//     html! {
+//         (DOCTYPE)
+//         html {
+//             head {
+//                 meta charset="utf-8";
+//                 title { "Autocycler clustering" }
+//                 link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css";
+//                 style { "td { vertical-align: middle !important; }" }
+//             }
+//             body {
+//                 h2 { "Autocycler clustering" }
+//                 table class="table" {
+//                     thead class="thead-dark" { tr { @for h in headers { th { (h) } } } }
+//                     tbody { @for row in rows { tr { @for d in row { td { (PreEscaped(d)) } } } } }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 
 fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf, clean_gfa: &PathBuf) {

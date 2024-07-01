@@ -24,7 +24,7 @@ pub struct Sequence {
     pub filename: String,
     pub contig_header: String,
     pub length: usize,
-    pub cluster: i32,
+    pub cluster: u16,
     pub cluster_fail_reason: String,
     pub extend: bool
 }
@@ -53,7 +53,7 @@ impl Sequence {
         }
     }
 
-    pub fn new_without_seq(id: u16, filename: String, contig_header: String, length: usize, cluster: i32, extend: bool) -> Sequence {
+    pub fn new_without_seq(id: u16, filename: String, contig_header: String, length: usize, cluster: u16, extend: bool) -> Sequence {
         // This constructor creates a Sequence object without storing the sequence. This is used at
         // later stages in Autocycler where the sequence is stored in the UnitigGraph and so doesn't
         // need to be stored here as well.
@@ -72,6 +72,10 @@ impl Sequence {
 
     pub fn contig_name(&self) -> String {
         self.contig_header.split_whitespace().next().unwrap_or("").to_string()
+    }
+
+    pub fn string_for_newick(&self) -> String {
+        format!("{}__{}__{}__{}bp", self.id, self.filename, self.contig_name(), self.length)
     }
 }
 

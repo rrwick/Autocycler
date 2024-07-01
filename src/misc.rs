@@ -31,7 +31,7 @@ pub mod strand {
 pub fn create_dir(out_dir: &PathBuf) {
     match create_dir_all(&out_dir) {
         Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create output directory\n{:?}", e)),
+        Err(e) => quit_with_error(&format!("failed to create directory\n{:?}", e)),
     }
 }
 

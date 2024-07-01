@@ -137,7 +137,7 @@ impl UnitigGraph {
                 } else if p.starts_with("HD:Z:") {
                     header = Some(p[5..].to_string());
                 } else if p.starts_with("CL:i:") {
-                    cluster = p[5..].parse::<i32>().expect("Error parsing cluster");
+                    cluster = p[5..].parse::<u16>().expect("Error parsing cluster");
                 } else if *p == "EX:Z:false" {
                     extend = false;
                 }
@@ -156,7 +156,7 @@ impl UnitigGraph {
     }
 
     pub fn create_sequence_and_positions(&mut self, seq_id: u16, length: u32,
-                                         filename: String, header: String, cluster: i32, extend: bool,
+                                         filename: String, header: String, cluster: u16, extend: bool,
                                          forward_path: Vec<(u32, bool)>) -> Sequence {
         let reverse_path = reverse_path(&forward_path);
         self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length, extend);
