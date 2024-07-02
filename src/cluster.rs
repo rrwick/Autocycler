@@ -11,7 +11,6 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use maud::{html, Markup, DOCTYPE, PreEscaped};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
@@ -27,33 +26,31 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies: Option<usize>) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
-    let cluster_dir = out_dir.join("02_clusters");
+    let cluster_dir = out_dir.join("02_clustering");
+    // TODO: delete cluster_dir if it already exists
     create_dir(&cluster_dir);
-    let clusters_html = out_dir.join("04_clusters.html");
-    let clusters_tsv = out_dir.join("05_clusters.tsv");
-    let clean_gfa = out_dir.join("06_cleaned_graph.gfa");
+    let pairwise_phylip = cluster_dir.join("pairwise_distances.phylip");
+    let clustering_newick = cluster_dir.join("clustering.newick");
+    // let clustering_png = cluster_dir.join("clustering.png");
     check_settings(&out_dir, &gfa, cutoff, &min_assemblies);
     starting_message();
     print_settings(&out_dir, cutoff, &min_assemblies);
-    let (mut unitig_graph, mut sequences) = load_graph(&gfa);
-    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &cluster_dir);
+    let (unitig_graph, mut sequences) = load_graph(&gfa);
+    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
-    let tree = hierarchical_clustering(&symmetrical_distances, &mut sequences);
-    save_tree_to_newick(&tree, &sequences, &cluster_dir, "clustering.newick");
+    let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
+    normalise_tree(&mut tree);
+    save_tree_to_newick(&tree, &sequences, &clustering_newick);
+    define_clusters_from_tree(&tree, &mut sequences, cutoff);
     print_clusters(&sequences);
 
+    // TODO: choose which clusters pass/fail
 
+    // TODO: save a PNG (or maybe SVG?) drawing of the tree to file
 
+    // TODO: create a directory for each cluster with a GFA 
 
-    // let minpts = dbscan_cluster(&distances, &mut sequences, eps, minpts);
-    // select_clusters(&mut sequences, minpts);
-    // exclude_sequences_by_length(&mut sequences, max_len_var);
-    // reorder_clusters(&mut sequences);
-    // save_html_table(&sequences, &clusters_html);
-    // save_tsv_table(&sequences, &clusters_tsv);
-    // let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-    // unitig_graph.save_gfa(&clean_gfa, &sequences).unwrap();
-    // finished_message(&clusters_tsv, &clusters_html, &clean_gfa);
+    finished_message(&pairwise_phylip, &clustering_newick);
 }
 
 
@@ -100,7 +97,7 @@ pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, out_dir: &PathBuf) -> HashMap<(u16, u16), f64> {
+fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &PathBuf) -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
                  their paths through the graph.");
@@ -124,7 +121,7 @@ fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequenc
     eprintln!("{} sequences, {} total pairwise distances", sequences.len(), distances.len());
     eprintln!();
     eprintln!("Saving distance matrix:");
-    save_distance_matrix(&distances, &sequences, &out_dir, "pairwise_distances.phylip");
+    save_distance_matrix(&distances, &sequences, file_path);
     eprintln!();
     distances
 }
@@ -135,9 +132,7 @@ fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32
 }
 
 
-fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
-                        out_dir: &PathBuf, filename: &str) {
-    let file_path = out_dir.join(filename);
+fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>, file_path: &PathBuf) {
     let mut f = File::create(&file_path).unwrap();
     write!(f, "{}\n", sequences.len()).unwrap();
     for seq_a in sequences {
@@ -174,7 +169,22 @@ struct TreeNode {
     id: u16,
     left: Option<Box<TreeNode>>,
     right: Option<Box<TreeNode>>,
-    distance: f64,
+    distance: f64,  // distance from this node to the tree tips
+}
+
+
+fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &PathBuf) {
+    // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
+    // length of the root, in order to ensure that root-to-tip distances are 0.5.
+    let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
+    let newick_string = tree_to_newick(root, &index);
+    let mut file = File::create(file_path).unwrap();
+    if root.distance < 0.5 {
+        let root_length = 0.5 - root.distance;
+        write!(file, "({}:{});\n", newick_string, root_length).unwrap();
+    } else {
+        write!(file, "{};\n", newick_string).unwrap();
+    }
 }
 
 
@@ -190,23 +200,14 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
 }
 
 
-fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, out_dir: &PathBuf, filename: &str) {
-    let file_path = out_dir.join(filename);
-    let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
-    let newick_string = tree_to_newick(root, &index);
-    let mut file = File::create(file_path).unwrap();
-    write!(file, "{};\n", newick_string).unwrap();
-}
-
-
-fn hierarchical_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
+fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
     section_header("Clustering sequences");
-    explanation("Contigs are clustered using complete-linkage hierarchical clustering. For each \
-                 pairwise combination, this clustering using the greater distance of the two \
-                 possible orders (A vs B, B vs A).");
+    explanation("Contigs are organise into a tree using UPGMA. Then clusters are defined from the \
+                 tree using the distance cutoff.");
     let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
-    let mut cluster_distances: HashMap<(u16, u16), f64> = HashMap::new();
+    let mut cluster_distances: HashMap<(u16, u16), f64> = distances.clone();
     let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
+
 
     // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences.iter() {
@@ -219,14 +220,8 @@ fn hierarchical_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut
         });
     }
 
-    // Initialise distances between clusters.
-    for ((a, b), &dist) in distances.iter() {
-        cluster_distances.insert((*a, *b), dist);
-        cluster_distances.insert((*b, *a), dist);
-    }
-
     while clusters.len() > 1 {
-        // Merge the closest pair of clusters
+        // Find the closest pair of clusters.
         let (a, b, a_b_distance) = get_closest_pair(&cluster_distances);
         let cluster_a = clusters.remove(&a).unwrap();
         let cluster_b = clusters.remove(&b).unwrap();
@@ -236,16 +231,16 @@ fn hierarchical_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut
         new_cluster.extend(cluster_b.iter());
         clusters.insert(new_id, new_cluster.clone());
 
-        // Create a new tree node for the merged cluster
+        // Create a new tree node for the merged cluster.
         let new_node = TreeNode {
             id: new_id,
             left: Some(Box::new(nodes.remove(&a).unwrap())),
             right: Some(Box::new(nodes.remove(&b).unwrap())),
-            distance: a_b_distance,
+            distance: a_b_distance / 2.0,
         };
         nodes.insert(new_id, new_node);
 
-        // Update distances between the new cluster and remaining clusters
+        // Update distances between the new cluster and remaining clusters.
         let mut new_distances = HashMap::new();
         for (&(a, b), &dist) in cluster_distances.iter() {
             if clusters.contains_key(&a) && clusters.contains_key(&b) {
@@ -254,130 +249,116 @@ fn hierarchical_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut
         }
         for &other_id in clusters.keys() {
             if other_id != new_id {
-                let mut max_dist = 0.0;
-                for &a in new_cluster.iter() {
-                    for &b in clusters[&other_id].iter() {
-                        let dist = *distances.get(&(a, b)).unwrap_or(&distances[&(b, a)]);
-                        if dist > max_dist {
-                            max_dist = dist;
-                        }
+                let mut avg_dist = 0.0;
+                let mut count = 0;
+                for &id1 in new_cluster.iter() {
+                    for &id2 in clusters[&other_id].iter() {
+                        let dist = *distances.get(&(id1, id2)).unwrap_or(&distances[&(id2, id1)]);
+                        avg_dist += dist;
+                        count += 1;
                     }
                 }
-                new_distances.insert((new_id, other_id), max_dist);
-                new_distances.insert((other_id, new_id), max_dist);
+                avg_dist /= count as f64;
+                new_distances.insert((new_id, other_id), avg_dist);
+                new_distances.insert((other_id, new_id), avg_dist);
             }
         }
         cluster_distances = new_distances;
     }
 
-    nodes.into_iter().next().unwrap().1  // root of the tree
+    nodes.into_iter().next().unwrap().1  // return the root of the tree
 }
 
 
 fn get_closest_pair(distances: &HashMap<(u16, u16), f64>) -> (u16, u16, f64) {
     let mut min_distance = f64::INFINITY;
     let mut closest_pair = (0, 0);
-    for (&(a, b), &dist) in distances.iter() {
-        if dist < min_distance && a != b {
-            min_distance = dist;
-            closest_pair = (a, b);
+
+    let mut unique_keys: Vec<u16> = distances.keys().flat_map(|&(a, b)| vec![a, b]).collect();
+    unique_keys.sort_unstable();
+    unique_keys.dedup();
+
+    for i in 0..unique_keys.len() {
+        let a = unique_keys[i];
+        for j in i + 1..unique_keys.len() {
+            let b = unique_keys[j];
+            if let Some(&dist) = distances.get(&(a, b)).or_else(|| distances.get(&(b, a))) {
+                if dist < min_distance {
+                    min_distance = dist;
+                    closest_pair = (a, b);
+                }
+            }
         }
     }
     (closest_pair.0, closest_pair.1, min_distance)
 }
 
 
-// fn dbscan_cluster(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>,
-//                   eps_option: Option<f64>, min_pts_option: Option<usize>) -> usize {
-//     section_header("Clustering sequences");
-//     explanation("Contigs are clustered using the DBSCAN* algorithm. Contigs will be either put \
-//                  into a cluster (defined by sufficient density) or be classified as noise (no \
-//                  cluster).");
-//     // Based on https://en.wikipedia.org/wiki/DBSCAN#Algorithm, but I'm using DBSCAN* instead of
-//     // DBSCAN, so border points become noise. This serves to make the algorithm deterministic (not
-//     // sensitive to the order of sequences).
-//     let eps = set_eps(eps_option, distances);
-//     let min_pts = set_min_pts(min_pts_option, sequences);
-//     eprintln!();
-//     let ids: Vec<u16> = sequences.iter().map(|s| s.id).collect();
-//     let mut index: HashMap<u16, &mut Sequence> = sequences.iter_mut().map(|s| (s.id, s)).collect();
-//     let mut c = 0;
-//     for p in &ids {
-//         let p_seq: &mut Sequence = index.get_mut(p).unwrap();
-//         if p_seq.cluster != 0 { continue; }
-//         let n = range_query(&ids, distances, *p, eps);
-//         if n.len() < min_pts {
-//             p_seq.cluster = -1;
-//             p_seq.cluster_fail_reason = "dbscan noise".to_string();
-//             continue;
-//         }
-//         c += 1;
-//         p_seq.cluster = c;
-//         let mut seed_set: Vec<u16> = n.into_iter().filter(|&id| id != *p).collect();
-//         while let Some(q) = seed_set.pop() {
-//             let q_seq = index.get_mut(&q).unwrap();
-//             if q_seq.cluster != 0 { continue; }
-//             q_seq.cluster = c;
-//             let n_prime = range_query(&ids, distances, q, eps);
-//             if n_prime.len() >= min_pts {
-//                 seed_set.extend(n_prime);
-//             }
-//         }
-//     }
-//     min_pts
-// }
-
-
-fn range_query(ids: &Vec<u16>, distances: &HashMap<(u16, u16), f64>, q: u16, eps: f64) -> Vec<u16> {
-    let mut neighbours = Vec::new();
-    for p in ids {
-        if distances.get(&(q, *p)).unwrap() <= &eps {
-            neighbours.push(*p);
-        }
+fn normalise_tree(root: &mut TreeNode) {
+    if root.distance > 0.5 {
+        scale_node_distance(root, 0.5 / root.distance);
     }
-    neighbours
 }
 
 
-// fn set_eps(eps_option: Option<f64>, distances: &HashMap<(u16, u16), f64>) -> f64 {
-//     // This function automatically sets the ε parameter, if the user didn't supply one.
-//     // The auto-set value be 2x the median close distance, where close distances are all distances
-//     // less than 0.2. The auto-set value can't be less than 0.01 or more than 0.1.
-//     if eps_option.is_some() {
-//         eprintln!("ε parameter: {} (user-suppled)", eps_option.unwrap());
-//         return eps_option.unwrap();
-//     }
-//     let close_distances: Vec<_> = distances.values().cloned().filter(|&val| val > 0.0 && val < 0.2).collect();
-//     let mut auto_eps = 0.05;
-//     if close_distances.len() > 0 {
-//         auto_eps = 2.0 * round_float(median_f64(&close_distances), 3);
-//     }
-//     if auto_eps < 0.01 {
-//         auto_eps = 0.01
-//     }
-//     if auto_eps > 0.1 {
-//         auto_eps = 0.1
-//     }
-//     eprintln!("ε parameter: {} (automatically set)", format_float(auto_eps));
-//     auto_eps
-// }
-
-
-fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
-    // This function automatically sets the minPts parameter, if the user didn't supply one.
-    // The auto-set value will be one-quarter of the assembly count (rounded) but no less than 3.
-    if min_pts_option.is_some() {
-        eprintln!("minPts parameter: {} (user-suppled)", min_pts_option.unwrap());
-        return min_pts_option.unwrap();
+fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
+    node.distance *= scaling_factor;
+    if let Some(left) = &mut node.left {
+        scale_node_distance(left, scaling_factor);
     }
-    let assembly_count = get_assembly_count(&sequences);
-    let mut auto_min_pts = usize_division_rounded(assembly_count, 4);
-    if auto_min_pts < 3 {
-        auto_min_pts = 3;
+    if let Some(right) = &mut node.right {
+        scale_node_distance(right, scaling_factor);
     }
-    eprintln!("minPts parameter: {} (automatically set)", auto_min_pts);
-    auto_min_pts
 }
+
+
+fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cutoff: f64) {
+    let mut seq_id_to_cluster = HashMap::new();
+    let mut current_cluster = 0;
+    define_clusters_from_node(tree, cutoff / 2.0, &mut seq_id_to_cluster, &mut current_cluster);
+    for s in sequences.iter_mut() {
+        s.cluster = *seq_id_to_cluster.get(&s.id).unwrap();
+    }
+}
+
+
+fn define_clusters_from_node(node: &TreeNode, cutoff: f64,
+                             seq_id_to_cluster: &mut HashMap<u16, u16>, current_cluster: &mut u16) {
+    if node.left.is_none() || node.distance < cutoff {  // node is either a tip or a tight group
+        *current_cluster += 1;
+        define_clusters(node, seq_id_to_cluster, *current_cluster);
+    } else {  // node is a loose group, so continue recursively
+        define_clusters_from_node(node.left.as_ref().unwrap(), cutoff, seq_id_to_cluster, current_cluster);
+        define_clusters_from_node(node.right.as_ref().unwrap(), cutoff, seq_id_to_cluster, current_cluster);
+    }
+}
+
+
+fn define_clusters(node: &TreeNode, seq_id_to_cluster: &mut HashMap<u16, u16>, cluster_number: u16) {
+    if node.left.is_none() {  // is a tip
+        seq_id_to_cluster.insert(node.id, cluster_number);
+    } else {
+        define_clusters(node.left.as_ref().unwrap(), seq_id_to_cluster, cluster_number);
+        define_clusters(node.right.as_ref().unwrap(), seq_id_to_cluster, cluster_number);
+    }
+}
+
+
+// fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
+//     // This function automatically sets the minPts parameter, if the user didn't supply one.
+//     // The auto-set value will be one-quarter of the assembly count (rounded) but no less than 3.
+//     if min_pts_option.is_some() {
+//         eprintln!("minPts parameter: {} (user-suppled)", min_pts_option.unwrap());
+//         return min_pts_option.unwrap();
+//     }
+//     let assembly_count = get_assembly_count(&sequences);
+//     let mut auto_min_pts = usize_division_rounded(assembly_count, 4);
+//     if auto_min_pts < 3 {
+//         auto_min_pts = 3;
+//     }
+//     eprintln!("minPts parameter: {} (automatically set)", auto_min_pts);
+//     auto_min_pts
+// }
 
 
 // fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
@@ -395,32 +376,12 @@ fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usiz
 //     }
 // }
 
-// fn exclude_sequences_by_length(sequences: &mut Vec<Sequence>, max_len_var: f64) {
-//     // This function will exclude sequences to ensure that within-cluster sequence lengths don't
-//     // have too much variation.
-//     for c in 1..get_max_cluster(sequences)+1 {
-//         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-//         let cluster_median = median_usize(&lengths);
-//         let (cluster_min, cluster_max) = cluster_min_max_lengths(cluster_median, max_len_var);
-//         for s in &mut *sequences {
-//             if s.cluster == c && s.length < cluster_min {
-//                 s.cluster = -1;
-//                 s.cluster_fail_reason = "too short".to_string();
-//             }
-//             if s.cluster == c && s.length > cluster_max {
-//                 s.cluster = -1;
-//                 s.cluster_fail_reason = "too long".to_string();
-//             }
-//         }
-//     }
+
+// fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, usize) {
+//     let cluster_min = (median_length as f64 * (1.0 - max_len_var)).round() as usize;
+//     let cluster_max = (median_length as f64 * (1.0 + max_len_var)).round() as usize;
+//     (cluster_min, cluster_max)
 // }
-
-
-fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, usize) {
-    let cluster_min = (median_length as f64 * (1.0 - max_len_var)).round() as usize;
-    let cluster_max = (median_length as f64 * (1.0 + max_len_var)).round() as usize;
-    (cluster_min, cluster_max)
-}
 
 
 // fn reorder_clusters(sequences: &mut Vec<Sequence>) {
@@ -460,47 +421,6 @@ fn print_clusters(sequences: &Vec<Sequence>) {
 }
 
 
-// fn save_html_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
-//     let markup = create_html(sequences);
-//     std::fs::write(file_path.clone(), markup.into_string()).unwrap();
-// }
-
-
-// fn save_tsv_table(sequences: &Vec<Sequence>, file_path: &PathBuf) {
-//     let mut f = File::create(&file_path).unwrap();
-//     write!(f, "assembly\tcontig_name\tlength\tcluster\tfail_reason\n").unwrap();
-//     for c in 1..get_max_cluster(sequences)+1 {
-//         for s in sequences {
-//             if s.cluster == c {
-//                 write!(f, "{}\t{}\t{}\t{}\t{}\n", s.filename, s.contig_name(), s.length, c, s.cluster_fail_reason).unwrap();
-//             }
-//         }
-//     }
-//     for s in sequences {
-//         if s.cluster == -1 {
-//             write!(f, "{}\t{}\t{}\tnone\t{}\n", s.filename, s.contig_name(), s.length, s.cluster_fail_reason).unwrap();
-//         }
-//     }
-// }
-
-
-// pub fn remove_excluded_contigs_from_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
-//     section_header("Cleaning graph");
-//     explanation("Excluded contigs (those which could not be clustered) are now removed from the \
-//                  unitig graph.");
-//     let seqs_to_remove: Vec<_> = sequences.iter().filter(|s| s.cluster == -1).collect();
-//     for s in seqs_to_remove {
-//         graph.remove_sequence_from_graph(s.id);
-//     }
-//     graph.remove_zero_depth_unitigs();
-//     let sequences = sequences.iter().filter(|s| s.cluster != -1).cloned().collect();
-//     merge_linear_paths(graph, &sequences);
-//     graph.print_basic_graph_info();
-//     graph.renumber_unitigs();
-//     sequences
-// }
-
-
 fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
     sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len()
 }
@@ -526,51 +446,11 @@ fn get_assemblies(sequences: &[Sequence]) -> Vec<String> {
 }
 
 
-// fn create_html(sequences: &Vec<Sequence>) -> Markup {
-//     let headers: Vec<String> = std::iter::once("Assembly".to_string())
-//         .chain((1..=get_max_cluster(&sequences)).map(|c| format!("cluster {}", c)))
-//         .chain(std::iter::once("excluded".to_string())).collect();
-//     let mut rows = vec![];
-//     for a in get_assemblies(sequences) {
-//         let mut row = vec![a.clone()];
-//         for c in 1..get_max_cluster(sequences)+1 {
-//             let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == c)
-//                 .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
-//             row.push(cell_seqs.join("<br>"));
-//         }
-//         let cell_seqs: Vec<String> = sequences.iter().filter(|s| s.filename == a && s.cluster == -1)
-//             .map(|s| format!("{} ({} bp)", s.contig_name(), s.length)).collect();
-//         row.push(cell_seqs.join("<br>"));
-//         rows.push(row);
-//     }
-
-//     html! {
-//         (DOCTYPE)
-//         html {
-//             head {
-//                 meta charset="utf-8";
-//                 title { "Autocycler clustering" }
-//                 link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css";
-//                 style { "td { vertical-align: middle !important; }" }
-//             }
-//             body {
-//                 h2 { "Autocycler clustering" }
-//                 table class="table" {
-//                     thead class="thead-dark" { tr { @for h in headers { th { (h) } } } }
-//                     tbody { @for row in rows { tr { @for d in row { td { (PreEscaped(d)) } } } } }
-//                 }
-//             }
-//         }
-//     }
-// }
-
-
-fn finished_message(cluster_tsv: &PathBuf, cluster_html: &PathBuf, clean_gfa: &PathBuf) {
+fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf) {
     section_header("Finished!");
-    explanation("You can now run autocycler resolve to resolve repeats.");
-    eprintln!("Cluster table (HTML): {}", cluster_html.display());
-    eprintln!("Cluster table (TSV):  {}", cluster_tsv.display());
-    eprintln!("Cleaned unitig graph: {}", clean_gfa.display());
+    explanation("You can now run autocycler trim on each cluster.");
+    eprintln!("Pairwise distances: {}", pairwise_phylip.display());
+    eprintln!("Clustering tree:    {}", clustering_newick.display());
     eprintln!();
 }
 
@@ -629,150 +509,95 @@ mod tests {
     }
 
     #[test]
-    fn test_select_clusters() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1),
-                                 Sequence::new_with_seq(6, "A".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(7, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(8, "A".to_string(), "assembly_3.fasta".to_string(), "contig_2".to_string(), 1)];
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        sequences[6].cluster = 1; sequences[7].cluster = 2;
-        select_clusters(&mut sequences, 1);
-        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
-        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
-        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
-        
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        sequences[6].cluster = 1; sequences[7].cluster = 2;
-        select_clusters(&mut sequences, 2);
-        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
-        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
-        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
-        
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        sequences[6].cluster = 1; sequences[7].cluster = 2;
-        select_clusters(&mut sequences, 3);
-        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, -1);
-        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, -1);
-        assert_eq!(sequences[6].cluster, 1); assert_eq!(sequences[7].cluster, 2);
-        
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        sequences[6].cluster = 4; sequences[7].cluster = 4;
-        select_clusters(&mut sequences, 1);
-        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
-        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
-        assert_eq!(sequences[6].cluster, 4); assert_eq!(sequences[7].cluster, 4);
-        
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        sequences[6].cluster = 4; sequences[7].cluster = 4;
-        select_clusters(&mut sequences, 2);
-        assert_eq!(sequences[0].cluster, 1); assert_eq!(sequences[1].cluster, 2); assert_eq!(sequences[2].cluster, 3);
-        assert_eq!(sequences[3].cluster, 1); assert_eq!(sequences[4].cluster, 2); assert_eq!(sequences[5].cluster, 3);
-        assert_eq!(sequences[6].cluster, -1); assert_eq!(sequences[7].cluster, -1);
+    fn test_upgma_clustering_1() {
+        // Uses example from https://en.wikipedia.org/wiki/UPGMA
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1),
+                                 Sequence::new_with_seq(5, "A".to_string(), "e".to_string(), "e".to_string(), 1)];
+        let distances = HashMap::from_iter(vec![((1, 1), 00.0), ((1, 2), 17.0), ((1, 3), 21.0), ((1, 4), 31.0), ((1, 5), 23.0),
+                                                ((2, 1), 17.0), ((2, 2), 00.0), ((2, 3), 30.0), ((2, 4), 34.0), ((2, 5), 21.0),
+                                                ((3, 1), 21.0), ((3, 2), 30.0), ((3, 3), 00.0), ((3, 4), 28.0), ((3, 5), 39.0),
+                                                ((4, 1), 31.0), ((4, 2), 34.0), ((4, 3), 28.0), ((4, 4), 00.0), ((4, 5), 43.0),
+                                                ((5, 1), 23.0), ((5, 2), 21.0), ((5, 3), 39.0), ((5, 4), 43.0), ((5, 5), 00.0)]);
+        let root = upgma_clustering(&distances, &mut sequences);
+        assert_almost_eq(root.distance, 16.5, 1e-8);
+
+        let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
+        let newick_string = tree_to_newick(&root, &index);
+        assert_eq!(newick_string, "(((a__a__1_bp:8.5,b__b__1_bp:8.5):2.5,e__e__1_bp:11):5.5,(c__c__1_bp:14,d__d__1_bp:14):2.5)");
     }
 
     #[test]
-    fn test_reorder_clusters() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
-                                 Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
-                                 Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
-                                 Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
-        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-        reorder_clusters(&mut sequences);
-        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
-        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
-        reorder_clusters(&mut sequences);
-        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
-        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    fn test_upgma_clustering_2() {
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1)];
+        let distances = HashMap::from_iter(vec![((1, 1), 0.0), ((1, 2), 0.1), ((1, 3), 0.5), ((1, 4), 0.5),
+                                                ((2, 1), 0.1), ((2, 2), 0.0), ((2, 3), 0.5), ((2, 4), 0.5),
+                                                ((3, 1), 0.5), ((3, 2), 0.5), ((3, 3), 0.0), ((3, 4), 0.2),
+                                                ((4, 1), 0.5), ((4, 2), 0.5), ((4, 3), 0.2), ((4, 4), 0.0)]);
+        let mut root = upgma_clustering(&distances, &mut sequences);
+        normalise_tree(&mut root);
+        assert_almost_eq(root.distance, 0.25, 1e-8);
+
+        let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
+        let newick_string = tree_to_newick(&root, &index);
+        assert_eq!(newick_string, "((a__a__1_bp:0.05,b__b__1_bp:0.05):0.2,(c__c__1_bp:0.1,d__d__1_bp:0.1):0.15)");
     }
 
-    #[test]
-    fn test_set_eps() {
-        let distances = HashMap::from_iter(vec![]);
-        assert_almost_eq(set_eps(Some(0.123), &distances), 0.123, 1e-8);
-        assert_almost_eq(set_eps(Some(0.321), &distances), 0.321, 1e-8);
+    // #[test]
+    // fn test_reorder_clusters() {
+    //     let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
+    //                              Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+    //                              Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
+    //                              Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
+    //                              Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
+    //                              Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
+    //     sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+    //     sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+    //     reorder_clusters(&mut sequences);
+    //     assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+    //     assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    //     reorder_clusters(&mut sequences);
+    //     assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+    //     assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    // }
 
-        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.01),((1, 3), 0.90),((1, 4), 0.02),
-                                                ((2, 1), 0.01),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
-                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
-                                                ((4, 1), 0.02),((4, 2), 0.01),((4, 3), 0.90),((4, 4), 0.00)]);
-        assert_almost_eq(set_eps(None, &distances), 0.02, 1e-8);
+    // #[test]
+    // fn test_set_minpts() {
+    //     let sequences = vec![];
+    //     assert_eq!(set_min_pts(Some(2), &sequences), 2);
+    //     assert_eq!(set_min_pts(Some(3), &sequences), 3);
+    //     assert_eq!(set_min_pts(Some(4), &sequences), 4);
 
-        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.01),((1, 3), 0.90),((1, 4), 0.01),
-                                                ((2, 1), 0.02),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
-                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
-                                                ((4, 1), 0.02),((4, 2), 0.02),((4, 3), 0.90),((4, 4), 0.00)]);
-        assert_almost_eq(set_eps(None, &distances), 0.03, 1e-8);
+    //     let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+    //                          Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1)];
+    //     assert_eq!(set_min_pts(None, &sequences), 3);
 
-        let distances = HashMap::from_iter(vec![((1, 1), 0.00),((1, 2), 0.02),((1, 3), 0.90),((1, 4), 0.02),
-                                                ((2, 1), 0.02),((2, 2), 0.00),((2, 3), 0.80),((2, 4), 0.01),
-                                                ((3, 1), 0.90),((3, 2), 0.80),((3, 3), 0.00),((3, 4), 0.90),
-                                                ((4, 1), 0.02),((4, 2), 0.01),((4, 3), 0.90),((4, 4), 0.00)]);
-        assert_almost_eq(set_eps(None, &distances), 0.04, 1e-8);
-
-    }
-
-    #[test]
-    fn test_set_minpts() {
-        let sequences = vec![];
-        assert_eq!(set_min_pts(Some(2), &sequences), 2);
-        assert_eq!(set_min_pts(Some(3), &sequences), 3);
-        assert_eq!(set_min_pts(Some(4), &sequences), 4);
-
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1)];
-        assert_eq!(set_min_pts(None, &sequences), 3);
-
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(5, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_13.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_14.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_15.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(6, "A".to_string(), "assembly_16.fasta".to_string(), "contig_1".to_string(), 1)];
-        assert_eq!(set_min_pts(None, &sequences), 4);
-    }
-
-    #[test]
-    fn test_cluster_min_max_lengths() {
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.1);
-        assert_eq!(cluster_min, 900); assert_eq!(cluster_max, 1100);
-
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(10000, 0.1);
-        assert_eq!(cluster_min, 9000); assert_eq!(cluster_max, 11000);
-
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.01);
-        assert_eq!(cluster_min, 990); assert_eq!(cluster_max, 1010);
-
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.5);
-        assert_eq!(cluster_min, 500); assert_eq!(cluster_max, 1500);
-
-        let (cluster_min, cluster_max) = cluster_min_max_lengths(1000, 0.9);
-        assert_eq!(cluster_min, 100); assert_eq!(cluster_max, 1900);
-    }
+    //     let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
+    //                          Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(5, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_2".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_13.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_14.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_15.fasta".to_string(), "contig_1".to_string(), 1),
+    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_16.fasta".to_string(), "contig_1".to_string(), 1)];
+    //     assert_eq!(set_min_pts(None, &sequences), 4);
+    // }
 }

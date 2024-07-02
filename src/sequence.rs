@@ -75,7 +75,7 @@ impl Sequence {
     }
 
     pub fn string_for_newick(&self) -> String {
-        format!("{}__{}__{}__{}bp", self.id, self.filename, self.contig_name(), self.length)
+        format!("{}__{}__{}_bp", self.filename, self.contig_name(), self.length)
     }
 }
 

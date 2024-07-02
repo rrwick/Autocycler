@@ -89,7 +89,7 @@ enum Commands {
         out_dir: PathBuf,
 
         /// cutoff distance threshold for hierarchical clustering
-        #[clap(short = 'c', long = "cutoff", default_value = "0.1")]
+        #[clap(short = 'c', long = "cutoff", default_value = "0.05")]
         cutoff: f64,
 
         /// exclude clusters with fewer than this many assemblies
