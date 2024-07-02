@@ -24,7 +24,7 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies: Option<usize>) {
+pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
     let cluster_dir = out_dir.join("02_clustering");
     // TODO: delete cluster_dir if it already exists
@@ -32,10 +32,12 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies: Option<usize>) {
     let pairwise_phylip = cluster_dir.join("pairwise_distances.phylip");
     let clustering_newick = cluster_dir.join("clustering.newick");
     // let clustering_png = cluster_dir.join("clustering.png");
-    check_settings(&out_dir, &gfa, cutoff, &min_assemblies);
+    check_settings(&out_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
-    print_settings(&out_dir, cutoff, &min_assemblies);
     let (unitig_graph, mut sequences) = load_graph(&gfa);
+    let assembly_count = get_assembly_count(&sequences);
+    let min_assemblies = set_min_assemblies(min_assemblies_option, assembly_count);
+    print_settings(&out_dir, cutoff, min_assemblies, min_assemblies_option);
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
@@ -75,14 +77,15 @@ fn starting_message() {
 }
 
 
-fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
+fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
+                  min_assemblies_option: Option<usize>) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
-    if min_assemblies.is_none() {
-        eprintln!("  --min_assemblies (automatically set)");
+    if min_assemblies_option.is_none() {
+        eprintln!("  --min_assemblies {} (automatically set)", min_assemblies);
     } else {
-        eprintln!("  --min_assemblies {}", min_assemblies.unwrap());
+        eprintln!("  --min_assemblies {}", min_assemblies);
     }
     eprintln!();
 }
@@ -344,21 +347,19 @@ fn define_clusters(node: &TreeNode, seq_id_to_cluster: &mut HashMap<u16, u16>, c
 }
 
 
-// fn set_min_pts(min_pts_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
-//     // This function automatically sets the minPts parameter, if the user didn't supply one.
-//     // The auto-set value will be one-quarter of the assembly count (rounded) but no less than 3.
-//     if min_pts_option.is_some() {
-//         eprintln!("minPts parameter: {} (user-suppled)", min_pts_option.unwrap());
-//         return min_pts_option.unwrap();
-//     }
-//     let assembly_count = get_assembly_count(&sequences);
-//     let mut auto_min_pts = usize_division_rounded(assembly_count, 4);
-//     if auto_min_pts < 3 {
-//         auto_min_pts = 3;
-//     }
-//     eprintln!("minPts parameter: {} (automatically set)", auto_min_pts);
-//     auto_min_pts
-// }
+fn set_min_assemblies(min_assemblies_option: Option<usize>, assembly_count: usize) -> usize {
+    // This function automatically sets the --min_assemblies parameter, if the user didn't
+    // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
+    // but no less than 2.
+    if min_assemblies_option.is_some() {
+        return min_assemblies_option.unwrap();
+    }
+    let mut min_assemblies = usize_division_rounded(assembly_count, 4);
+    if min_assemblies < 2 {
+        min_assemblies = 2;
+    }
+    min_assemblies
+}
 
 
 // fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
@@ -566,38 +567,16 @@ mod tests {
     //     assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
     // }
 
-    // #[test]
-    // fn test_set_minpts() {
-    //     let sequences = vec![];
-    //     assert_eq!(set_min_pts(Some(2), &sequences), 2);
-    //     assert_eq!(set_min_pts(Some(3), &sequences), 3);
-    //     assert_eq!(set_min_pts(Some(4), &sequences), 4);
-
-    //     let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-    //                          Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1)];
-    //     assert_eq!(set_min_pts(None, &sequences), 3);
-
-    //     let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-    //                          Sequence::new_with_seq(3, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(4, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(5, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_2".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_13.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_14.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_15.fasta".to_string(), "contig_1".to_string(), 1),
-    //                          Sequence::new_with_seq(6, "A".to_string(), "assembly_16.fasta".to_string(), "contig_1".to_string(), 1)];
-    //     assert_eq!(set_min_pts(None, &sequences), 4);
-    // }
+    #[test]
+    fn test_set_minpts() {
+        assert_eq!(set_min_assemblies(Some(2), 10), 2);
+        assert_eq!(set_min_assemblies(Some(11), 10), 11);
+        assert_eq!(set_min_assemblies(Some(321), 10), 321);
+        assert_eq!(set_min_assemblies(None, 4), 2);
+        assert_eq!(set_min_assemblies(None, 8), 2);
+        assert_eq!(set_min_assemblies(None, 12), 3);
+        assert_eq!(set_min_assemblies(None, 13), 3);
+        assert_eq!(set_min_assemblies(None, 15), 4);
+        assert_eq!(set_min_assemblies(None, 16), 4);
+    }
 }

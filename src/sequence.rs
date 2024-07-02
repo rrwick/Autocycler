@@ -42,8 +42,8 @@ impl Sequence {
 
         Sequence {
             id,
-            forward_seq: forward_seq,
-            reverse_seq: reverse_seq,
+            forward_seq,
+            reverse_seq,
             filename,
             contig_header,
             length,
