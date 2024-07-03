@@ -14,7 +14,7 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::GzDecoder;
 use std::collections::HashSet;
-use std::fs::{File, read_dir, create_dir_all};
+use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
 use std::io::{prelude::*, BufReader};
 use std::path::{Path, PathBuf};
@@ -28,10 +28,20 @@ pub mod strand {
 }
 
 
-pub fn create_dir(out_dir: &PathBuf) {
-    match create_dir_all(&out_dir) {
+pub fn create_dir(dir_path: &PathBuf) {
+    match create_dir_all(&dir_path) {
         Ok(_) => {},
         Err(e) => quit_with_error(&format!("failed to create directory\n{:?}", e)),
+    }
+}
+
+
+pub fn delete_dir_if_exists(dir_path: &PathBuf) {
+    if dir_path.exists() && dir_path.is_dir() {
+        match remove_dir_all(&dir_path) {
+            Ok(_) => {},
+            Err(e) => quit_with_error(&format!("failed to delete directory\n{:?}", e)),
+        }
     }
 }
 

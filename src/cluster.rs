@@ -11,6 +11,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
@@ -19,7 +20,8 @@ use std::path::PathBuf;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_f64, median_usize,
-                  round_float, quit_with_error, usize_division_rounded, create_dir};
+                  round_float, quit_with_error, usize_division_rounded, create_dir,
+                  delete_dir_if_exists};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -27,7 +29,7 @@ use crate::unitig_graph::UnitigGraph;
 pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
     let cluster_dir = out_dir.join("02_clustering");
-    // TODO: delete cluster_dir if it already exists
+    delete_dir_if_exists(&cluster_dir);
     create_dir(&cluster_dir);
     let pairwise_phylip = cluster_dir.join("pairwise_distances.phylip");
     let clustering_newick = cluster_dir.join("clustering.newick");
@@ -44,9 +46,9 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
-    print_clusters(&sequences);
-
-    // TODO: choose which clusters pass/fail
+    reorder_clusters(&mut sequences);
+    let cluster_qc_results = cluster_qc(&sequences, min_assemblies);
+    print_clusters(&sequences, &cluster_qc_results);
 
     // TODO: save a PNG (or maybe SVG?) drawing of the tree to file
 
@@ -196,7 +198,8 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
         (Some(left), Some(right)) => {
             let left_str = tree_to_newick(left, &index);
             let right_str = tree_to_newick(right, &index);
-            format!("({}:{},{}:{})", left_str, node.distance - left.distance, right_str, node.distance - right.distance)
+            format!("({}:{},{}:{})", left_str, node.distance - left.distance,
+                                     right_str, node.distance - right.distance)
         }
         _ => format!("{}", index.get(&node.id).unwrap().string_for_newick()),
     }
@@ -362,63 +365,93 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, assembly_count: usiz
 }
 
 
-// fn select_clusters(sequences: &mut Vec<Sequence>, minpts: usize) {
-//     // Clusters that appear in too few assemblies are excluded.
-//     for c in 1..get_max_cluster(sequences)+1 {
-//         let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
-//         if assemblies.len() < minpts {
-//             for s in &mut *sequences {
-//                 if s.cluster == c {
-//                     s.cluster = -1;
-//                     s.cluster_fail_reason = "cluster in too few assemblies".to_string();
-//                 }
-//             }
-//         }
-//     }
-// }
-
-
-// fn cluster_min_max_lengths(median_length: usize, max_len_var: f64) -> (usize, usize) {
-//     let cluster_min = (median_length as f64 * (1.0 - max_len_var)).round() as usize;
-//     let cluster_max = (median_length as f64 * (1.0 + max_len_var)).round() as usize;
-//     (cluster_min, cluster_max)
-// }
-
-
-// fn reorder_clusters(sequences: &mut Vec<Sequence>) {
-//     // Reorder clusters based on their median sequence length (large to small).
-//     let mut cluster_lengths = HashMap::new();
-//     for c in 1..get_max_cluster(sequences)+1 {
-//         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-//         cluster_lengths.insert(c, median_usize(&lengths));
-//     }
-//     let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
-//     sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
-//     let mut old_to_new = HashMap::new();
-//     let mut new_c: i32 = 0;
-//     for (old_c, _length) in sorted_cluster_lengths {
-//         new_c += 1;
-//         old_to_new.insert(old_c, new_c);
-//     }
-//     for s in sequences {
-//         if s.cluster < 1 {continue;}
-//         s.cluster = *old_to_new.get(&s.cluster).unwrap();
-//     }
-// }
-
-
-fn print_clusters(sequences: &Vec<Sequence>) {
+fn cluster_qc(sequences: &Vec<Sequence>, min_assemblies: usize) -> HashMap<u16, Vec<String>>{
+    // This function chooses which clusters pass and which clusters fail. It returns the result as
+    // a vector of failure reasons, with an empty vector meaning the cluster passed QC.
+    for s in sequences {
+        assert!(s.cluster != 0);
+    }
+    let mut results = HashMap::new();
     for c in 1..get_max_cluster(sequences)+1 {
-        eprintln!("Cluster {}:", c);
-        for s in sequences {
-            assert!(s.cluster != 0);
-            if s.cluster == c {
+        let mut failure_reasons = Vec::new();
+        let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
+        let containing_cluster = cluster_is_contained_in_another(c);
+        if assemblies.len() < min_assemblies {
+            failure_reasons.push("present in too few assemblies".to_string());
+        }
+        if containing_cluster > 0 {
+            failure_reasons.push(format!("contained within cluster {}", containing_cluster));
+        }
+        results.insert(c, failure_reasons);
+    }
+    results
+}
+
+
+fn cluster_is_contained_in_another(cluster_num: u16) -> u16 {
+    // Checks whether this cluster is contained within another cluster. If so, it returns the id
+    // of the containing cluster. If not, it returns 0.
+
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    0  // TEMP
+}
+
+
+fn print_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>) {
+    // First print QC-pass clusters.
+    for c in 1..get_max_cluster(sequences)+1 {
+        let failure_reasons = qc_results.get(&c).unwrap();
+        if failure_reasons.len() == 0 {
+            eprintln!("Cluster {}:", c);
+            for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s);
             }
+            eprintln!("{}", "  passed QC".green());
+            eprintln!();
         }
-        eprintln!();
     }
-    eprintln!();
+
+    // Then print QC-fail clusters.
+    for c in 1..get_max_cluster(sequences)+1 {
+        let failure_reasons = qc_results.get(&c).unwrap();
+        if failure_reasons.len() > 0 {
+            eprintln!("Cluster {}:", c);
+            for s in sequences.iter().filter(|s| s.cluster == c) {
+                eprintln!("  {}", s);
+            }
+            for f in failure_reasons {
+                eprintln!("  {}", format!("failed QC: {}", f).red());
+            }
+            eprintln!();
+        }
+    }
+}
+
+
+fn reorder_clusters(sequences: &mut Vec<Sequence>) {
+    // Reorder clusters based on their median sequence length (large to small).
+    let mut cluster_lengths = HashMap::new();
+    for c in 1..get_max_cluster(sequences)+1 {
+        let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
+        cluster_lengths.insert(c, median_usize(&lengths));
+    }
+    let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
+    sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
+    let mut old_to_new = HashMap::new();
+    let mut new_c: u16 = 0;
+    for (old_c, _length) in sorted_cluster_lengths {
+        new_c += 1;
+        old_to_new.insert(old_c, new_c);
+    }
+    for s in sequences {
+        if s.cluster < 1 {continue;}
+        s.cluster = *old_to_new.get(&s.cluster).unwrap();
+    }
 }
 
 
