@@ -28,12 +28,12 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
     let gfa = out_dir.join("01_unitig_graph.gfa");
-    let cluster_dir = out_dir.join("02_clustering");
-    delete_dir_if_exists(&cluster_dir);
-    create_dir(&cluster_dir);
-    let pairwise_phylip = cluster_dir.join("pairwise_distances.phylip");
-    let clustering_newick = cluster_dir.join("clustering.newick");
-    // let clustering_png = cluster_dir.join("clustering.png");
+    let clustering_dir = out_dir.join("02_clustering");
+    delete_dir_if_exists(&clustering_dir);
+    create_dir(&clustering_dir);
+    let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
+    let clustering_newick = clustering_dir.join("clustering.newick");
+    // let clustering_png = clustering_dir.join("clustering.png");
     check_settings(&out_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
     let (unitig_graph, mut sequences) = load_graph(&gfa);
@@ -47,12 +47,10 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
     reorder_clusters(&mut sequences);
-    let cluster_qc_results = cluster_qc(&sequences, min_assemblies);
-    print_clusters(&sequences, &cluster_qc_results);
+    let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
+    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &unitig_graph);
 
-    // TODO: save a PNG (or maybe SVG?) drawing of the tree to file
-
-    // TODO: create a directory for each cluster with a GFA 
+    // TODO: save a PNG (or maybe SVG/PDF?) drawing of the tree to file
 
     finished_message(&pairwise_phylip, &clustering_newick);
 }
@@ -125,9 +123,7 @@ fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequenc
     }
     eprintln!("{} sequences, {} total pairwise distances", sequences.len(), distances.len());
     eprintln!();
-    eprintln!("Saving distance matrix:");
     save_distance_matrix(&distances, &sequences, file_path);
-    eprintln!();
     distances
 }
 
@@ -138,6 +134,7 @@ fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32
 
 
 fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>, file_path: &PathBuf) {
+    eprintln!("Saving distance matrix:");
     let mut f = File::create(&file_path).unwrap();
     write!(f, "{}\n", sequences.len()).unwrap();
     for seq_a in sequences {
@@ -148,6 +145,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Se
         write!(f, "\n").unwrap();
     }
     eprintln!("  {}", file_path.display());
+    eprintln!();
 }
 
 
@@ -181,6 +179,7 @@ struct TreeNode {
 fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &PathBuf) {
     // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
     // length of the root, in order to ensure that root-to-tip distances are 0.5.
+    eprintln!("Saving clustering tree:");
     let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
     let newick_string = tree_to_newick(root, &index);
     let mut file = File::create(file_path).unwrap();
@@ -190,6 +189,8 @@ fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &P
     } else {
         write!(file, "{};\n", newick_string).unwrap();
     }
+    eprintln!("  {}", file_path.display());
+    eprintln!();
 }
 
 
@@ -325,6 +326,8 @@ fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cut
     for s in sequences.iter_mut() {
         s.cluster = *seq_id_to_cluster.get(&s.id).unwrap();
     }
+    eprintln!("{} clusters", current_cluster);
+    eprintln!();
 }
 
 
@@ -365,45 +368,67 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, assembly_count: usiz
 }
 
 
-fn cluster_qc(sequences: &Vec<Sequence>, min_assemblies: usize) -> HashMap<u16, Vec<String>>{
+fn cluster_qc(sequences: &Vec<Sequence>, distances: &HashMap<(u16, u16), f64>, cutoff: f64,
+              min_assemblies: usize) -> HashMap<u16, Vec<String>> {
     // This function chooses which clusters pass and which clusters fail. It returns the result as
     // a vector of failure reasons, with an empty vector meaning the cluster passed QC.
+    section_header("Cluster QC");
+    explanation("Clusters are rejected if they occur in too few assemblies (set by \
+                 --min_assemblies) or if they appear to be contained within a larger better \
+                 cluster.");
     for s in sequences {
         assert!(s.cluster != 0);
     }
-    let mut results = HashMap::new();
-    for c in 1..get_max_cluster(sequences)+1 {
-        let mut failure_reasons = Vec::new();
+    let max_cluster = get_max_cluster(&sequences) + 1;
+    let mut failure_reasons: HashMap<u16, Vec<String>> = (1..=max_cluster).map(|c| (c, Vec::new())).collect();
+
+    for c in 1..max_cluster {
         let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
-        let containing_cluster = cluster_is_contained_in_another(c);
         if assemblies.len() < min_assemblies {
-            failure_reasons.push("present in too few assemblies".to_string());
+            failure_reasons.get_mut(&c).unwrap().push("present in too few assemblies".to_string());
         }
-        if containing_cluster > 0 {
-            failure_reasons.push(format!("contained within cluster {}", containing_cluster));
-        }
-        results.insert(c, failure_reasons);
     }
-    results
+
+    for c in 1..max_cluster {
+        let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &failure_reasons);
+        if container > 0 {
+            failure_reasons.get_mut(&c).unwrap().push(format!("contained within cluster {}", container));
+        }
+    }
+
+    failure_reasons
 }
 
 
-fn cluster_is_contained_in_another(cluster_num: u16) -> u16 {
-    // Checks whether this cluster is contained within another cluster. If so, it returns the id
-    // of the containing cluster. If not, it returns 0.
-
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-
-    0  // TEMP
+fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
+                                   distances: &HashMap<(u16, u16), f64>, cutoff: f64,
+                                   failure_reasons: &HashMap<u16, Vec<String>>) -> u16 {
+    // Checks whether this cluster is contained within another cluster that has so-far passed QC.
+    // If so, it returns the id of the containing cluster. If not, it returns 0.
+    let passed_clusters: Vec<u16> = failure_reasons.iter().filter(|(_, v)| v.is_empty()).map(|(&k, _)| k).collect();
+    for seq_a in sequences.iter().filter(|s| s.cluster == cluster_num) {
+        for seq_b in sequences.iter().filter(|s| s.cluster != cluster_num && passed_clusters.contains(&s.cluster)) {
+            let distance_a_b = distances.get(&(seq_a.id, seq_b.id)).unwrap();
+            let distance_b_a = distances.get(&(seq_b.id, seq_a.id)).unwrap();
+            if *distance_a_b < *distance_b_a && *distance_a_b < cutoff {
+                return seq_b.cluster;
+            }
+        }
+    }
+    0
 }
 
 
-fn print_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>) {
-    // First print QC-pass clusters.
+fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+                 clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
+    save_qc_pass_clusters(sequences, qc_results, clustering_dir, unitig_graph);
+    save_qc_fail_clusters(sequences, qc_results, clustering_dir, unitig_graph);
+}
+
+
+fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+                         clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
+    let pass_dir = clustering_dir.join("qc_pass");
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() == 0 {
@@ -413,23 +438,38 @@ fn print_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<Strin
             }
             eprintln!("{}", "  passed QC".green());
             eprintln!();
+            let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
+            create_dir(&cluster_dir);
+            save_cluster_gfa(unitig_graph, &sequences, c, cluster_dir.join("1_untrimmed.gfa"));
         }
     }
+}
 
-    // Then print QC-fail clusters.
+
+fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+                         clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
+    let fail_dir = clustering_dir.join("qc_fail");
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() > 0 {
             eprintln!("Cluster {}:", c);
             for s in sequences.iter().filter(|s| s.cluster == c) {
-                eprintln!("  {}", s);
+                eprintln!("  {}", s.to_string().dimmed());
             }
             for f in failure_reasons {
                 eprintln!("  {}", format!("failed QC: {}", f).red());
             }
             eprintln!();
+            let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
+            create_dir(&cluster_dir);
+            save_cluster_gfa(unitig_graph, &sequences, c, cluster_dir.join("1_untrimmed.gfa"));
         }
     }
+}
+
+
+fn save_cluster_gfa(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, cluster_num: u16, file_path: PathBuf) {
+
 }
 
 
@@ -462,21 +502,6 @@ fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
 
 fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
     sequences.iter().map(|s| s.cluster).max().unwrap()
-}
-
-
-fn get_assemblies(sequences: &[Sequence]) -> Vec<String> {
-    // Returns the assembly filenames, without duplicates, in the same order as they are first seen
-    // in Sequence objects.
-    let mut seen = HashSet::new();
-    let mut assemblies = Vec::new();
-    for s in sequences.iter() {
-        let a = s.filename.clone();
-        if seen.insert(a.clone()) {
-            assemblies.push(a);
-        }
-    }
-    assemblies
 }
 
 
@@ -524,22 +549,6 @@ mod tests {
         assert_eq!(get_max_cluster(&sequences), 3);
         sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3; sequences[3].cluster = 5; sequences[4].cluster = 4;
         assert_eq!(get_max_cluster(&sequences), 5);
-    }
-
-    #[test]
-    fn test_get_assemblies() {
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
-        assert_eq!(get_assemblies(&sequences), vec!["assembly_1.fasta".to_string(), "assembly_2.fasta".to_string()]);
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_4.fasta".to_string(), "contig_3".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(5, "A".to_string(), "assembly_3.fasta".to_string(), "contig_2".to_string(), 1)];
-        assert_eq!(get_assemblies(&sequences), vec!["assembly_2.fasta".to_string(), "assembly_1.fasta".to_string(), "assembly_4.fasta".to_string(), "assembly_3.fasta".to_string()]);
     }
 
     #[test]
