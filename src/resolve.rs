@@ -23,7 +23,7 @@ pub fn resolve(out_dir: PathBuf) {
     check_settings(&out_dir, &gfa);
     starting_message();
     print_settings(&out_dir);
-    let (unitig_graph, sequences) = load_graph(&gfa);
+    let (unitig_graph, sequences) = load_graph(&gfa, true);
 
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure

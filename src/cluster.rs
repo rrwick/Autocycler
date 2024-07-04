@@ -19,9 +19,8 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_f64, median_usize,
-                  round_float, quit_with_error, usize_division_rounded, create_dir,
-                  delete_dir_if_exists};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
+                  quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -36,7 +35,7 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     // let clustering_png = clustering_dir.join("clustering.png");
     check_settings(&out_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
-    let (unitig_graph, mut sequences) = load_graph(&gfa);
+    let (unitig_graph, mut sequences) = load_graph(&gfa, true);
     let assembly_count = get_assembly_count(&sequences);
     let min_assemblies = set_min_assemblies(min_assemblies_option, assembly_count);
     print_settings(&out_dir, cutoff, min_assemblies, min_assemblies_option);
@@ -48,7 +47,7 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
     reorder_clusters(&mut sequences);
     let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
-    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &unitig_graph);
+    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa);
 
     // TODO: save a PNG (or maybe SVG/PDF?) drawing of the tree to file
 
@@ -91,11 +90,15 @@ fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
 }
 
 
-pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
-    section_header("Loading graph");
-    explanation("The compressed sequence graph is now loaded into memory.");
+pub fn load_graph(gfa: &PathBuf, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
+    if print_info {
+        section_header("Loading graph");
+        explanation("The compressed sequence graph is now loaded into memory.");
+    }
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
-    unitig_graph.print_basic_graph_info();
+    if print_info {
+        unitig_graph.print_basic_graph_info();
+    }
     (unitig_graph, sequences)
 }
 
@@ -420,19 +423,21 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
 
 
 fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                 clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
-    save_qc_pass_clusters(sequences, qc_results, clustering_dir, unitig_graph);
-    save_qc_fail_clusters(sequences, qc_results, clustering_dir, unitig_graph);
+                 clustering_dir: &PathBuf, gfa_path: &PathBuf) {
+    let pass_dir = clustering_dir.join("qc_pass");
+    let fail_dir = clustering_dir.join("qc_fail");
+    let all_seq_ids: Vec<_> = sequences.iter().map(|s| s.id).collect();
+    save_qc_pass_clusters(sequences, &all_seq_ids, qc_results, gfa_path, &pass_dir);
+    save_qc_fail_clusters(sequences, &all_seq_ids, qc_results, gfa_path, &fail_dir);
 }
 
 
-fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                         clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
-    let pass_dir = clustering_dir.join("qc_pass");
+fn save_qc_pass_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_results: &HashMap<u16, Vec<String>>,
+                         gfa_path: &PathBuf, pass_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() == 0 {
-            eprintln!("Cluster {}:", c);
+            eprintln!("Cluster {:03}:", c);
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s);
             }
@@ -440,41 +445,52 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
             eprintln!();
             let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(unitig_graph, &sequences, c, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, all_seq_ids, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
         }
     }
 }
 
 
-fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                         clustering_dir: &PathBuf, unitig_graph: &UnitigGraph) {
-    let fail_dir = clustering_dir.join("qc_fail");
+fn save_qc_fail_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_results: &HashMap<u16, Vec<String>>,
+                         gfa_path: &PathBuf, fail_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() > 0 {
-            eprintln!("Cluster {}:", c);
+            eprintln!("Cluster {:03}:", c);
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s.to_string().dimmed());
             }
             for f in failure_reasons {
                 eprintln!("  {}", format!("failed QC: {}", f).red());
             }
-            eprintln!();
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(unitig_graph, &sequences, c, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, all_seq_ids, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
+            eprintln!();
         }
     }
 }
 
 
-fn save_cluster_gfa(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, cluster_num: u16, file_path: PathBuf) {
-
+fn save_cluster_gfa(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, cluster_num: u16,
+                    in_gfa: &PathBuf, out_gfa: PathBuf) {
+    let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num).cloned().collect();
+    let (mut cluster_graph, _) = load_graph(&in_gfa, false);
+    let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num).map(|s| s.id).collect();
+    for id in seq_ids_to_remove {
+        cluster_graph.remove_sequence_from_graph(id);
+    }
+    cluster_graph.remove_zero_depth_unitigs();
+    merge_linear_paths(&mut cluster_graph, &cluster_seqs);
+    cluster_graph.save_gfa(&out_gfa, &cluster_seqs).unwrap();
 }
 
 
 fn reorder_clusters(sequences: &mut Vec<Sequence>) {
     // Reorder clusters based on their median sequence length (large to small).
+    // TODO: perhaps sort not based on sequence length but on UNIQUE sequence length (the sum of 
+    //       the lengths of all unitigs). This will prevent doubled plasmids from being longer than
+    //       they should be.
     let mut cluster_lengths = HashMap::new();
     for c in 1..get_max_cluster(sequences)+1 {
         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();

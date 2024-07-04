@@ -29,7 +29,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     starting_message();
     print_settings(&in_gfa, &out_dir);
     create_dir(&out_dir);
-    let (unitig_graph, sequences) = load_graph(&in_gfa);
+    let (unitig_graph, sequences) = load_graph(&in_gfa, true);
     save_original_seqs(&out_dir, &unitig_graph, &sequences);
 }
 

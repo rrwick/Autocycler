@@ -532,7 +532,6 @@ impl UnitigGraph {
         }
     }
 
-
     pub fn remove_zero_depth_unitigs(&mut self) {
         // Removes zero-depth unitigs from the graph. Doing so can create new dead-ends, so this
         // function first un-trims the contigs (adds overlap back on) and then re-trims after the
