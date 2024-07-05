@@ -12,9 +12,11 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -23,13 +25,83 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
-                         min_identity: f64, max_unitigs: usize) -> Vec<Sequence> {
+pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize) {
+    let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
+    let untrimmed_dotplots = cluster_dir.join("2_untrimmed_dotplots.png");
+    let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
+    let trimmed_dotplots = cluster_dir.join("4_trimmed_dotplots.png");
+    check_settings(&cluster_dir, &untrimmed_gfa, min_identity);
+    starting_message();
+    print_settings(&cluster_dir, min_identity, max_unitigs);
+    let (mut unitig_graph, sequences) = load_graph(&untrimmed_gfa);
+
+    // TODO: create dotplots of the sequences before trimming
+
+    let sequences = trim_start_end_overlap(&mut unitig_graph, &sequences, min_identity, max_unitigs);
+    let sequences = trim_hairpin_overlap(&mut unitig_graph, &sequences, min_identity, max_unitigs);
+
+    // TODO: exclude sequences which differ too much in length
+
+    unitig_graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
+
+    // TODO: create dotplots of the sequences after trimming
+
+    finished_message(&untrimmed_dotplots, &trimmed_dotplots);
+}
+
+
+fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64) {
+    check_if_dir_exists(&cluster_dir);
+    check_if_file_exists(&untrimmed_gfa);
+    if min_identity < 0.5 || min_identity > 1.0 {
+        quit_with_error("--min_identity must be between 0.5 and 1 (inclusive)");
+    }
+}
+
+
+fn starting_message() {
+    section_header("Starting autocycler trim");
+    explanation("This command takes a single-cluster unitig graph (made by autocycler cluster) and \
+                 trims any overlaps. It looks for both start-end overlaps (can occur with circular \
+                 sequences) and hairpin overlaps (can occur with linear sequences).");
+}
+
+
+fn finished_message(untrimmed_dotplots: &PathBuf, trimmed_dotplots: &PathBuf) {
+    section_header("Finished!");
+    explanation("You can now run autocycler resolve on this cluster. If you want to manually \
+                 inspect the trimming, you can view the following files.");
+    eprintln!("Pairwise dotplots of untrimmed sequences: {}", untrimmed_dotplots.display());
+    eprintln!("Pairwise dotplots of trimmed sequences:   {}", trimmed_dotplots.display());
+    eprintln!();
+}
+
+
+fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_overlap_unitigs: usize) {
+    eprintln!("Settings:");
+    eprintln!("  --cluster_dir {}", cluster_dir.display());
+    eprintln!("  --min_identity {}", format_float(min_identity));
+    eprintln!("  --max_overlap_unitigs {}", max_overlap_unitigs);
+    eprintln!();
+}
+
+
+fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+    section_header("Loading graph");
+    explanation("The unitig graph is now loaded into memory.");
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    unitig_graph.print_basic_graph_info();
+    (unitig_graph, sequences)
+}
+
+
+fn trim_start_end_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
+                          min_identity: f64, max_unitigs: usize) -> Vec<Sequence> {
     if max_unitigs == 0 {
         return sequences.clone();
     }
-    section_header("Trim path overlaps");
-    explanation("Paths for circular replicons may contain start-end overlap. These overlaps are \
+    section_header("Trim start-end overlaps");
+    explanation("Paths for circular replicons may contain start-end overlaps. These overlaps are \
                  searched for and trimmed if found.");
     let weights: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
     let mut trimmed_sequences = vec![];
@@ -58,6 +130,25 @@ pub fn trim_path_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
     trimmed_sequences
+}
+
+
+fn trim_hairpin_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
+                        min_identity: f64, max_unitigs: usize) -> Vec<Sequence> {
+    if max_unitigs == 0 {
+        return sequences.clone();
+    }
+    section_header("Trim hairpin overlaps");
+    explanation("Paths for linear replicons may contain hairpin overlaps. These overlaps are \
+                 searched for and trimmed if found.");
+
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    sequences.clone()  // TEMP
 }
 
 

@@ -26,20 +26,20 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
-    let gfa = out_dir.join("01_unitig_graph.gfa");
-    let clustering_dir = out_dir.join("02_clustering");
+pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
+    let gfa = autocycler_dir.join("01_input_assemblies.gfa");
+    let clustering_dir = autocycler_dir.join("2_clustering");
     delete_dir_if_exists(&clustering_dir);
     create_dir(&clustering_dir);
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
     let clustering_newick = clustering_dir.join("clustering.newick");
     let clustering_pdf = clustering_dir.join("clustering.pdf");
-    check_settings(&out_dir, &gfa, cutoff, &min_assemblies_option);
+    check_settings(&autocycler_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
     let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
-    print_settings(&out_dir, cutoff, min_assemblies, min_assemblies_option);
+    print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
@@ -55,11 +55,11 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
 }
 
 
-fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
-    check_if_dir_exists(&out_dir);
+fn check_settings(autocycler_dir: &PathBuf, gfa: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
+    check_if_dir_exists(&autocycler_dir);
     check_if_file_exists(&gfa);
     if cutoff <= 0.0 || cutoff >= 1.0 {
-        quit_with_error("--min_overlap_id must be between 0 and 1 (exclusive)");
+        quit_with_error("--cutoff must be between 0 and 1 (exclusive)");
     }
     if min_assemblies.is_some() && min_assemblies.unwrap() < 1 {
         quit_with_error("--min_assemblies must be 1 or greater");
@@ -69,10 +69,9 @@ fn check_settings(out_dir: &PathBuf, gfa: &PathBuf, cutoff: f64, min_assemblies:
 
 fn starting_message() {
     section_header("Starting autocycler cluster");
-    explanation("This command takes a compacted De Bruijn graph (made by autocycler compress), \
-                 trims any start-end overlap from the sequences and then clusters the sequences \
-                 based on their similarity. Ideally, each cluster will then contain sequences \
-                 which can be combined into a consensus.");
+    explanation("This command takes a unitig graph (made by autocycler compress) and clusters the \
+                 sequences based on their similarity. Ideally, each cluster will then contain \
+                 sequences which can be combined into a consensus.");
 }
 
 
@@ -87,10 +86,10 @@ fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clus
 }
 
 
-fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
+fn print_settings(autocycler_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
                   min_assemblies_option: Option<usize>) {
     eprintln!("Settings:");
-    eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
     if min_assemblies_option.is_none() {
         eprintln!("  --min_assemblies {} (automatically set)", min_assemblies);
@@ -104,7 +103,7 @@ fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
 fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
     if print_info {
         section_header("Loading graph");
-        explanation("The compressed sequence graph is now loaded into memory.");
+        explanation("The unitig graph is now loaded into memory.");
     }
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     if print_info {

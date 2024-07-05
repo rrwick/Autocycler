@@ -325,13 +325,6 @@ pub fn format_float(num: f64) -> String {
 }
 
 
-pub fn round_float(num: f64, digits: u32) -> f64 {
-    // Rounds a float to the given number of digits.
-    let multiplier = 10f64.powi(digits as i32);
-    (num * multiplier).round() / multiplier
-}
-
-
 pub fn median_usize(values: &[usize]) -> usize {
     if values.is_empty() {
         return 0;
@@ -341,21 +334,6 @@ pub fn median_usize(values: &[usize]) -> usize {
     let len = sorted_values.len();
     if len % 2 == 0 {
         (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
-    } else {
-        sorted_values[len / 2]
-    }
-}
-
-
-pub fn median_f64(values: &[f64]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let mut sorted_values = values.to_vec();
-    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let len = sorted_values.len();
-    if len % 2 == 0 {
-        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2.0
     } else {
         sorted_values[len / 2]
     }
@@ -432,22 +410,6 @@ mod tests {
     }
 
     #[test]
-    fn test_round_float() {
-        assert_almost_eq(round_float(0.1234, 1), 0.1, 1e-8);
-        assert_almost_eq(round_float(0.1234, 2), 0.12, 1e-8);
-        assert_almost_eq(round_float(0.1234, 3), 0.123, 1e-8);
-        assert_almost_eq(round_float(0.1234, 4), 0.1234, 1e-8);
-        assert_almost_eq(round_float(0.1234, 5), 0.1234, 1e-8);
-        assert_almost_eq(round_float(0.1234, 6), 0.1234, 1e-8);
-        assert_almost_eq(round_float(0.9876, 1), 1.0, 1e-8);
-        assert_almost_eq(round_float(0.9876, 2), 0.99, 1e-8);
-        assert_almost_eq(round_float(0.9876, 3), 0.988, 1e-8);
-        assert_almost_eq(round_float(0.9876, 4), 0.9876, 1e-8);
-        assert_almost_eq(round_float(0.9876, 5), 0.9876, 1e-8);
-        assert_almost_eq(round_float(0.9876, 6), 0.9876, 1e-8);
-    }
-
-    #[test]
     fn test_median_usize() {
         assert_eq!(median_usize(&mut vec![]), 0);
         assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4]), 2);
@@ -456,16 +418,5 @@ mod tests {
         assert_eq!(median_usize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
         assert_eq!(median_usize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
         assert_eq!(median_usize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
-    }
-
-    #[test]
-    fn test_median_f64() {
-        assert_almost_eq(median_f64(&mut vec![]), 0.0, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![0.0, 1.0, 2.0, 3.0, 4.0]), 2.0, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![4.0, 3.0, 2.0, 1.0, 0.0]), 2.0, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]), 2.5, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![5.0, 4.0, 3.0, 2.0, 1.0, 0.0]), 2.5, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0]), 5.0, 1e-8);
-        assert_almost_eq(median_f64(&mut vec![10.0, 8.0, 6.0, 4.0, 2.0, 0.0]), 5.0, 1e-8);
     }
 }

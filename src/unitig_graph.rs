@@ -14,7 +14,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, Write, BufRead, BufReader};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 

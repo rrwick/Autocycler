@@ -68,7 +68,6 @@ impl Unitig {
         }
         let number = parts[1].parse::<u32>().unwrap_or_else(|_| {
             quit_with_error("Unable to parse unitig number.");
-            std::process::exit(1)
         });
         let forward_seq = parts[2].as_bytes().to_owned();
         let reverse_seq = reverse_complement(&forward_seq);
@@ -78,7 +77,6 @@ impl Unitig {
             .unwrap_or_else(|| {
                 quit_with_error("Could not find a depth tag (e.g. DP:f:10.00) in the GFA segment \
                                  line.\nAre you sure this is an Autocycler-generated GFA file?");
-                std::process::exit(1)
             });
         Unitig {
             number: number,

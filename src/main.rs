@@ -27,7 +27,7 @@ mod position;
 mod resolve;
 mod sequence;
 mod tests;
-mod trim_path_overlap;
+mod trim;
 mod unitig;
 mod unitig_graph;
 
@@ -56,22 +56,22 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// compress input assemblies into a unitig graph
+    /// compress input contigs into a unitig graph
     Compress {
         /// Directory containing input assemblies (required)
-        #[clap(short = 'i', long = "in_dir", required = true)]
-        in_dir: PathBuf,
+        #[clap(short = 'i', long = "assemblies_dir", required = true)]
+        assemblies_dir: PathBuf,
 
         /// Autocycler directory to be created (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
-        out_dir: PathBuf,
+        #[clap(short = 'a', long = "autocycler_dir", required = true)]
+        autocycler_dir: PathBuf,
 
         /// K-mer size for De Bruijn graph
         #[clap(short = 'k', long = "kmer", default_value = "51")]
         kmer: u32,
     },
 
-    /// decompress the unitig graph back into assemblies
+    /// decompress contigs from a unitig graph
     Decompress {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
@@ -84,9 +84,9 @@ enum Commands {
 
     /// cluster contigs in the unitig graph based on similarity
     Cluster {
-        /// Autocycler directory (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
-        out_dir: PathBuf,
+        /// Autocycler directory containing 1_input_assemblies.gfa file (required)
+        #[clap(short = 'a', long = "autocycler_dir", required = true)]
+        autocycler_dir: PathBuf,
 
         /// cutoff distance threshold for hierarchical clustering
         #[clap(short = 'c', long = "cutoff", default_value = "0.05")]
@@ -98,20 +98,20 @@ enum Commands {
         min_assemblies: Option<usize>,
     },
 
-    // /// trim contigs in a cluster
-    // Trim {
-    //     /// Autocycler directory (required)
-    //     #[clap(short = 'o', long = "out_dir", required = true)]
-    //     out_dir: PathBuf,
+    /// trim contigs in a cluster
+    Trim {
+        /// Autocycler cluster directory containing 1_untrimmed.gfa file (required)
+        #[clap(short = 'c', long = "cluster_dir", required = true)]
+        cluster_dir: PathBuf,
 
-    //     /// Minimum alignment identity for start-end overlap trimming
-    //     #[clap(short = 'm', long = "min_overlap_id", default_value = "0.95")]
-    //     min_overlap_id: f64,
+        /// Minimum alignment identity for trimming
+        #[clap(short = 'm', long = "min_identity", default_value = "0.95")]
+        min_identity: f64,
 
-    //     /// Maximum unitigs for start-end overlap trimming, set to 0 to disable trimming
-    //     #[clap(short = 'u', long = "max_overlap_unitigs", default_value = "5000")]
-    //     max_overlap_unitigs: usize,
-    // },
+        /// Maximum unitigs for trimming, set to 0 to disable trimming
+        #[clap(short = 'u', long = "max_unitigs", default_value = "5000")]
+        max_unitigs: usize,
+    },
 
     /// resolve repeats in the the unitig graph
     Resolve {
@@ -133,14 +133,17 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Compress { in_dir, out_dir, kmer }) => {
-            compress::compress(in_dir, out_dir, kmer);
+        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer }) => {
+            compress::compress(assemblies_dir, autocycler_dir, kmer);
         },
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { out_dir, cutoff, min_assemblies }) => {
-            cluster::cluster(out_dir, cutoff, min_assemblies);
+        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies }) => {
+            cluster::cluster(autocycler_dir, cutoff, min_assemblies);
+        },
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs);
         },
         Some(Commands::Resolve { out_dir }) => {
             resolve::resolve(out_dir);

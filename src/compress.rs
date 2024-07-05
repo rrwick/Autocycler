@@ -23,25 +23,25 @@ use crate::unitig_graph::UnitigGraph;
 use crate::graph_simplification::simplify_structure;
 
 
-pub fn compress(in_dir: PathBuf, out_dir: PathBuf, k_size: u32) {
+pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32) {
     let start_time = Instant::now();
-    check_settings(&in_dir, &out_dir, k_size);
+    check_settings(&assemblies_dir, &autocycler_dir, k_size);
     starting_message();
-    print_settings(&in_dir, &out_dir, k_size);
-    create_dir(&out_dir);
-    let (sequences, assembly_count) = load_sequences(&in_dir, k_size);
+    print_settings(&assemblies_dir, &autocycler_dir, k_size);
+    create_dir(&autocycler_dir);
+    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
-    let out_gfa = out_dir.join("01_unitig_graph.gfa");
+    let out_gfa = autocycler_dir.join("1_input_assemblies.gfa");
     unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
     finished_message(start_time, out_gfa);
 }
 
 
-fn check_settings(in_dir: &PathBuf, out_dir: &PathBuf, k_size: u32) {
-    check_if_dir_exists(&in_dir);
-    check_if_dir_is_not_dir(&out_dir);
+fn check_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32) {
+    check_if_dir_exists(&assemblies_dir);
+    check_if_dir_is_not_dir(&autocycler_dir);
     if k_size < 11 {
         quit_with_error("--kmer cannot be less than 11");
     }
@@ -60,19 +60,19 @@ fn starting_message() {
 }
 
 
-fn print_settings(in_dir: &PathBuf, out_dir: &PathBuf, k_size: u32) {
+fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32) {
     eprintln!("Settings:");
-    eprintln!("  --in_dir {}", in_dir.display());
-    eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!("  --assemblies_dir {}", assemblies_dir.display());
+    eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --kmer {}", k_size);
     eprintln!();
 }
 
 
-pub fn load_sequences(in_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
+pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
-    let assemblies = find_all_assemblies(in_dir);
+    let assemblies = find_all_assemblies(assemblies_dir);
     let mut seq_id = 0usize;
     let mut sequences = Vec::new();
     for assembly in &assemblies {
