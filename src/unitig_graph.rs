@@ -52,7 +52,7 @@ impl UnitigGraph {
         Self::from_gfa_lines(&gfa_lines)
     }
 
-    fn from_gfa_lines(gfa_lines: &Vec<String>) -> (Self, Vec<Sequence>) {
+    pub fn from_gfa_lines(gfa_lines: &Vec<String>) -> (Self, Vec<Sequence>) {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,

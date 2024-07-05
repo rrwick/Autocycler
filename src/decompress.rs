@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
-use crate::cluster::load_graph;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir};
 use crate::sequence::Sequence;
@@ -29,7 +28,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     starting_message();
     print_settings(&in_gfa, &out_dir);
     create_dir(&out_dir);
-    let (unitig_graph, sequences) = load_graph(&in_gfa, true);
+    let (unitig_graph, sequences) = load_graph(&in_gfa);
     save_original_seqs(&out_dir, &unitig_graph, &sequences);
 }
 
@@ -52,6 +51,15 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_dir {}", out_dir.display());
+}
+
+
+pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+    section_header("Loading graph");
+    explanation("The compressed sequence graph is now loaded into memory.");
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    unitig_graph.print_basic_graph_info();
+    (unitig_graph, sequences)
 }
 
 

@@ -13,9 +13,10 @@
 
 use std::path::PathBuf;
 
-use crate::cluster::load_graph;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists};
+use crate::sequence::Sequence;
+use crate::unitig_graph::UnitigGraph;
 
 
 pub fn resolve(out_dir: PathBuf) {
@@ -23,7 +24,7 @@ pub fn resolve(out_dir: PathBuf) {
     check_settings(&out_dir, &gfa);
     starting_message();
     print_settings(&out_dir);
-    let (unitig_graph, sequences) = load_graph(&gfa, true);
+    let (unitig_graph, sequences) = load_graph(&gfa);
 
     // TODO: find initial single-copy contigs
     // TODO: expand set of single-copy contigs based on graph structure
@@ -48,4 +49,13 @@ fn print_settings(out_dir: &PathBuf) {
     eprintln!("Settings:");
     eprintln!("  --out_dir {}", out_dir.display());
     eprintln!();
+}
+
+
+pub fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+    section_header("Loading graph");
+    explanation("The compressed sequence graph is now loaded into memory.");
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    unitig_graph.print_basic_graph_info();
+    (unitig_graph, sequences)
 }

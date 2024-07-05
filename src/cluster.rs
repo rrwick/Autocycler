@@ -20,7 +20,8 @@ use std::path::PathBuf;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
-                  quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists};
+                  quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
+                  load_file_lines};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -32,12 +33,12 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     create_dir(&clustering_dir);
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
     let clustering_newick = clustering_dir.join("clustering.newick");
-    // let clustering_png = clustering_dir.join("clustering.png");
+    let clustering_pdf = clustering_dir.join("clustering.pdf");
     check_settings(&out_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
-    let (unitig_graph, mut sequences) = load_graph(&gfa, true);
-    let assembly_count = get_assembly_count(&sequences);
-    let min_assemblies = set_min_assemblies(min_assemblies_option, assembly_count);
+    let gfa_lines = load_file_lines(&gfa);
+    let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
+    let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     print_settings(&out_dir, cutoff, min_assemblies, min_assemblies_option);
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
@@ -45,13 +46,12 @@ pub fn cluster(out_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usiz
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
-    reorder_clusters(&mut sequences);
     let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
-    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa);
+    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
 
-    // TODO: save a PNG (or maybe SVG/PDF?) drawing of the tree to file
+    // TODO: create a PDF the tree with clusters
 
-    finished_message(&pairwise_phylip, &clustering_newick);
+    finished_message(&pairwise_phylip, &clustering_newick, &clustering_pdf);
 }
 
 
@@ -76,6 +76,17 @@ fn starting_message() {
 }
 
 
+fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clustering_pdf: &PathBuf) {
+    section_header("Finished!");
+    explanation("You can now run autocycler trim on each cluster. If you want to manually \
+                 inspect the clustering, you can view the following files.");
+    eprintln!("Pairwise distances:       {}", pairwise_phylip.display());
+    eprintln!("Clustering tree (Newick): {}", clustering_newick.display());
+    eprintln!("Clustering tree (PDF):    {}", clustering_pdf.display());
+    eprintln!();
+}
+
+
 fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
                   min_assemblies_option: Option<usize>) {
     eprintln!("Settings:");
@@ -90,12 +101,12 @@ fn print_settings(out_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
 }
 
 
-pub fn load_graph(gfa: &PathBuf, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
     if print_info {
         section_header("Loading graph");
         explanation("The compressed sequence graph is now loaded into memory.");
     }
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     if print_info {
         unitig_graph.print_basic_graph_info();
     }
@@ -331,6 +342,7 @@ fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cut
     }
     eprintln!("{} clusters", current_cluster);
     eprintln!();
+    reorder_clusters(sequences);
 }
 
 
@@ -356,13 +368,14 @@ fn define_clusters(node: &TreeNode, seq_id_to_cluster: &mut HashMap<u16, u16>, c
 }
 
 
-fn set_min_assemblies(min_assemblies_option: Option<usize>, assembly_count: usize) -> usize {
+fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
     // This function automatically sets the --min_assemblies parameter, if the user didn't
     // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
     // but no less than 2.
     if min_assemblies_option.is_some() {
         return min_assemblies_option.unwrap();
     }
+    let assembly_count = get_assembly_count(&sequences);
     let mut min_assemblies = usize_division_rounded(assembly_count, 4);
     if min_assemblies < 2 {
         min_assemblies = 2;
@@ -423,16 +436,16 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
 
 
 fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                 clustering_dir: &PathBuf, gfa_path: &PathBuf) {
+                 clustering_dir: &PathBuf, gfa_lines: &Vec<String>) {
     let pass_dir = clustering_dir.join("qc_pass");
     let fail_dir = clustering_dir.join("qc_fail");
-    save_qc_pass_clusters(sequences, qc_results, gfa_path, &pass_dir);
-    save_qc_fail_clusters(sequences, qc_results, gfa_path, &fail_dir);
+    save_qc_pass_clusters(sequences, qc_results, gfa_lines, &pass_dir);
+    save_qc_fail_clusters(sequences, qc_results, gfa_lines, &fail_dir);
 }
 
 
 fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                         gfa_path: &PathBuf, pass_dir: &PathBuf) {
+                         gfa_lines: &Vec<String>, pass_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() == 0 {
@@ -444,14 +457,14 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
             eprintln!();
             let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
         }
     }
 }
 
 
 fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                         gfa_path: &PathBuf, fail_dir: &PathBuf) {
+                         gfa_lines: &Vec<String>, fail_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() > 0 {
@@ -464,16 +477,16 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
             }
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
             eprintln!();
         }
     }
 }
 
 
-fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, in_gfa: &PathBuf, out_gfa: PathBuf) {
+fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec<String>, out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num).cloned().collect();
-    let (mut cluster_graph, _) = load_graph(&in_gfa, false);
+    let (mut cluster_graph, _) = load_graph(&gfa_lines, false);
     let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num).map(|s| s.id).collect();
     for id in seq_ids_to_remove {
         cluster_graph.remove_sequence_from_graph(id);
@@ -516,15 +529,6 @@ fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
 
 fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
     sequences.iter().map(|s| s.cluster).max().unwrap()
-}
-
-
-fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf) {
-    section_header("Finished!");
-    explanation("You can now run autocycler trim on each cluster.");
-    eprintln!("Pairwise distances: {}", pairwise_phylip.display());
-    eprintln!("Clustering tree:    {}", clustering_newick.display());
-    eprintln!();
 }
 
 
