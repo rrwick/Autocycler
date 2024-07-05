@@ -31,7 +31,7 @@ pub mod strand {
 pub fn create_dir(dir_path: &PathBuf) {
     match create_dir_all(&dir_path) {
         Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create directory\n{}", e)),
+        Err(e) => quit_with_error(&format!("failed to create directory {}\n{}", dir_path.display(), e)),
     }
 }
 
@@ -40,7 +40,7 @@ pub fn delete_dir_if_exists(dir_path: &PathBuf) {
     if dir_path.exists() && dir_path.is_dir() {
         match remove_dir_all(&dir_path) {
             Ok(_) => {},
-            Err(e) => quit_with_error(&format!("failed to delete directory\n{}", e)),
+            Err(e) => quit_with_error(&format!("failed to delete directory {}\n{}", dir_path.display(), e)),
         }
     }
 }
@@ -48,12 +48,12 @@ pub fn delete_dir_if_exists(dir_path: &PathBuf) {
 
 pub fn load_file_lines(filename: &Path) -> Vec<String> {
     let file = File::open(filename).unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to open file:\n{}", e));
+        quit_with_error(&format!("failed to open file {}\n{}", filename.display(), e));
     });
     let reader = BufReader::new(file);
     reader.lines().map(|line_result| {
         line_result.unwrap_or_else(|e| {
-            quit_with_error(&format!("failed to read line:\n{}", e));
+            quit_with_error(&format!("failed to read line\n{}", e));
         })
     }).collect()
 }
@@ -62,8 +62,8 @@ pub fn load_file_lines(filename: &Path) -> Vec<String> {
 pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
     let paths = match read_dir(in_dir) {
         Ok(paths) => paths,
-        Err(_) => {
-            quit_with_error(&format!("unable to read directory {}", in_dir.display()));
+        Err(e) => {
+            quit_with_error(&format!("unable to read directory {}\n{}", in_dir.display(), e));
         },
     };
     let mut all_assemblies: Vec<PathBuf> = Vec::new();
@@ -97,10 +97,10 @@ pub fn check_if_file_exists(filename: &PathBuf) {
     // Quits with an error if the given path is not an existing file.
     let path = Path::new(filename);
     if !path.exists() {
-        quit_with_error(&format!("{:?} file does not exist", path));
+        quit_with_error(&format!("file does not exist: {}", path.display()));
     }
     if !path.is_file() {
-        quit_with_error(&format!("{:?} is not a file", path));
+        quit_with_error(&format!("{} is not a file", path.display()));
     }
 }
 
@@ -109,10 +109,10 @@ pub fn check_if_dir_exists(dir: &PathBuf) {
     // Quits with an error if the given path is not an existing directory.
     let path = Path::new(dir);
     if !path.exists() {
-        quit_with_error(&format!("{:?} directory does not exist", path));
+        quit_with_error(&format!("directory does not exist: {}", path.display()));
     }
     if !path.is_dir() {
-        quit_with_error(&format!("{:?} is not a directory", path));
+        quit_with_error(&format!("{} is not a directory", path.display()));
     }
 }
 
@@ -120,7 +120,7 @@ pub fn check_if_dir_exists(dir: &PathBuf) {
 pub fn check_if_dir_is_not_dir(dir: &PathBuf) {
     // Quits with an error if the given path exists but is not a directory (not existing is okay).
     if dir.exists() && !dir.is_dir() {
-        quit_with_error(&format!("{:?} exists but is not a directory", dir));
+        quit_with_error(&format!("{} exists but is not a directory", dir.display()));
     }
 }
 
@@ -142,7 +142,7 @@ pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
     };
     match load_result {
         Ok(_)  => (),
-        Err(_) => quit_with_error(&format!("unable to load {:?}", filename)),
+        Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
     }
     let fasta_seqs = load_result.unwrap();
     check_load_fasta(&fasta_seqs, &filename);
@@ -154,14 +154,14 @@ pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
 /// everything looks okay. If any problems are found, it will quit with an error message.
 fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathBuf) {
     if fasta_seqs.len() == 0 {
-        quit_with_error(&format!("{:?} contains no sequences", filename));
+        quit_with_error(&format!("{} contains no sequences", filename.display()));
     }
     for (name, _, sequence) in fasta_seqs {
         if name.len() == 0 {
-            quit_with_error(&format!("{:?} has an unnamed sequence", filename));
+            quit_with_error(&format!("{} has an unnamed sequence", filename.display()));
         }
         if sequence.len() == 0 {
-            quit_with_error(&format!("{:?} has an empty sequence", filename));
+            quit_with_error(&format!("{} has an empty sequence", filename.display()));
         }
     }
     let mut set = HashSet::new();
@@ -169,7 +169,7 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathB
         set.insert(name);
     }
     if set.len() < fasta_seqs.len() {
-        quit_with_error(&format!("{:?} has a duplicated name", filename));
+        quit_with_error(&format!("{} has a duplicated name", filename.display()));
     }
 }
 
@@ -181,19 +181,16 @@ fn is_file_gzipped(filename: &PathBuf) -> bool {
     let open_result = File::open(&filename);
     match open_result {
         Ok(_)  => (),
-        Err(_) => quit_with_error(&format!("unable to open {:?}", filename)),
+        Err(e) => quit_with_error(&format!("unable to open {}\n{}", filename.display(), e)),
     }
     let file = open_result.unwrap();
-
     let mut reader = BufReader::new(file);
     let mut buf = vec![0u8; 2];
-
     let read_result = reader.read_exact(&mut buf);
     match read_result {
         Ok(_)  => (),
-        Err(_) => quit_with_error(&format!("{:?} is too small", filename)),
+        Err(e) => quit_with_error(&format!("{} is too small\n{}", filename.display(), e)),
     }
-
     buf[0] == 31 && buf[1] == 139
 }
 
@@ -218,12 +215,12 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
             let first_piece = text[1..].split_whitespace().next();
             match first_piece {
                 Some(_) => (),
-                None    => quit_with_error(&format!("{:?} is not correctly formatted", filename)),
+                None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
             }
             name = first_piece.unwrap().to_string();
         } else {
             if name.len() == 0 {
-                quit_with_error(&format!("{:?} is not correctly formatted", filename));
+                quit_with_error(&format!("{} is not correctly formatted", filename.display()));
             }
             sequence.push_str(&text);
         }
@@ -256,12 +253,12 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
             let first_piece = header.split_whitespace().next();
             match first_piece {
                 Some(_) => (),
-                None    => quit_with_error(&format!("{:?} is not correctly formatted", filename)),
+                None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
             }
             name = first_piece.unwrap().to_string();
         } else {
             if name.len() == 0 {
-                quit_with_error(&format!("{:?} is not correctly formatted", filename));
+                quit_with_error(&format!("{} is not correctly formatted", filename.display()));
             }
             sequence.push_str(&text);
         }
