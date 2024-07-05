@@ -371,14 +371,14 @@ fn define_clusters(node: &TreeNode, seq_id_to_cluster: &mut HashMap<u16, u16>, c
 fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
     // This function automatically sets the --min_assemblies parameter, if the user didn't
     // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
-    // but no less than 2.
+    // but no less than 1.
     if min_assemblies_option.is_some() {
         return min_assemblies_option.unwrap();
     }
     let assembly_count = get_assembly_count(&sequences);
     let mut min_assemblies = usize_division_rounded(assembly_count, 4);
-    if min_assemblies < 2 {
-        min_assemblies = 2;
+    if min_assemblies < 1 {
+        min_assemblies = 1;
     }
     min_assemblies
 }
@@ -582,12 +582,15 @@ mod tests {
                                                 ((3, 1), 21.0), ((3, 2), 30.0), ((3, 3), 00.0), ((3, 4), 28.0), ((3, 5), 39.0),
                                                 ((4, 1), 31.0), ((4, 2), 34.0), ((4, 3), 28.0), ((4, 4), 00.0), ((4, 5), 43.0),
                                                 ((5, 1), 23.0), ((5, 2), 21.0), ((5, 3), 39.0), ((5, 4), 43.0), ((5, 5), 00.0)]);
-        let root = upgma_clustering(&distances, &mut sequences);
+        let mut root = upgma_clustering(&distances, &mut sequences);
         assert_almost_eq(root.distance, 16.5, 1e-8);
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
         let newick_string = tree_to_newick(&root, &index);
         assert_eq!(newick_string, "(((a__a__1_bp:8.5,b__b__1_bp:8.5):2.5,e__e__1_bp:11):5.5,(c__c__1_bp:14,d__d__1_bp:14):2.5)");
+
+        normalise_tree(&mut root);
+        assert_almost_eq(root.distance, 0.5, 1e-8);
     }
 
     #[test]
@@ -629,14 +632,43 @@ mod tests {
 
     #[test]
     fn test_set_minpts() {
-        assert_eq!(set_min_assemblies(Some(2), 10), 2);
-        assert_eq!(set_min_assemblies(Some(11), 10), 11);
-        assert_eq!(set_min_assemblies(Some(321), 10), 321);
-        assert_eq!(set_min_assemblies(None, 4), 2);
-        assert_eq!(set_min_assemblies(None, 8), 2);
-        assert_eq!(set_min_assemblies(None, 12), 3);
-        assert_eq!(set_min_assemblies(None, 13), 3);
-        assert_eq!(set_min_assemblies(None, 15), 4);
-        assert_eq!(set_min_assemblies(None, 16), 4);
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(7, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(8, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(9, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_10.fasta".to_string(), "contig_2".to_string(), 1),
+                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_10.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
+                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_11.fasta".to_string(), "contig_2".to_string(), 1),
+                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1)];
+
+        assert_eq!(set_min_assemblies(Some(2), &sequences), 2);
+        assert_eq!(set_min_assemblies(Some(11), &sequences), 11);
+        assert_eq!(set_min_assemblies(Some(321), &sequences), 321);
+        assert_eq!(set_min_assemblies(None, &sequences), 3);  // 12 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 3);  // 11 assemblies
+        sequences.truncate(9);
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 9 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 8 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 7 assemblies
+        sequences.truncate(5);
+        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 5 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 4 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 3 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 2 assemblies
+        sequences.pop();
+        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 1 assembly
     }
 }
