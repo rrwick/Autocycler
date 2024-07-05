@@ -31,7 +31,7 @@ pub mod strand {
 pub fn create_dir(dir_path: &PathBuf) {
     match create_dir_all(&dir_path) {
         Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create directory\n{:?}", e)),
+        Err(e) => quit_with_error(&format!("failed to create directory\n{}", e)),
     }
 }
 
@@ -40,9 +40,22 @@ pub fn delete_dir_if_exists(dir_path: &PathBuf) {
     if dir_path.exists() && dir_path.is_dir() {
         match remove_dir_all(&dir_path) {
             Ok(_) => {},
-            Err(e) => quit_with_error(&format!("failed to delete directory\n{:?}", e)),
+            Err(e) => quit_with_error(&format!("failed to delete directory\n{}", e)),
         }
     }
+}
+
+
+pub fn load_file_lines(filename: &Path) -> Vec<String> {
+    let file = File::open(filename).unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to open file:\n{}", e));
+    });
+    let reader = BufReader::new(file);
+    reader.lines().map(|line_result| {
+        line_result.unwrap_or_else(|e| {
+            quit_with_error(&format!("failed to read line:\n{}", e));
+        })
+    }).collect()
 }
 
 
@@ -51,7 +64,6 @@ pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
         Ok(paths) => paths,
         Err(_) => {
             quit_with_error(&format!("unable to read directory {}", in_dir.display()));
-            unreachable!()
         },
     };
     let mut all_assemblies: Vec<PathBuf> = Vec::new();
@@ -113,7 +125,7 @@ pub fn check_if_dir_is_not_dir(dir: &PathBuf) {
 }
 
 
-pub fn quit_with_error(text: &str) {
+pub fn quit_with_error(text: &str) -> ! {
     eprintln!();
     eprintln!("Error: {}", text);
     std::process::exit(1);

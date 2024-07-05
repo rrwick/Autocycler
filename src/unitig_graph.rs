@@ -22,7 +22,7 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
-use crate::misc::{reverse_complement, quit_with_error, strand};
+use crate::misc::{reverse_complement, quit_with_error, strand, load_file_lines};
 
 
 pub struct UnitigGraph {
@@ -48,17 +48,19 @@ impl UnitigGraph {
     }
 
     pub fn from_gfa_file(gfa_filename: &PathBuf) -> (Self, Vec<Sequence>) {
+        let gfa_lines = load_file_lines(gfa_filename);
+        Self::from_gfa_lines(&gfa_lines)
+    }
+
+    fn from_gfa_lines(gfa_lines: &Vec<String>) -> (Self, Vec<Sequence>) {
         let mut u_graph = UnitigGraph {
             unitigs: Vec::new(),
             k_size: 0,
             unitig_index: HashMap::new(),
         };
-        let file = File::open(gfa_filename).unwrap();
-        let reader = BufReader::new(file);
-        let mut link_lines: Vec<String> = Vec::new();
-        let mut path_lines: Vec<String> = Vec::new();
-        for line_result in reader.lines() {
-            let line = line_result.unwrap();
+        let mut link_lines: Vec<&str> = Vec::new();
+        let mut path_lines: Vec<&str> = Vec::new();
+        for line in gfa_lines {
             let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
             match parts.get(0) {
                 Some(&"H") => u_graph.read_gfa_header_line(&parts),
@@ -92,13 +94,12 @@ impl UnitigGraph {
                          Are you sure this is an Autocycler-generated GFA file?");
     }
 
-    fn build_links_from_gfa(&mut self, link_lines: &Vec<String>) {
+    fn build_links_from_gfa(&mut self, link_lines: &[&str]) {
         for line in link_lines {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() < 6 || parts[5] != "0M" {
                 quit_with_error("non-zero overlap found on the GFA link line.\n\
                                  Are you sure this is an Autocycler-generated GFA file?");
-                return;
             }
             let seg_1: u32 = parts[1].parse().expect("Error parsing segment 1 as integer");
             let seg_2: u32 = parts[3].parse().expect("Error parsing segment 2 as integer");
@@ -119,7 +120,7 @@ impl UnitigGraph {
         }
     }
 
-    fn build_paths_from_gfa(&mut self, path_lines: &Vec<String>) -> Vec<Sequence> {
+    fn build_paths_from_gfa(&mut self, path_lines: &[&str]) -> Vec<Sequence> {
         let mut sequences = Vec::new();
         for line in path_lines {
             let parts: Vec<&str> = line.split('\t').collect();

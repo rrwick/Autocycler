@@ -426,13 +426,12 @@ fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String
                  clustering_dir: &PathBuf, gfa_path: &PathBuf) {
     let pass_dir = clustering_dir.join("qc_pass");
     let fail_dir = clustering_dir.join("qc_fail");
-    let all_seq_ids: Vec<_> = sequences.iter().map(|s| s.id).collect();
-    save_qc_pass_clusters(sequences, &all_seq_ids, qc_results, gfa_path, &pass_dir);
-    save_qc_fail_clusters(sequences, &all_seq_ids, qc_results, gfa_path, &fail_dir);
+    save_qc_pass_clusters(sequences, qc_results, gfa_path, &pass_dir);
+    save_qc_fail_clusters(sequences, qc_results, gfa_path, &fail_dir);
 }
 
 
-fn save_qc_pass_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                          gfa_path: &PathBuf, pass_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
@@ -445,13 +444,13 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_r
             eprintln!();
             let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, all_seq_ids, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
         }
     }
 }
 
 
-fn save_qc_fail_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                          gfa_path: &PathBuf, fail_dir: &PathBuf) {
     for c in 1..get_max_cluster(sequences)+1 {
         let failure_reasons = qc_results.get(&c).unwrap();
@@ -465,15 +464,14 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, qc_r
             }
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, all_seq_ids, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(&sequences, c, gfa_path, cluster_dir.join("1_untrimmed.gfa"));
             eprintln!();
         }
     }
 }
 
 
-fn save_cluster_gfa(sequences: &Vec<Sequence>, all_seq_ids: &Vec<u16>, cluster_num: u16,
-                    in_gfa: &PathBuf, out_gfa: PathBuf) {
+fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, in_gfa: &PathBuf, out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num).cloned().collect();
     let (mut cluster_graph, _) = load_graph(&in_gfa, false);
     let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num).map(|s| s.id).collect();
@@ -607,23 +605,23 @@ mod tests {
         assert_eq!(newick_string, "((a__a__1_bp:0.05,b__b__1_bp:0.05):0.2,(c__c__1_bp:0.1,d__d__1_bp:0.1):0.15)");
     }
 
-    // #[test]
-    // fn test_reorder_clusters() {
-    //     let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
-    //                              Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-    //                              Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
-    //                              Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
-    //                              Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
-    //                              Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
-    //     sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
-    //     sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
-    //     reorder_clusters(&mut sequences);
-    //     assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
-    //     assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
-    //     reorder_clusters(&mut sequences);
-    //     assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
-    //     assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
-    // }
+    #[test]
+    fn test_reorder_clusters() {
+        let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
+                                 Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
+                                 Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
+                                 Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
+                                 Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
+        sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
+        sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
+        reorder_clusters(&mut sequences);
+        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+        reorder_clusters(&mut sequences);
+        assert_eq!(sequences[0].cluster, 2); assert_eq!(sequences[1].cluster, 3); assert_eq!(sequences[2].cluster, 1);
+        assert_eq!(sequences[3].cluster, 2); assert_eq!(sequences[4].cluster, 3); assert_eq!(sequences[5].cluster, 1);
+    }
 
     #[test]
     fn test_set_minpts() {
