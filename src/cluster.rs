@@ -27,7 +27,7 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
-    let gfa = autocycler_dir.join("01_input_assemblies.gfa");
+    let gfa = autocycler_dir.join("1_input_assemblies.gfa");
     let clustering_dir = autocycler_dir.join("2_clustering");
     delete_dir_if_exists(&clustering_dir);
     create_dir(&clustering_dir);
@@ -40,6 +40,9 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
+
+    // TODO: add a setting which allows users to manually specify the exact clustering they want
+
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
@@ -49,7 +52,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
     save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
 
-    // TODO: create a PDF the tree with clusters
+    // TODO: create a PDF of the tree with clusters (docs.rs/printpdf/latest/printpdf)
 
     finished_message(&pairwise_phylip, &clustering_newick, &clustering_pdf);
 }
@@ -183,6 +186,7 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 #[derive(Debug)]
 struct TreeNode {
     id: u16,
+    leaf: bool,
     left: Option<Box<TreeNode>>,
     right: Option<Box<TreeNode>>,
     distance: f64,  // distance from this node to the tree tips
@@ -212,8 +216,9 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
         (Some(left), Some(right)) => {
             let left_str = tree_to_newick(left, &index);
             let right_str = tree_to_newick(right, &index);
-            format!("({}:{},{}:{})", left_str, node.distance - left.distance,
-                                     right_str, node.distance - right.distance)
+            format!("({}:{},{}:{}){}", left_str, node.distance - left.distance,
+                                       right_str, node.distance - right.distance,
+                                       node.id)
         }
         _ => format!("{}", index.get(&node.id).unwrap().string_for_newick()),
     }
@@ -227,13 +232,14 @@ fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Se
     let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
     let mut cluster_distances: HashMap<(u16, u16), f64> = distances.clone();
     let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
-
+    let mut internal_node_num: u16 = 0;
 
     // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences.iter() {
         clusters.insert(seq.id, HashSet::from([seq.id]));
         nodes.insert(seq.id, TreeNode {
             id: seq.id,
+            leaf: true,
             left: None,
             right: None,
             distance: 0.0,
@@ -252,8 +258,10 @@ fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Se
         clusters.insert(new_id, new_cluster.clone());
 
         // Create a new tree node for the merged cluster.
+        internal_node_num += 1;
         let new_node = TreeNode {
-            id: new_id,
+            id: internal_node_num,
+            leaf: false,
             left: Some(Box::new(nodes.remove(&a).unwrap())),
             right: Some(Box::new(nodes.remove(&b).unwrap())),
             distance: a_b_distance / 2.0,

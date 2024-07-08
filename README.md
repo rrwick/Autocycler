@@ -6,14 +6,21 @@
 ## Usage
 
 ```bash
-# Create a consensus assembly:
+# Compress input sequences into a unitig graph:
 autocycler compress -i assemblies -o autocycler
+
+# Cluster input contigs:
 autocycler cluster -o autocycler
-autocycler resolve -o autocycler
-autocycler correct -o autocycler
+
+# For each QC-pass cluster:
+for c in autocycler/02_clustering/qc_pass/cluster_*; do
+    autocycler trim -c "$c"
+    autocycler resolve -c "$c"
+    autocycler correct -c "$c"
+done
 
 # Reconstruct input assemblies from unitig graph:
-autocycler decompress -i autocycler/01_unitig_graph.gfa -o reconstructed
+autocycler decompress -i autocycler/1_input_assemblies.gfa -o reconstructed
 ```
 
 
