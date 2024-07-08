@@ -11,12 +11,14 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use colored::Colorize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
+                  median_isize};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -25,7 +27,7 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize) {
+pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64) {
     let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
     let untrimmed_dotplots = cluster_dir.join("2_untrimmed_dotplots.png");
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
@@ -39,9 +41,8 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize) {
 
     let sequences = trim_start_end_overlap(&mut unitig_graph, &sequences, min_identity, max_unitigs);
     let sequences = trim_hairpin_overlap(&mut unitig_graph, &sequences, min_identity, max_unitigs);
-
-    // TODO: exclude sequences which differ too much in length
-
+    let sequences = exclude_outliers_in_length(&mut unitig_graph, &sequences, mad);
+    clean_up_graph(&mut unitig_graph, &sequences);
     unitig_graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
 
     // TODO: create dotplots of the sequences after trimming
@@ -124,11 +125,6 @@ fn trim_start_end_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
         }
     }
     eprintln!();
-    graph.recalculate_depths();
-    graph.remove_zero_depth_unitigs();
-    merge_linear_paths(graph, &sequences);
-    graph.print_basic_graph_info();
-    graph.renumber_unitigs();
     trimmed_sequences
 }
 
@@ -149,6 +145,47 @@ fn trim_hairpin_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
     // TODO
 
     sequences.clone()  // TEMP
+}
+
+
+fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
+                              mad_threshold: f64) -> Vec<Sequence> {
+    section_header("Exclude outliers");
+    explanation("Sequences which vary too much in their length are now excluded.");
+    let lengths: Vec<_> = sequences.iter().map(|s| s.length as isize).collect();
+    let median = median_isize(&lengths);
+    let absolute_deviations: Vec<_> = sequences.iter().map(|s| (s.length as isize - median).abs()).collect();
+    let median_absolute_deviation = median_isize(&absolute_deviations);
+    let min_length = (median as f64 - (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
+    let max_length = (median as f64 + (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
+    eprintln!("Median sequence length:    {} bp", median);
+    eprintln!("Median absolute deviation: {} bp", median_absolute_deviation);
+    eprintln!("Allowed length range:      {}-{} bp", min_length, max_length);
+    eprintln!();
+    let mut new_sequences = vec![];
+    for seq in sequences {
+        if min_length <= seq.length && seq.length <= max_length {
+            new_sequences.push(seq.clone());
+            eprintln!("{} {}", seq, "kept".green());
+        } else {
+            eprintln!("{} {}", seq.to_string().dimmed(), "excluded".red());
+            graph.remove_sequence_from_graph(seq.id);
+        }
+    }
+    eprintln!();
+    new_sequences
+}
+
+
+fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+    section_header("Clean graph");
+    explanation("The unitig graph is now cleaned up based on any trimming and/or exclusion that \
+                 has occurred above.");
+    graph.recalculate_depths();
+    graph.remove_zero_depth_unitigs();
+    merge_linear_paths(graph, &sequences);
+    graph.print_basic_graph_info();
+    graph.renumber_unitigs();
 }
 
 

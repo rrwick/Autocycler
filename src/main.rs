@@ -67,7 +67,7 @@ enum Commands {
         autocycler_dir: PathBuf,
 
         /// K-mer size for De Bruijn graph
-        #[clap(short = 'k', long = "kmer", default_value = "51")]
+        #[clap(long = "kmer", default_value = "51")]
         kmer: u32,
     },
 
@@ -89,11 +89,11 @@ enum Commands {
         autocycler_dir: PathBuf,
 
         /// cutoff distance threshold for hierarchical clustering
-        #[clap(short = 'c', long = "cutoff", default_value = "0.05")]
+        #[clap(long = "cutoff", default_value = "0.05")]
         cutoff: f64,
 
         /// exclude clusters with fewer than this many assemblies
-        #[clap(short = 'm', long = "min_assemblies", hide_default_value = true,
+        #[clap(long = "min_assemblies", hide_default_value = true,
                help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
         min_assemblies: Option<usize>,
     },
@@ -104,13 +104,17 @@ enum Commands {
         #[clap(short = 'c', long = "cluster_dir", required = true)]
         cluster_dir: PathBuf,
 
-        /// Minimum alignment identity for trimming
-        #[clap(short = 'm', long = "min_identity", default_value = "0.95")]
+        /// Minimum alignment identity for overlap alignment
+        #[clap(long = "min_identity", default_value = "0.95")]
         min_identity: f64,
 
-        /// Maximum unitigs for trimming, set to 0 to disable trimming
-        #[clap(short = 'u', long = "max_unitigs", default_value = "5000")]
+        /// Maximum unitigs used for overlap alignment, set to 0 to disable trimming
+        #[clap(long = "max_unitigs", default_value = "5000")]
         max_unitigs: usize,
+
+        /// Allowed variability in cluster length, measured in median absolute deviations
+        #[clap(long = "mad", default_value = "2.0")]
+        mad: f64,
     },
 
     /// resolve repeats in the the unitig graph
@@ -142,8 +146,8 @@ fn main() {
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies);
         },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs);
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad);
         },
         Some(Commands::Resolve { out_dir }) => {
             resolve::resolve(out_dir);

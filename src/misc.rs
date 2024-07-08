@@ -340,6 +340,21 @@ pub fn median_usize(values: &[usize]) -> usize {
 }
 
 
+pub fn median_isize(values: &[isize]) -> isize {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort();
+    let len = sorted_values.len();
+    if len % 2 == 0 {
+        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
+    } else {
+        sorted_values[len / 2]
+    }
+}
+
+
 pub fn spinner(message: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
     pb.enable_steady_tick(Duration::from_millis(100));

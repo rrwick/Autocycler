@@ -48,6 +48,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
 
     // TODO: add a setting which allows users to manually specify the exact clustering they want
+    //       using internal node numbers
 
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
     let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
