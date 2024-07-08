@@ -612,7 +612,7 @@ mod tests {
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
         let newick_string = tree_to_newick(&root, &index);
-        assert_eq!(newick_string, "(((a__a__1_bp:8.5,b__b__1_bp:8.5):2.5,e__e__1_bp:11):5.5,(c__c__1_bp:14,d__d__1_bp:14):2.5)");
+        assert_eq!(newick_string, "(((a__a__1_bp:8.5,b__b__1_bp:8.5)1:2.5,e__e__1_bp:11)2:5.5,(c__c__1_bp:14,d__d__1_bp:14)3:2.5)4");
 
         normalise_tree(&mut root);
         assert_almost_eq(root.distance, 0.5, 1e-8);
@@ -634,7 +634,7 @@ mod tests {
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
         let newick_string = tree_to_newick(&root, &index);
-        assert_eq!(newick_string, "((a__a__1_bp:0.05,b__b__1_bp:0.05):0.2,(c__c__1_bp:0.1,d__d__1_bp:0.1):0.15)");
+        assert_eq!(newick_string, "((a__a__1_bp:0.05,b__b__1_bp:0.05)1:0.2,(c__c__1_bp:0.1,d__d__1_bp:0.1)2:0.15)3");
     }
 
     #[test]
