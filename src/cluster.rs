@@ -33,7 +33,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     create_dir(&clustering_dir);
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
     let clustering_newick = clustering_dir.join("clustering.newick");
-    let clustering_pdf = clustering_dir.join("clustering.pdf");
+    let clustering_tsv = clustering_dir.join("clustering.tsv");
     check_settings(&autocycler_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
@@ -41,20 +41,22 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
 
-    // TODO: add a setting which allows users to manually specify the exact clustering they want
-
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
+
+    // TODO: add a setting which allows users to manually specify the exact clustering they want
+
     define_clusters_from_tree(&tree, &mut sequences, cutoff);
     let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
     save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
+    save_metadata_to_tsv(&sequences, &cluster_qc_results, &clustering_tsv);
 
-    // TODO: create a PDF of the tree with clusters (docs.rs/printpdf/latest/printpdf)
+    // TODO: create a PDF of the tree with clusters? printpdf?
 
-    finished_message(&pairwise_phylip, &clustering_newick, &clustering_pdf);
+    finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
 
 
@@ -78,13 +80,13 @@ fn starting_message() {
 }
 
 
-fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clustering_pdf: &PathBuf) {
+fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clustering_tsv: &PathBuf) {
     section_header("Finished!");
     explanation("You can now run autocycler trim on each cluster. If you want to manually \
                  inspect the clustering, you can view the following files.");
-    eprintln!("Pairwise distances:       {}", pairwise_phylip.display());
-    eprintln!("Clustering tree (Newick): {}", clustering_newick.display());
-    eprintln!("Clustering tree (PDF):    {}", clustering_pdf.display());
+    eprintln!("Pairwise distances:         {}", pairwise_phylip.display());
+    eprintln!("Clustering tree (Newick):   {}", clustering_newick.display());
+    eprintln!("Clustering tree (metadata): {}", clustering_tsv.display());
     eprintln!();
 }
 
@@ -186,7 +188,6 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 #[derive(Debug)]
 struct TreeNode {
     id: u16,
-    leaf: bool,
     left: Option<Box<TreeNode>>,
     right: Option<Box<TreeNode>>,
     distance: f64,  // distance from this node to the tree tips
@@ -235,11 +236,10 @@ fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Se
     let mut internal_node_num: u16 = 0;
 
     // Initialise each sequence as its own cluster and create initial nodes.
-    for seq in sequences.iter() {
+    for seq in sequences {
         clusters.insert(seq.id, HashSet::from([seq.id]));
         nodes.insert(seq.id, TreeNode {
             id: seq.id,
-            leaf: true,
             left: None,
             right: None,
             distance: 0.0,
@@ -261,7 +261,6 @@ fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Se
         internal_node_num += 1;
         let new_node = TreeNode {
             id: internal_node_num,
-            leaf: false,
             left: Some(Box::new(nodes.remove(&a).unwrap())),
             right: Some(Box::new(nodes.remove(&b).unwrap())),
             distance: a_b_distance / 2.0,
@@ -501,6 +500,25 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
     cluster_graph.remove_zero_depth_unitigs();
     merge_linear_paths(&mut cluster_graph, &cluster_seqs);
     cluster_graph.save_gfa(&out_gfa, &cluster_seqs).unwrap();
+}
+
+
+fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+                        file_path: &PathBuf) {
+    let mut file = File::create(file_path).unwrap();
+    write!(file, "full_name\tpassing_clusters\tall_clusters\tfile_name\tcontig_name\tlength\n").unwrap();
+    for seq in sequences {
+        assert!(seq.cluster != 0);
+        let failure_reasons = qc_results.get(&seq.cluster).unwrap();
+        let all_cluster = format!("{}", seq.cluster);
+        let pass_cluster = if failure_reasons.len() > 0 {
+            "none".to_string()
+        } else {
+            format!("{}", seq.cluster)
+        };
+        write!(file, "{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
+               pass_cluster, all_cluster, seq.filename, seq.contig_name(), seq.length).unwrap();
+    }
 }
 
 
