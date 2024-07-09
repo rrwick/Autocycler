@@ -42,7 +42,6 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     let manual_clusters = parse_manual_clusters(manual_clusters);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
-
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
@@ -614,7 +613,7 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
 fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                         file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
-    write!(file, "sequence_name\tpassing_clusters\tall_clusters\tfile_name\tcontig_name\tlength\n").unwrap();
+    write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\tfile_name\tcontig_name\tlength\n").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
         let failure_reasons = qc_results.get(&seq.cluster).unwrap();
@@ -624,8 +623,8 @@ fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec
         } else {
             format!("{}", seq.cluster)
         };
-        write!(file, "{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
-               pass_cluster, all_cluster, seq.filename, seq.contig_name(), seq.length).unwrap();
+        write!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
+               pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(), seq.length).unwrap();
     }
 }
 
@@ -722,7 +721,7 @@ mod tests {
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
         let newick_string = tree_to_newick(&root, &index);
-        assert_eq!(newick_string, "(((a__a__1_bp:8.5,b__b__1_bp:8.5)1:2.5,e__e__1_bp:11)2:5.5,(c__c__1_bp:14,d__d__1_bp:14)3:2.5)4");
+        assert_eq!(newick_string, "(((1__a__a__1_bp:8.5,2__b__b__1_bp:8.5)6:2.5,5__e__e__1_bp:11)7:5.5,(3__c__c__1_bp:14,4__d__d__1_bp:14)8:2.5)9");
 
         normalise_tree(&mut root);
         assert_almost_eq(root.distance, 0.5, 1e-8);
@@ -744,7 +743,7 @@ mod tests {
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
         let newick_string = tree_to_newick(&root, &index);
-        assert_eq!(newick_string, "((a__a__1_bp:0.05,b__b__1_bp:0.05)1:0.2,(c__c__1_bp:0.1,d__d__1_bp:0.1)2:0.15)3");
+        assert_eq!(newick_string, "((1__a__a__1_bp:0.05,2__b__b__1_bp:0.05)5:0.2,(3__c__c__1_bp:0.1,4__d__d__1_bp:0.1)6:0.15)7");
     }
 
     #[test]
