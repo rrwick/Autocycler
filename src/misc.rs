@@ -206,7 +206,7 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
         let text = line?;
         if text.len() == 0 {continue;}
         if text.starts_with('>') {
-            if name.len() > 0 {
+            if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
@@ -225,7 +225,7 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
             sequence.push_str(&text);
         }
     }
-    if name.len() > 0 {
+    if !name.is_empty() {
         sequence.make_ascii_uppercase();
         fasta_seqs.push((name, header, sequence));
     }
@@ -244,7 +244,7 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
         let text = line?;
         if text.len() == 0 {continue;}
         if text.starts_with('>') {
-            if name.len() > 0 {
+            if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
@@ -263,7 +263,7 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
             sequence.push_str(&text);
         }
     }
-    if name.len() > 0 {
+    if !name.is_empty() {
         sequence.make_ascii_uppercase();
         fasta_seqs.push((name, header, sequence));
     }
@@ -371,10 +371,6 @@ pub fn spinner(message: &str) -> ProgressBar {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
-        assert!((a - b).abs() < epsilon, "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
-    }
 
     #[test]
     fn test_format_duration() {

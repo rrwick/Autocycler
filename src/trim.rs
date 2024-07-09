@@ -12,7 +12,8 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
@@ -186,7 +187,7 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
 }
 
 
-fn path_to_signed_numbers(path: &Vec<(u32, bool)>) -> Vec<i32> {
+fn path_to_signed_numbers(path: &[(u32, bool)]) -> Vec<i32> {
     // Paths can be represented either as a vector of tuples or as vector of signed integers:
     //   [(1, true), (2, false), (3, true)]
     //   [1, -2, 3]
@@ -195,7 +196,12 @@ fn path_to_signed_numbers(path: &Vec<(u32, bool)>) -> Vec<i32> {
 }
 
 
-fn path_to_tuples(path: &Vec<i32>) -> Vec<(u32, bool)> {
+fn reverse_path(path: &[i32]) -> Vec<i32> {
+    path.iter().rev().map(|&num| -num).collect()
+}
+
+
+fn path_to_tuples(path: &[i32]) -> Vec<(u32, bool)> {
     // Paths can be represented either as a vector of tuples or as vector of signed integers:
     //   [(1, true), (2, false), (3, true)]
     //   [1, -2, 3]
@@ -205,18 +211,17 @@ fn path_to_tuples(path: &Vec<i32>) -> Vec<(u32, bool)> {
 
 
 fn trim_path_start_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
-    let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, min_identity, max_unitigs);
-    if alignment_a.is_empty() {
-        return None;
-    }
-    let midpoint_index = find_midpoint(&alignment_a, &alignment_b, weights);
-    let start = alignment_a_indices[midpoint_index];
-    let end = alignment_b_indices[midpoint_index];
+    let alignment = overlap_alignment(&path, &path, &weights, min_identity, max_unitigs, true);
+    if alignment.is_empty() { return None; }
+    let midpoint_index = find_midpoint(&alignment, weights);
+    let start = alignment[midpoint_index].a_index;
+    let end = alignment[midpoint_index].b_index;
     Some(path[start..end].to_vec())
 }
 
 
 fn trim_path_hairpin_start(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
+    let rev_path = reverse_path(path);
     // TODO
     // TODO
     // TODO
@@ -231,27 +236,72 @@ fn trim_path_hairpin_start(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_ide
 
 
 fn trim_path_hairpin_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    None  // TEMP
+    let rev_path = reverse_path(path);
+    let mut alignment = overlap_alignment(&path, &rev_path, &weights, min_identity, max_unitigs, false);
+    if alignment.is_empty() { return None; }
+    let mut end = 0;
+    while !alignment.is_empty() {
+        trim_gaps_a_back(&mut alignment);
+        trim_gaps_b_front(&mut alignment);
+        if alignment.is_empty() { break; }
+        let back = alignment.pop_back().unwrap();
+        assert!(back.a_unitig == -alignment.front().unwrap().b_unitig);
+        if back.b_unitig != GAP {
+            end = back.a_index;
+        }
+        alignment.pop_front();
+    }
+    Some(path[..end].to_vec())
+}
+
+#[derive(PartialEq, Eq)]
+struct AlignmentPiece {
+    a_unitig: i32,
+    a_index: usize,
+    b_unitig: i32,
+    b_index: usize,
+}
+
+impl fmt::Display for AlignmentPiece {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let a_unitig = if self.a_unitig == 0 { "GAP".to_string() } else { self.a_unitig.to_string() };
+        let b_unitig = if self.b_unitig == 0 { "GAP".to_string() } else { self.b_unitig.to_string() };
+        let a_index = if self.a_index == usize::MAX { "NONE".to_string() } else { self.a_index.to_string() };
+        let b_index = if self.b_index == usize::MAX { "NONE".to_string() } else { self.b_index.to_string() };
+        write!(f, "{},{},{},{}", a_unitig, a_index, b_unitig, b_index)
+    }
+}
+
+impl fmt::Debug for AlignmentPiece {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
 }
 
 
-fn overlap_alignment(path: &Vec<i32>, weights: &HashMap<i32, u32>,
-                     min_identity: f64, max_unitigs: usize) -> (Vec<i32>, Vec<i32>, Vec<usize>, Vec<usize>) {
+fn trim_gaps_a_back(alignment: &mut VecDeque<AlignmentPiece>) {
+    while alignment.back().unwrap().a_unitig == GAP {
+        alignment.pop_back();
+    }
+}
+
+
+fn trim_gaps_b_front(alignment: &mut VecDeque<AlignmentPiece>) {
+    while alignment.front().unwrap().b_unitig == GAP {
+        alignment.pop_front();
+    }
+}
+
+fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32, u32>,
+                     min_identity: f64, max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
     // This function performs a dynamic-programming overlap alignment on a path vs itself:
     // * Scores are weighted by the length of the unitig (matches are positive scores, mismatches
     //   and indels are negative scores).
     // * The matrix is limited in size (by max_unitigs) to prevent bad scaling with huge paths.
     // * Only sufficiently high identity alignments are returned (min_identity).
-    let n = path.len();
+    // This function can be used on a path vs itself (same strand), in which case path_a and path_b
+    // will be the same. Or it can be used on a path vs its opposite strand, in which case path_b
+    // will be the reverse complement of path_a.
+    assert!(path_a.len() == path_b.len());
+    let n = path_a.len();
     let k = max_unitigs.min(n);
     let mut scoring_matrix = vec![vec![-f64::INFINITY; k + 1]; k + 1];
 
@@ -266,10 +316,10 @@ fn overlap_alignment(path: &Vec<i32>, weights: &HashMap<i32, u32>,
         for j in 1..=k {
             let global_i = i - 1;
             let global_j = n - k + j - 1;
-            if global_i == global_j {continue;}  // skip diagonal to avoid whole-vs-whole alignment
-            let weight_i = *weights.get(&path[global_i].abs()).unwrap() as f64;
-            let weight_j = *weights.get(&path[global_j].abs()).unwrap() as f64;
-            let match_score = scoring_matrix[i - 1][j - 1] + if path[global_i] == path[global_j] {
+            if skip_diagonal && global_i == global_j {continue;}  // skipping the diagonal avoids whole-vs-whole alignment
+            let weight_i = *weights.get(&path_a[global_i].abs()).unwrap() as f64;
+            let weight_j = *weights.get(&path_b[global_j].abs()).unwrap() as f64;
+            let match_score = scoring_matrix[i - 1][j - 1] + if path_a[global_i] == path_b[global_j] {
                 weight_i
             } else {
                 -(weight_i + weight_j) / 2.0
@@ -299,7 +349,7 @@ fn overlap_alignment(path: &Vec<i32>, weights: &HashMap<i32, u32>,
 
     // A negative score indicates a very poor alignment.
     if max_score <= 0.0 {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        return VecDeque::new();
     }
 
     // Traceback to get the alignment and record indices
@@ -312,22 +362,22 @@ fn overlap_alignment(path: &Vec<i32>, weights: &HashMap<i32, u32>,
     while i > 0 && j > 0 {
         let global_i = i - 1;
         let global_j = n - k + j - 1;
-        if path[global_i] == path[global_j] {
-            alignment_a.push(path[global_i]);
-            alignment_b.push(path[global_j]);
+        if path_a[global_i] == path_b[global_j] {
+            alignment_a.push(path_a[global_i]);
+            alignment_b.push(path_b[global_j]);
             alignment_a_indices.push(global_i);
             alignment_b_indices.push(global_j);
             i -= 1;
             j -= 1;
         } else if scoring_matrix[i - 1][j] >= scoring_matrix[i][j - 1] {
-            alignment_a.push(path[global_i]);
+            alignment_a.push(path_a[global_i]);
             alignment_b.push(GAP);
             alignment_a_indices.push(global_i);
             alignment_b_indices.push(NONE);
             i -= 1;
         } else {
             alignment_a.push(GAP);
-            alignment_b.push(path[global_j]);
+            alignment_b.push(path_b[global_j]);
             alignment_a_indices.push(NONE);
             alignment_b_indices.push(global_j);
             j -= 1;
@@ -345,32 +395,32 @@ fn overlap_alignment(path: &Vec<i32>, weights: &HashMap<i32, u32>,
     let alignment_identity = max_score / mean_length;
 
     if alignment_identity < min_identity {
-        return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        return VecDeque::new();
     }
 
-    (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices)
+    alignment_a.iter().zip(alignment_a_indices.iter()).zip(alignment_b.iter()).zip(alignment_b_indices.iter())
+        .map(|(((a_u, a_i), b_u), b_i)| AlignmentPiece {a_unitig: *a_u, a_index: *a_i, b_unitig: *b_u, b_index: *b_i}).collect()
 }
 
 
-fn find_midpoint(alignment_a: &Vec<i32>, alignment_b: &Vec<i32>, weights: &HashMap<i32, u32>) -> usize {
-    assert!(alignment_a.len() == alignment_b.len());
-
-    let total_weight = alignment_a.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum::<u32>()
-                     + alignment_b.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum::<u32>();
+fn find_midpoint(alignment: &VecDeque<AlignmentPiece>, weights: &HashMap<i32, u32>) -> usize {
+    let total_weight = alignment.iter().filter_map(|p| { let mut weight = 0;
+                                                         if p.a_unitig != GAP { weight += weights[&p.a_unitig.abs()]; }
+                                                         if p.b_unitig != GAP { weight += weights[&p.b_unitig.abs()]; }
+                                                         Some(weight) }).sum::<u32>();
     let mut cumulative_weight = 0;
     let mut best_index = 0;
     let mut best_closeness = 1.0;
 
-    for (i, &unitig_a) in alignment_a.iter().enumerate() {
-        let unitig_b = alignment_b[i];
-        if unitig_a != GAP {
-            cumulative_weight += weights[&unitig_a.abs()];
+    for (i, p) in alignment.iter().enumerate() {
+        if p.a_unitig != GAP {
+            cumulative_weight += weights[&p.a_unitig.abs()];
         }
-        if unitig_b != GAP {
-            cumulative_weight += weights[&unitig_b.abs()];
+        if p.b_unitig != GAP {
+            cumulative_weight += weights[&p.b_unitig.abs()];
         }
         let closeness_to_midpoint = (0.5 - (cumulative_weight as f64 / total_weight as f64)).abs();
-        if unitig_a == unitig_b && closeness_to_midpoint < best_closeness {
+        if p.a_unitig == p.b_unitig && closeness_to_midpoint < best_closeness {
             best_index = i;
             best_closeness = closeness_to_midpoint;
         }
@@ -412,74 +462,68 @@ mod tests {
         // No alignment
         let path = vec![1, -2, 3, -4, 5];
         let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 100);
-        assert_eq!(alignment_a, vec![]);
-        assert_eq!(alignment_b, vec![]);
-        assert_eq!(alignment_a_indices, vec![]);
-        assert_eq!(alignment_b_indices, vec![]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 100, true);
+        assert!(alignment.is_empty());
 
         // Exact overlap of two unitigs
         let path = vec![1, -2, 3, -4, 5, 1, -2];
         let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 100);
-        assert_eq!(alignment_a, vec![1, -2]);
-        assert_eq!(alignment_b, vec![1, -2]);
-        assert_eq!(alignment_a_indices, vec![0, 1]);
-        assert_eq!(alignment_b_indices, vec![5, 6]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 100, true);
+        let expected_alignment = VecDeque::from(vec![
+            AlignmentPiece { a_unitig: 1,  a_index: 0, b_unitig: 1,  b_index: 5 },
+            AlignmentPiece { a_unitig: -2, a_index: 1, b_unitig: -2, b_index: 6 },
+        ]);
+        assert_eq!(alignment, expected_alignment);
 
         // Same as above but with max_unitigs of 4.
         let path = vec![1, -2, 3, -4, 5, 1, -2];
         let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 4);
-        assert_eq!(alignment_a, vec![1, -2]);
-        assert_eq!(alignment_b, vec![1, -2]);
-        assert_eq!(alignment_a_indices, vec![0, 1]);
-        assert_eq!(alignment_b_indices, vec![5, 6]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 4, true);
+        let expected_alignment = VecDeque::from(vec![
+            AlignmentPiece { a_unitig: 1,  a_index: 0, b_unitig: 1,  b_index: 5 },
+            AlignmentPiece { a_unitig: -2, a_index: 1, b_unitig: -2, b_index: 6 },
+        ]);
+        assert_eq!(alignment, expected_alignment);
 
         // Same as above but with max_unitigs of 2 (will just manage to catch the overlap)
         let path = vec![1, -2, 3, -4, 5, 1, -2];
         let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 2);
-        assert_eq!(alignment_a, vec![1, -2]);
-        assert_eq!(alignment_b, vec![1, -2]);
-        assert_eq!(alignment_a_indices, vec![0, 1]);
-        assert_eq!(alignment_b_indices, vec![5, 6]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 2, true);
+        let expected_alignment = VecDeque::from(vec![
+            AlignmentPiece { a_unitig: 1,  a_index: 0, b_unitig: 1,  b_index: 5 },
+            AlignmentPiece { a_unitig: -2, a_index: 1, b_unitig: -2, b_index: 6 },
+        ]);
+        assert_eq!(alignment, expected_alignment);
 
         // Same as above but with max_unitigs of 1 resulting in no alignment
         let path = vec![1, -2, 3, -4, 5, 1, -2];
         let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 1);
-        assert_eq!(alignment_a, vec![]);
-        assert_eq!(alignment_b, vec![]);
-        assert_eq!(alignment_a_indices, vec![]);
-        assert_eq!(alignment_b_indices, vec![]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 1, true);
+        assert!(alignment.is_empty());
 
         // Inexact overlap of three unitigs
         let path = vec![1, -2, 3, -4, 5, 1, 6, 3];
         let weights = hashmap!{1 => 30, 2 => 1, 3 => 10, 4 => 10, 5 => 10, 6 => 1};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 100);
-        assert_eq!(alignment_a, vec![1, GAP,  -2, 3]);
-        assert_eq!(alignment_b, vec![1,   6, GAP, 3]);
-        assert_eq!(alignment_a_indices, vec![0, NONE,    1, 2]);
-        assert_eq!(alignment_b_indices, vec![5,    6, NONE, 7]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 100, true);
+        let expected_alignment = VecDeque::from(vec![
+            AlignmentPiece { a_unitig: 1,   a_index: 0,    b_unitig: 1,   b_index: 5 },
+            AlignmentPiece { a_unitig: GAP, a_index: NONE, b_unitig: 6,   b_index: 6 },
+            AlignmentPiece { a_unitig: -2,  a_index: 1,    b_unitig: GAP, b_index: NONE },
+            AlignmentPiece { a_unitig: 3,   a_index: 2,    b_unitig: 3,   b_index: 7 },
+        ]);
+        assert_eq!(alignment, expected_alignment);
 
         // Same as above but with a high min_alignment_identity resulting in no alignment
         let path = vec![1, -2, 3, -4, 5, 1, 6, 3];
         let weights = hashmap!{1 => 30, 2 => 1, 3 => 10, 4 => 10, 5 => 10, 6 => 1};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.99, 100);
-        assert_eq!(alignment_a, vec![]);
-        assert_eq!(alignment_b, vec![]);
-        assert_eq!(alignment_a_indices, vec![]);
-        assert_eq!(alignment_b_indices, vec![]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.99, 100, true);
+        assert!(alignment.is_empty());
 
         // Same as above but with max_unitigs of 2 resulting in no alignment
         let path = vec![1, -2, 3, -4, 5, 1, 6, 3];
         let weights = hashmap!{1 => 30, 2 => 1, 3 => 10, 4 => 10, 5 => 10, 6 => 1};
-        let (alignment_a, alignment_b, alignment_a_indices, alignment_b_indices) = overlap_alignment(&path, &weights, 0.9, 2);
-        assert_eq!(alignment_a, vec![]);
-        assert_eq!(alignment_b, vec![]);
-        assert_eq!(alignment_a_indices, vec![]);
-        assert_eq!(alignment_b_indices, vec![]);
+        let alignment = overlap_alignment(&path, &path, &weights, 0.9, 2, true);
+        assert!(alignment.is_empty());
     }
 
     #[test]
@@ -535,5 +579,56 @@ mod tests {
         let path = vec![-1190, -3722, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, -3722, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186];
         let trimmed_path = trim_path_start_end(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![-1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878]);
+    }
+
+    #[test]
+    fn test_reverse_path() {
+        assert_eq!(reverse_path(&vec![1, -2]), vec![2, -1]);
+        assert_eq!(reverse_path(&vec![4, 8, -3]), vec![3, -8, -4]);
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_end_1() {
+        // Tests some exact hairpin overlaps.
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
+
+        let path = vec![1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert!(trimmed_path.is_none());
+
+        let path = vec![1, 2, 3, 4, 5, -5];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![1, 2, 3, 4, 5, -5, -4];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![1, 2, 3, 4, 5, -5, -4, -3, -2, -1];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_end_2() {
+        // Tests some inexact hairpin overlaps.
+        let weights = hashmap!{1 => 100, 2 => 100, 3 => 10, 4 => 100, 5 => 100,
+                               6 => 1, 7 => 1, 8 => 1, 9 => 1, 10 => 1};
+
+        // let path = vec![1, 2, 3, 6, 4, 5, -5, 7, -4, -3, -2, -1];
+        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 5]);
+
+        // let path = vec![1, 2, 3, 6, 4, 7, 5, -5, 8, 9, 10, -4, -3, -2, -1];
+        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 7, 5]);
+
+        // let path = vec![1, 2, 3, 6, 7, 4, 8, 9, 5, -5, -4, -3, -2, 10, -1];
+        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 7, 4, 8, 9, 5]);
+
+        let path = vec![1, 2, 3, 4, 6, -4, -3];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 6]);
     }
 }

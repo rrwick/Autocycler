@@ -580,7 +580,7 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
                          gfa_lines: &Vec<String>, fail_dir: &PathBuf) {
     for c in 1..=get_max_cluster(sequences) {
         let failure_reasons = qc_results.get(&c).unwrap();
-        if failure_reasons.len() > 0 {
+        if !failure_reasons.is_empty() {
             eprintln!("Cluster {:03}:", c);
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s.to_string().dimmed());
@@ -618,7 +618,7 @@ fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec
         assert!(seq.cluster != 0);
         let failure_reasons = qc_results.get(&seq.cluster).unwrap();
         let all_cluster = format!("{}", seq.cluster);
-        let pass_cluster = if failure_reasons.len() > 0 {
+        let pass_cluster = if !failure_reasons.is_empty() {
             "none".to_string()
         } else {
             format!("{}", seq.cluster)

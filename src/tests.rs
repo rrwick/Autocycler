@@ -67,11 +67,7 @@ mod tests {
                        k_size: u32) {
         let assembly_dir = tempdir().unwrap();
         let graph_dir = tempdir().unwrap();
-        let reconstructed_dir_1 = tempdir().unwrap();
-        let reconstructed_dir_2 = tempdir().unwrap();
-        let reconstructed_dir_3 = tempdir().unwrap();
-        let reconstructed_dir_4 = tempdir().unwrap();
-        let reconstructed_dir_5 = tempdir().unwrap();
+        let reconstructed_dir = tempdir().unwrap();
 
         // Save the sequences to the assembly directory.
         let original_a = assembly_dir.path().join("a.fasta");
@@ -101,7 +97,7 @@ mod tests {
 
         // Load the unitig graph from file, save it back to file and ensure the files are the same.
         let gfa_2 = graph_dir.path().join("graph_2.gfa");
-        let (mut unitig_graph, mut sequences) = UnitigGraph::from_gfa_file(&gfa_1);
+        let (mut unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa_1);
         unitig_graph.save_gfa(&gfa_2, &sequences).unwrap();
         assert_same_content(&gfa_1, &gfa_2);
 
@@ -114,12 +110,12 @@ mod tests {
         assert_same_content(&gfa_1, &gfa_3);
 
         // Reconstruct the sequences from the unitig graph.
-        save_original_seqs(&reconstructed_dir_1.path().to_path_buf(), &unitig_graph, &sequences);
-        let reconstructed_a = reconstructed_dir_1.path().join("a.fasta");
-        let reconstructed_b = reconstructed_dir_1.path().join("b.fna");
-        let reconstructed_c = reconstructed_dir_1.path().join("c.fa");
-        let reconstructed_d = reconstructed_dir_1.path().join("d.fasta.gz");
-        let reconstructed_e = reconstructed_dir_1.path().join("e.fna.gz");
+        save_original_seqs(&reconstructed_dir.path().to_path_buf(), &unitig_graph, &sequences);
+        let reconstructed_a = reconstructed_dir.path().join("a.fasta");
+        let reconstructed_b = reconstructed_dir.path().join("b.fna");
+        let reconstructed_c = reconstructed_dir.path().join("c.fa");
+        let reconstructed_d = reconstructed_dir.path().join("d.fasta.gz");
+        let reconstructed_e = reconstructed_dir.path().join("e.fna.gz");
 
         // Make sure original sequences match reconstruction.
         assert_same_content(&original_a, &reconstructed_a);
@@ -127,54 +123,6 @@ mod tests {
         assert_same_content(&original_c, &reconstructed_c);
         assert_same_content_gzipped(&original_d, &reconstructed_d);
         assert_same_content_gzipped(&original_e, &reconstructed_e);
-
-        // // Exclude the first sequence, remove it from the graph, then reconstruct the remaining
-        // // sequences.
-        // sequences[0].cluster = -1;
-        // let mut sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-        // assert_eq!(sequences.len(), 4);
-        // save_original_seqs(&reconstructed_dir_2.path().to_path_buf(), &unitig_graph, &sequences);
-        // let reconstructed_b = reconstructed_dir_2.path().join("b.fna");
-        // let reconstructed_c = reconstructed_dir_2.path().join("c.fa");
-        // let reconstructed_d = reconstructed_dir_2.path().join("d.fasta.gz");
-        // let reconstructed_e = reconstructed_dir_2.path().join("e.fna.gz");
-        // assert_same_content(&original_b, &reconstructed_b);
-        // assert_same_content(&original_c, &reconstructed_c);
-        // assert_same_content_gzipped(&original_d, &reconstructed_d);
-        // assert_same_content_gzipped(&original_e, &reconstructed_e);
-
-        // // Exclude the first sequence, remove it from the graph, then reconstruct the remaining
-        // // sequences.
-        // sequences[0].cluster = -1;
-        // let mut sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-        // assert_eq!(sequences.len(), 3);
-        // save_original_seqs(&reconstructed_dir_3.path().to_path_buf(), &unitig_graph, &sequences);
-        // let reconstructed_c = reconstructed_dir_3.path().join("c.fa");
-        // let reconstructed_d = reconstructed_dir_3.path().join("d.fasta.gz");
-        // let reconstructed_e = reconstructed_dir_3.path().join("e.fna.gz");
-        // assert_same_content(&original_c, &reconstructed_c);
-        // assert_same_content_gzipped(&original_d, &reconstructed_d);
-        // assert_same_content_gzipped(&original_e, &reconstructed_e);
-
-        // // Exclude the first sequence, remove it from the graph, then reconstruct the remaining
-        // // sequences.
-        // sequences[0].cluster = -1;
-        // let mut sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-        // assert_eq!(sequences.len(), 2);
-        // save_original_seqs(&reconstructed_dir_4.path().to_path_buf(), &unitig_graph, &sequences);
-        // let reconstructed_d = reconstructed_dir_4.path().join("d.fasta.gz");
-        // let reconstructed_e = reconstructed_dir_4.path().join("e.fna.gz");
-        // assert_same_content_gzipped(&original_d, &reconstructed_d);
-        // assert_same_content_gzipped(&original_e, &reconstructed_e);
-
-        // // Exclude the first sequence, remove it from the graph, then reconstruct the remaining
-        // // sequences.
-        // sequences[0].cluster = -1;
-        // let sequences = remove_excluded_contigs_from_graph(&mut unitig_graph, &sequences);
-        // assert_eq!(sequences.len(), 1);
-        // save_original_seqs(&reconstructed_dir_5.path().to_path_buf(), &unitig_graph, &sequences);
-        // let reconstructed_e = reconstructed_dir_5.path().join("e.fna.gz");
-        // assert_same_content_gzipped(&original_e, &reconstructed_e);
     }
 
     #[test]
