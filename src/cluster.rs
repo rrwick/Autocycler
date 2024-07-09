@@ -194,6 +194,12 @@ struct TreeNode {
     distance: f64,  // distance from this node to the tree tips
 }
 
+impl TreeNode {
+    fn is_tip(&self) -> bool {
+        self.left.is_none()
+    }
+}
+
 
 fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &PathBuf) {
     // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
@@ -355,7 +361,7 @@ fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cut
 
 fn define_clusters_from_node(node: &TreeNode, cutoff: f64,
                              seq_id_to_cluster: &mut HashMap<u16, u16>, current_cluster: &mut u16) {
-    if node.left.is_none() || node.distance < cutoff {  // node is either a tip or a tight group
+    if node.is_tip() || node.distance < cutoff {
         *current_cluster += 1;
         define_clusters(node, seq_id_to_cluster, *current_cluster);
     } else {  // node is a loose group, so continue recursively
@@ -366,7 +372,7 @@ fn define_clusters_from_node(node: &TreeNode, cutoff: f64,
 
 
 fn define_clusters(node: &TreeNode, seq_id_to_cluster: &mut HashMap<u16, u16>, cluster_number: u16) {
-    if node.left.is_none() {  // is a tip
+    if node.is_tip() {
         seq_id_to_cluster.insert(node.id, cluster_number);
     } else {
         define_clusters(node.left.as_ref().unwrap(), seq_id_to_cluster, cluster_number);
@@ -402,23 +408,20 @@ fn cluster_qc(sequences: &Vec<Sequence>, distances: &HashMap<(u16, u16), f64>, c
     for s in sequences {
         assert!(s.cluster != 0);
     }
-    let max_cluster = get_max_cluster(&sequences) + 1;
+    let max_cluster = get_max_cluster(&sequences);
     let mut failure_reasons: HashMap<u16, Vec<String>> = (1..=max_cluster).map(|c| (c, Vec::new())).collect();
-
-    for c in 1..max_cluster {
+    for c in 1..=max_cluster {
         let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
         if assemblies.len() < min_assemblies {
             failure_reasons.get_mut(&c).unwrap().push("present in too few assemblies".to_string());
         }
     }
-
-    for c in 1..max_cluster {
+    for c in 1..=max_cluster {
         let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &failure_reasons);
         if container > 0 {
             failure_reasons.get_mut(&c).unwrap().push(format!("contained within cluster {}", container));
         }
     }
-
     failure_reasons
 }
 
@@ -429,13 +432,25 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
     // Checks whether this cluster is contained within another cluster that has so-far passed QC.
     // If so, it returns the id of the containing cluster. If not, it returns 0.
     let passed_clusters: Vec<u16> = failure_reasons.iter().filter(|(_, v)| v.is_empty()).map(|(&k, _)| k).collect();
-    for seq_a in sequences.iter().filter(|s| s.cluster == cluster_num) {
-        for seq_b in sequences.iter().filter(|s| s.cluster != cluster_num && passed_clusters.contains(&s.cluster)) {
-            let distance_a_b = distances.get(&(seq_a.id, seq_b.id)).unwrap();
-            let distance_b_a = distances.get(&(seq_b.id, seq_a.id)).unwrap();
-            if *distance_a_b < *distance_b_a && *distance_a_b < cutoff {
-                return seq_b.cluster;
+    for passed_cluster in passed_clusters {
+        if passed_cluster == cluster_num {
+            continue;
+        }
+        let mut contain_count = 0;
+        let mut total_count = 0;
+        for seq_a in sequences.iter().filter(|s| s.cluster == cluster_num) {
+            for seq_b in sequences.iter().filter(|s| s.cluster == passed_cluster) {
+                total_count += 1;
+                let distance_a_b = distances.get(&(seq_a.id, seq_b.id)).unwrap();
+                let distance_b_a = distances.get(&(seq_b.id, seq_a.id)).unwrap();
+                if *distance_a_b < *distance_b_a && *distance_a_b < cutoff {
+                    contain_count += 1;
+                }
             }
+        }
+        let contained_fraction = contain_count as f64 / total_count as f64;
+        if contained_fraction > 0.5 {
+            return passed_cluster;
         }
     }
     0
@@ -453,7 +468,7 @@ fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String
 
 fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                          gfa_lines: &Vec<String>, pass_dir: &PathBuf) {
-    for c in 1..get_max_cluster(sequences)+1 {
+    for c in 1..=get_max_cluster(sequences) {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() == 0 {
             eprintln!("Cluster {:03}:", c);
@@ -472,7 +487,7 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
 
 fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                          gfa_lines: &Vec<String>, fail_dir: &PathBuf) {
-    for c in 1..get_max_cluster(sequences)+1 {
+    for c in 1..=get_max_cluster(sequences) {
         let failure_reasons = qc_results.get(&c).unwrap();
         if failure_reasons.len() > 0 {
             eprintln!("Cluster {:03}:", c);
@@ -529,7 +544,7 @@ fn reorder_clusters(sequences: &mut Vec<Sequence>) {
     //       the lengths of all unitigs). This will prevent doubled plasmids from being longer than
     //       they should be.
     let mut cluster_lengths = HashMap::new();
-    for c in 1..get_max_cluster(sequences)+1 {
+    for c in 1..=get_max_cluster(sequences) {
         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
         cluster_lengths.insert(c, median_usize(&lengths));
     }

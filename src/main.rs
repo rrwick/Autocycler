@@ -89,7 +89,7 @@ enum Commands {
         autocycler_dir: PathBuf,
 
         /// cutoff distance threshold for hierarchical clustering
-        #[clap(long = "cutoff", default_value = "0.05")]
+        #[clap(long = "cutoff", default_value = "0.1")]
         cutoff: f64,
 
         /// exclude clusters with fewer than this many assemblies
@@ -113,7 +113,7 @@ enum Commands {
         max_unitigs: usize,
 
         /// Allowed variability in cluster length, measured in median absolute deviations
-        #[clap(long = "mad", default_value = "2.0")]
+        #[clap(long = "mad", default_value = "3.0")]
         mad: f64,
     },
 
