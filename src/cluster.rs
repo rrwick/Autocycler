@@ -26,7 +26,8 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>) {
+pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>,
+               manual_clusters: Option<String>) {
     let gfa = autocycler_dir.join("1_input_assemblies.gfa");
     let clustering_dir = autocycler_dir.join("2_clustering");
     delete_dir_if_exists(&clustering_dir);
@@ -39,6 +40,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let gfa_lines = load_file_lines(&gfa);
     let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
+    let manual_clusters = parse_manual_clusters(manual_clusters);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
 
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
@@ -49,9 +51,11 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
 
     // TODO: add a setting which allows users to manually specify the exact clustering they want
     //       using internal node numbers
-
-    define_clusters_from_tree(&tree, &mut sequences, cutoff);
-    let cluster_qc_results = cluster_qc(&sequences, &asymmetrical_distances, cutoff, min_assemblies);
+    let cluster_qc_results = if manual_clusters.is_empty() {
+        define_clusters_automatically(&tree, &mut sequences, &asymmetrical_distances, min_assemblies, cutoff)
+    } else {
+        define_clusters_manually(&tree, &mut sequences, manual_clusters)
+    };
     save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
     save_metadata_to_tsv(&sequences, &cluster_qc_results, &clustering_tsv);
 
@@ -201,6 +205,24 @@ impl TreeNode {
 }
 
 
+fn find_node_by_id(node: &TreeNode, id: u16) -> Option<&TreeNode> {
+    if node.id == id {
+        return Some(node);
+    }
+    if let Some(ref left) = node.left {
+        if let Some(found) = find_node_by_id(left, id) {
+            return Some(found);
+        }
+    }
+    if let Some(ref right) = node.right {
+        if let Some(found) = find_node_by_id(right, id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+
 fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &PathBuf) {
     // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
     // length of the root, in order to ensure that root-to-tip distances are 0.5.
@@ -240,7 +262,7 @@ fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Se
     let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
     let mut cluster_distances: HashMap<(u16, u16), f64> = distances.clone();
     let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
-    let mut internal_node_num: u16 = 0;
+    let mut internal_node_num: u16 = sequences.iter().map(|s| (s.id)).max().unwrap();
 
     // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences {
@@ -346,7 +368,63 @@ fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
 }
 
 
-fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cutoff: f64) {
+fn define_clusters_manually(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                            cluster_nodes: Vec<u16>) -> HashMap<u16, Vec<String>> {
+    let mut current_cluster = 0;
+    let mut failure_reasons = HashMap::new();
+    for n in cluster_nodes {
+        if let Some(node) = find_node_by_id(tree, n) {
+            current_cluster += 1;
+            assign_cluster_to_node(node, sequences, current_cluster);
+            failure_reasons.insert(current_cluster, Vec::new());
+        } else {
+            quit_with_error(&format!("clustering tree does not contain a node with id {}", n));
+        }
+    }
+    for s in sequences.iter_mut() {
+        if s.cluster == 0 {  // wasn't assigned a cluster by the above loop
+            current_cluster += 1;
+            s.cluster = current_cluster;
+            failure_reasons.insert(current_cluster, vec!["not included in manual clusters".to_string()]);
+        }
+    }
+    let old_to_new = reorder_clusters(sequences);
+    let mut reordered_failure_reasons = HashMap::new();
+    for (old_key, reasons) in failure_reasons {
+        if let Some(&new_key) = old_to_new.get(&old_key) {
+            reordered_failure_reasons.insert(new_key, reasons);
+        }
+    }
+    reordered_failure_reasons
+}
+
+
+fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluster: u16) {
+    for s in sequences.iter_mut() {
+        if s.id == node.id {
+            s.cluster = cluster;
+        }
+    }
+    if let Some(ref left) = node.left {
+        assign_cluster_to_node(left, sequences, cluster);
+    }
+    if let Some(ref right) = node.right {
+        assign_cluster_to_node(right, sequences, cluster);
+    }
+}
+
+
+fn define_clusters_automatically(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashMap<(u16, u16), f64>,
+                             min_assemblies: usize, cutoff: f64) -> HashMap<u16, Vec<String>> {
+    // TODO: It might be nice to rethink this function and cluster more intelligently. Currently,
+    //       I'm just using a fixed distance threshold for the entire tree to define clusters. But
+    //       one tree might contain clusters with a mix of different ideal thresholds. So instead,
+    //       I could start with a high threshold and then explore restricting clusters by moving
+    //       towards the tips. A good result would balance both cluster distance (smaller is better)
+    //       and the number of assemblies in a cluster (more is better). For example, a more
+    //       restrictive cluster that excludes an outlier might be worth it, because while it would
+    //       reduce the assembly count by 1 (slightly bad) it could make the cluster much tighter
+    //       (good).
     let mut seq_id_to_cluster = HashMap::new();
     let mut current_cluster = 0;
     define_clusters_from_node(tree, cutoff / 2.0, &mut seq_id_to_cluster, &mut current_cluster);
@@ -356,6 +434,7 @@ fn define_clusters_from_tree(tree: &TreeNode, sequences: &mut Vec<Sequence>, cut
     eprintln!("{} clusters", current_cluster);
     eprintln!();
     reorder_clusters(sequences);
+    cluster_qc(&sequences, &distances, cutoff, min_assemblies)
 }
 
 
@@ -397,6 +476,17 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequ
 }
 
 
+fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
+    if let Some(clusters) = manual_clusters {
+        clusters.split(',')
+            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(&format!("failed to parse '{}' as a node number", s))))
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+
 fn cluster_qc(sequences: &Vec<Sequence>, distances: &HashMap<(u16, u16), f64>, cutoff: f64,
               min_assemblies: usize) -> HashMap<u16, Vec<String>> {
     // This function chooses which clusters pass and which clusters fail. It returns the result as
@@ -431,6 +521,8 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
                                    failure_reasons: &HashMap<u16, Vec<String>>) -> u16 {
     // Checks whether this cluster is contained within another cluster that has so-far passed QC.
     // If so, it returns the id of the containing cluster. If not, it returns 0.
+    // A cluster counts as contained if the majority of the pairwise comparisons to another cluster
+    // are asymmetrical and below the cutoff.
     let passed_clusters: Vec<u16> = failure_reasons.iter().filter(|(_, v)| v.is_empty()).map(|(&k, _)| k).collect();
     for passed_cluster in passed_clusters {
         if passed_cluster == cluster_num {
@@ -522,7 +614,7 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
 fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
                         file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
-    write!(file, "full_name\tpassing_clusters\tall_clusters\tfile_name\tcontig_name\tlength\n").unwrap();
+    write!(file, "sequence_name\tpassing_clusters\tall_clusters\tfile_name\tcontig_name\tlength\n").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
         let failure_reasons = qc_results.get(&seq.cluster).unwrap();
@@ -538,8 +630,9 @@ fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec
 }
 
 
-fn reorder_clusters(sequences: &mut Vec<Sequence>) {
-    // Reorder clusters based on their median sequence length (large to small).
+fn reorder_clusters(sequences: &mut Vec<Sequence>) -> HashMap<u16, u16>{
+    // Reorder clusters based on their median sequence length (large to small). Returns the mapping
+    // of old cluster numbers to new cluster numbers.
     // TODO: perhaps sort not based on sequence length but on UNIQUE sequence length (the sum of 
     //       the lengths of all unitigs). This will prevent doubled plasmids from being longer than
     //       they should be.
@@ -554,12 +647,13 @@ fn reorder_clusters(sequences: &mut Vec<Sequence>) {
     let mut new_c: u16 = 0;
     for (old_c, _length) in sorted_cluster_lengths {
         new_c += 1;
-        old_to_new.insert(old_c, new_c);
+        old_to_new.insert(*old_c, new_c);
     }
     for s in sequences {
         if s.cluster < 1 {continue;}
         s.cluster = *old_to_new.get(&s.cluster).unwrap();
     }
+    old_to_new
 }
 
 

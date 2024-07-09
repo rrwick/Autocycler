@@ -96,6 +96,11 @@ enum Commands {
         #[clap(long = "min_assemblies", hide_default_value = true,
                help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
         min_assemblies: Option<usize>,
+
+        /// manually define clusters using tree node numbers
+        #[clap(long = "manual", hide_default_value = true,
+               help = "manually define clusters using tree node numbers [default: automatic]")]
+        manual: Option<String>,
     },
 
     /// trim contigs in a cluster
@@ -143,8 +148,8 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
-        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies }) => {
-            cluster::cluster(autocycler_dir, cutoff, min_assemblies);
+        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
+            cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
         },
         Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad }) => {
             trim::trim(cluster_dir, min_identity, max_unitigs, mad);
