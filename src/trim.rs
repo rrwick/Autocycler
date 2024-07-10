@@ -57,8 +57,8 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
 fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64) {
     check_if_dir_exists(&cluster_dir);
     check_if_file_exists(&untrimmed_gfa);
-    if min_identity < 0.5 || min_identity > 1.0 {
-        quit_with_error("--min_identity must be between 0.5 and 1 (inclusive)");
+    if min_identity < 0.0 || min_identity > 1.0 {
+        quit_with_error("--min_identity must be between 0.0 and 1 (inclusive)");
     }
 }
 
@@ -397,8 +397,8 @@ fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32
     let alignment_a_length: u32 = alignment_a.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum();
     let alignment_b_length: u32 = alignment_b.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum();
     let mean_length = (alignment_a_length as f64 + alignment_b_length as f64) / 2.0;
-    let alignment_identity = max_score / mean_length;
-
+    let total_matches = alignment_a.iter().zip(alignment_b.iter()).fold(0, |acc, (a, b)| { if a == b { acc + weights[&a.abs()] } else { acc }});
+    let alignment_identity = total_matches as f64 / mean_length;
     if alignment_identity < min_identity {
         return VecDeque::new();
     }
