@@ -220,39 +220,35 @@ fn trim_path_start_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identit
 }
 
 
-fn trim_path_hairpin_start(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
-    let rev_path = reverse_path(path);
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    None  // TEMP
-}
-
-
 fn trim_path_hairpin_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
     let rev_path = reverse_path(path);
-    let mut alignment = overlap_alignment(&path, &rev_path, &weights, min_identity, max_unitigs, false);
+    let mut alignment = overlap_alignment(&rev_path, &path, &weights, min_identity, max_unitigs, false);
     if alignment.is_empty() { return None; }
     let mut end = 0;
     while !alignment.is_empty() {
-        trim_gaps_a_back(&mut alignment);
-        trim_gaps_b_front(&mut alignment);
+        trim_gaps_a_front(&mut alignment);
+        trim_gaps_b_back(&mut alignment);
         if alignment.is_empty() { break; }
         let back = alignment.pop_back().unwrap();
-        assert!(back.a_unitig == -alignment.front().unwrap().b_unitig);
-        if back.b_unitig != GAP {
-            end = back.a_index;
+        assert!(back.b_unitig == -alignment.front().unwrap().a_unitig);
+        if back.a_unitig != GAP {
+            end = back.b_index;
         }
         alignment.pop_front();
     }
     Some(path[..end].to_vec())
 }
+
+
+fn trim_path_hairpin_start(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
+    let rev_path = reverse_path(path);
+    let trimmed_reverse_path = trim_path_hairpin_end(&rev_path, weights, min_identity, max_unitigs);
+    if trimmed_reverse_path.is_none() {
+        return None;
+    }
+    Some(reverse_path(&trimmed_reverse_path.unwrap()))
+}
+
 
 #[derive(PartialEq, Eq)]
 struct AlignmentPiece {
@@ -277,18 +273,19 @@ impl fmt::Debug for AlignmentPiece {
 }
 
 
-fn trim_gaps_a_back(alignment: &mut VecDeque<AlignmentPiece>) {
-    while alignment.back().unwrap().a_unitig == GAP {
+fn trim_gaps_a_front(alignment: &mut VecDeque<AlignmentPiece>) {
+    while !alignment.is_empty() && alignment.front().unwrap().a_unitig == GAP {
+        alignment.pop_front();
+    }
+}
+
+
+fn trim_gaps_b_back(alignment: &mut VecDeque<AlignmentPiece>) {
+    while !alignment.is_empty() && alignment.back().unwrap().b_unitig == GAP {
         alignment.pop_back();
     }
 }
 
-
-fn trim_gaps_b_front(alignment: &mut VecDeque<AlignmentPiece>) {
-    while alignment.front().unwrap().b_unitig == GAP {
-        alignment.pop_front();
-    }
-}
 
 fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32, u32>,
                      min_identity: f64, max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
@@ -330,7 +327,7 @@ fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32
         }
     }
 
-    // Find the maximum score from the right and bottom edges.
+    // Find the maximum score from the right edge.
     let mut max_score = f64::NEG_INFINITY;
     let mut max_i = 0;
     let mut max_j = 0;
@@ -339,11 +336,6 @@ fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32
             max_score = scoring_matrix[i][k];
             max_i = i;
             max_j = k;
-        }
-        if scoring_matrix[k][i] > max_score {
-            max_score = scoring_matrix[k][i];
-            max_i = k;
-            max_j = i;
         }
     }
 
@@ -590,7 +582,8 @@ mod tests {
     #[test]
     fn test_trim_path_hairpin_end_1() {
         // Tests some exact hairpin overlaps.
-        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10};
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10,
+                               6 => 10, 7 => 10, 8 => 10, 9 => 10, 10 => 10};
 
         let path = vec![1, 2, 3, 4, 5];
         let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
@@ -607,6 +600,14 @@ mod tests {
         let path = vec![1, 2, 3, 4, 5, -5, -4, -3, -2, -1];
         let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![7, 8, 9, 10, -10, -9, -8];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![7, 8, 9, 10]);
+
+        let path = vec![7, 8, 9, 10, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert!(trimmed_path.is_none());
     }
 
     #[test]
@@ -615,20 +616,70 @@ mod tests {
         let weights = hashmap!{1 => 100, 2 => 100, 3 => 10, 4 => 100, 5 => 100,
                                6 => 1, 7 => 1, 8 => 1, 9 => 1, 10 => 1};
 
-        // let path = vec![1, 2, 3, 6, 4, 5, -5, 7, -4, -3, -2, -1];
-        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
-        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 5]);
+        let path = vec![1, 2, 3, 6, 4, 5, -5, 7, -4, -3, -2, -1];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 5]);
 
-        // let path = vec![1, 2, 3, 6, 4, 7, 5, -5, 8, 9, 10, -4, -3, -2, -1];
-        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
-        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 7, 5]);
+        let path = vec![1, 2, 3, 6, 4, 7, 5, -5, 8, 9, 10, -4, -3, -2, -1];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 7, 5]);
 
-        // let path = vec![1, 2, 3, 6, 7, 4, 8, 9, 5, -5, -4, -3, -2, 10, -1];
-        // let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
-        // assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 7, 4, 8, 9, 5]);
+        let path = vec![1, 2, 3, 6, 7, 4, 8, 9, 5, -5, -4, -3, -2, 10, -1];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 7, 4, 8, 9, 5]);
 
         let path = vec![1, 2, 3, 4, 6, -4, -3];
         let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_start_1() {
+        // Tests some exact hairpin overlaps.
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10,
+                               6 => 10, 7 => 10, 8 => 10, 9 => 10, 10 => 10};
+
+        let path = vec![1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert!(trimmed_path.is_none());
+
+        let path = vec![-1, 1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-2, -1, 1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-5, -4, -3, -2, -1, 1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert!(trimmed_path.is_none());
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_start_2() {
+        // Tests some inexact hairpin overlaps.
+        let weights = hashmap!{1 => 100, 2 => 100, 3 => 10, 4 => 100, 5 => 100,
+                               6 => 1, 7 => 1, 8 => 1, 9 => 1, 10 => 1};
+
+        let path = vec![-5, 7, -4, -3, -2, -1, 1, 2, 3, 6, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 5]);
+
+        let path = vec![-5, 8, 9, 10, -4, -3, -2, -1, 1, 2, 3, 6, 4, 7, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 4, 7, 5]);
+
+        let path = vec![-5, -4, -3, -2, 10, -1, 1, 2, 3, 6, 7, 4, 8, 9, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 6, 7, 4, 8, 9, 5]);
+
+        let path = vec![-2, -1, 6, 1, 2, 3, 4];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![6, 1, 2, 3, 4]);
     }
 }
