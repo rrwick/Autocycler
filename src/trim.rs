@@ -130,8 +130,6 @@ fn trim_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &Ha
         };
         if trimmed_path.is_some() {
             let trimmed_path = trimmed_path.unwrap();
-            let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-            eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
             graph.remove_sequence_from_graph(seq.id);
             let mut extend_start = seq.extend_start;
             let mut extend_end = seq.extend_end;
@@ -143,6 +141,11 @@ fn trim_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &Ha
             } else if overlap_type == "hairpin-end" {
                 extend_end = false;
             }
+            let mut trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+            let half_k = graph.k_size / 2;
+            if extend_start && !graph.dead_end_start(*trimmed_path.first().unwrap()) { trimmed_length += half_k; }
+            if extend_end && !graph.dead_end_end(*trimmed_path.first().unwrap()) { trimmed_length += half_k; }
+            eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
             let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename.clone(), seq.contig_header.clone(), seq.cluster,
                                                                        extend_start, extend_end, path_to_tuples(&trimmed_path));
             trimmed_sequences.push(trimmed_sequence);

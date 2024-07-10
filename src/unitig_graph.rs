@@ -189,7 +189,7 @@ impl UnitigGraph {
         }
         if extend_start && extend_end {
             assert!(pos + half_k == length, "Position calculation mismatch");
-        } else if extend_start {
+        } else if extend_start || extend_end {
             assert!(pos == length, "Position calculation mismatch");
         } else {
             assert!(pos - half_k == length, "Position calculation mismatch");
@@ -623,6 +623,24 @@ impl UnitigGraph {
                 if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
         }
+    }
+
+    pub fn dead_end_start(&self, unitig_num: i32) -> bool {
+        // Returns whether or not the given unitig number has a dead-end start. Takes the unitig
+        // as a signed integer (negative values for reverse strand).
+        let strand = unitig_num > 0;
+        let unitig_num = unitig_num.abs() as u32;
+        let u = self.unitig_index.get(&unitig_num).unwrap().borrow();
+        u.dead_end_start(strand)
+    }
+
+    pub fn dead_end_end(&self, unitig_num: i32) -> bool {
+        // Returns whether or not the given unitig number has a dead-end end. Takes the unitig
+        // as a signed integer (negative values for reverse strand).
+        let strand = unitig_num > 0;
+        let unitig_num = unitig_num.abs() as u32;
+        let u = self.unitig_index.get(&unitig_num).unwrap().borrow();
+        u.dead_end_end(strand)
     }
 }
 
