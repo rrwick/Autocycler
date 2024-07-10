@@ -133,8 +133,18 @@ fn trim_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &Ha
             let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
             eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
             graph.remove_sequence_from_graph(seq.id);
+            let mut extend_start = seq.extend_start;
+            let mut extend_end = seq.extend_end;
+            if overlap_type == "start-end" {
+                extend_start = false;
+                extend_end = false;
+            } else if overlap_type == "hairpin-start" {
+                extend_start = false;
+            } else if overlap_type == "hairpin-end" {
+                extend_end = false;
+            }
             let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename.clone(), seq.contig_header.clone(), seq.cluster,
-                                                                        false, path_to_tuples(&trimmed_path));
+                                                                       extend_start, extend_end, path_to_tuples(&trimmed_path));
             trimmed_sequences.push(trimmed_sequence);
         } else {
             eprintln!("{}: {}", seq, "not trimmed".green());

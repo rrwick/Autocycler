@@ -129,7 +129,8 @@ impl UnitigGraph {
             let mut filename = None;
             let mut header = None;
             let mut cluster = 0;
-            let mut extend = true;
+            let mut extend_start = true;
+            let mut extend_end = true;
             for p in &parts[2..] {
                 if p.starts_with("LN:i:") {
                     length = Some(p[5..].parse::<u32>().expect("Error parsing length"));
@@ -139,8 +140,10 @@ impl UnitigGraph {
                     header = Some(p[5..].to_string());
                 } else if p.starts_with("CL:i:") {
                     cluster = p[5..].parse::<u16>().expect("Error parsing cluster");
-                } else if *p == "EX:Z:false" {
-                    extend = false;
+                } else if *p == "ES:Z:false" {
+                    extend_start = false;
+                } else if *p == "EE:Z:false" {
+                    extend_end = false;
                 }
             }
             if length.is_none() || filename.is_none() || header.is_none() {
@@ -150,23 +153,25 @@ impl UnitigGraph {
             let filename = filename.unwrap();
             let header = header.unwrap();
             let path = parse_unitig_path(parts[2]);
-            let sequence = self.create_sequence_and_positions(seq_id, length, filename, header, cluster, extend, path);
+            let sequence = self.create_sequence_and_positions(seq_id, length, filename, header,
+                                                              cluster, extend_start, extend_end, path);
             sequences.push(sequence);
         }
         sequences
     }
 
     pub fn create_sequence_and_positions(&mut self, seq_id: u16, length: u32,
-                                         filename: String, header: String, cluster: u16, extend: bool,
+                                         filename: String, header: String, cluster: u16,
+                                         extend_start: bool, extend_end: bool,
                                          forward_path: Vec<(u32, bool)>) -> Sequence {
         let reverse_path = reverse_path(&forward_path);
-        self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length, extend);
-        self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length, extend);
-        Sequence::new_without_seq(seq_id, filename, header, length as usize, cluster, extend)
+        self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length, extend_start, extend_end);
+        self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length, extend_start, extend_end);
+        Sequence::new_without_seq(seq_id, filename, header, length as usize, cluster, extend_start, extend_end)
     }
 
     fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
-                               length: u32, extend: bool) {
+                               length: u32, extend_start: bool, extend_end: bool) {
         let half_k = self.k_size / 2;
         let mut pos = half_k;
         for (unitig_num, unitig_strand) in path {
@@ -182,8 +187,10 @@ impl UnitigGraph {
                 quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
             }
         }
-        if extend {
+        if extend_start && extend_end {
             assert!(pos + half_k == length, "Position calculation mismatch");
+        } else if extend_start {
+            assert!(pos == length, "Position calculation mismatch");
         } else {
             assert!(pos - half_k == length, "Position calculation mismatch");
         }
@@ -385,9 +392,11 @@ impl UnitigGraph {
             .map(|(num, strand)| format!("{}{}", num, if *strand { "+" } else { "-" })).collect();
         let path_str = path_str.join(",");
         let cluster_tag = if seq.cluster > 0 {format!("\tCL:i:{}", seq.cluster)} else {"".to_string()};
-        let extend_tag = if !seq.extend {"\tEX:Z:false"} else {""};
-        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}{}{}",
-                seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag, extend_tag)
+        let extend_start_tag = if !seq.extend_start {"\tES:Z:false"} else {""};
+        let extend_end_tag = if !seq.extend_end {"\tEE:Z:false"} else {""};
+        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}{}{}{}",
+                seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag,
+                extend_start_tag, extend_end_tag)
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
@@ -402,12 +411,12 @@ impl UnitigGraph {
     fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
-        let sequence = self.get_sequence_from_path(&path, seq.extend);
+        let sequence = self.get_sequence_from_path(&path, seq.extend_start, seq.extend_end);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
-    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>, extend: bool) -> String {
+    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>, extend_start: bool, extend_end: bool) -> String {
         // Given a path (vector of unitig IDs and strands), this function returns the sequence
         // traced by that path. It also requires a unitig index so it can quickly look up unitigs
         // by their number.
@@ -415,8 +424,8 @@ impl UnitigGraph {
         let mut sequence = Vec::new();
         for (i, (unitig_num, strand)) in path.iter().enumerate() {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
-            let upstream = if !extend { 0 } else if i == 0 { half_k } else { 0 };
-            let downstream = if !extend { 0 } else if i == path.len() - 1 { half_k } else { 0 };
+            let upstream = if !extend_start { 0 } else if i == 0 { half_k } else { 0 };
+            let downstream = if !extend_end { 0 } else if i == path.len() - 1 { half_k } else { 0 };
             sequence.push(String::from_utf8(unitig.borrow().get_extended_seq(*strand, upstream, downstream)).unwrap());
         }
         sequence.into_iter().collect()
