@@ -41,9 +41,13 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     // TODO: create dotplots of the sequences before trimming
 
     let unitig_lengths: HashMap<_, _> = unitig_graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
-    let sequences = trim_overlap(&mut unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs, "start-end");
-    let sequences = trim_overlap(&mut unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs, "hairpin-start");
-    let sequences = trim_overlap(&mut unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs, "hairpin-end");
+
+    let sequences = trim_start_end_overlap(&mut unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
+    let sequences = trim_harpin_overlap(&mut unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
+
+
+
+
     let sequences = exclude_outliers_in_length(&mut unitig_graph, &sequences, mad);
     clean_up_graph(&mut unitig_graph, &sequences);
     unitig_graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
@@ -100,59 +104,98 @@ fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn trim_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
-                min_identity: f64, max_unitigs: usize, overlap_type: &str) -> Vec<Sequence> {
+fn trim_start_end_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
+                          min_identity: f64, max_unitigs: usize) -> Vec<Sequence> {
     if max_unitigs == 0 {
         return sequences.clone();
     }
-    if overlap_type == "start-end" {
-        section_header("Trim start-end overlaps");
-        explanation("Paths for circular replicons may contain start-end overlaps. These overlaps \
-                     are searched for and trimmed if found.");
-    } else if overlap_type == "hairpin-start" {
-        section_header("Trim hairpin overlaps at contig start");
-        explanation("Paths for linear replicons may contain hairpin overlaps at the start of the \
-                     contig. These overlaps are searched for and trimmed if found.");
-    } else if overlap_type == "hairpin-end" {
-        section_header("Trim hairpin overlaps at contig end");
-        explanation("Paths for linear replicons may contain hairpin overlaps at the end of the \
-                    contig. These overlaps are searched for and trimmed if found.");
-    }
+    section_header("Trim start-end overlaps");
+    explanation("Paths for circular replicons may contain start-end overlaps. These overlaps \
+                 are searched for and trimmed if found.");
     let mut trimmed_sequences = vec![];
     for seq in sequences {
         let path = graph.get_unitig_path_for_sequence(&seq);
         let path = path_to_signed_numbers(&path);
-        let trimmed_path = match overlap_type {
-            "start-end" => trim_path_start_end(&path, &weights, min_identity, max_unitigs),
-            "hairpin-start" => trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs),
-            "hairpin-end" => trim_path_hairpin_end(&path, &weights, min_identity, max_unitigs),
-            _ => unreachable!()
-        };
+        let trimmed_path = trim_path_start_end(&path, &weights, min_identity, max_unitigs);
         if trimmed_path.is_some() {
             let trimmed_path = trimmed_path.unwrap();
             graph.remove_sequence_from_graph(seq.id);
-            let mut extend_start = seq.extend_start;
-            let mut extend_end = seq.extend_end;
-            if overlap_type == "start-end" {
-                extend_start = false;
-                extend_end = false;
-            } else if overlap_type == "hairpin-start" {
-                extend_start = false;
-            } else if overlap_type == "hairpin-end" {
-                extend_end = false;
-            }
-            let mut trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-            let half_k = graph.k_size / 2;
-            if extend_start && !graph.dead_end_start(*trimmed_path.first().unwrap()) { trimmed_length += half_k; }
-            if extend_end && !graph.dead_end_end(*trimmed_path.first().unwrap()) { trimmed_length += half_k; }
+            let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
             eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
             let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename.clone(), seq.contig_header.clone(), seq.cluster,
-                                                                       extend_start, extend_end, path_to_tuples(&trimmed_path));
+                                                                       false, false, path_to_tuples(&trimmed_path));
             trimmed_sequences.push(trimmed_sequence);
         } else {
             eprintln!("{}: {}", seq, "not trimmed".green());
             trimmed_sequences.push(seq.clone());
         }
+    }
+    eprintln!();
+    trimmed_sequences
+}
+
+
+fn trim_harpin_overlap(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
+                       min_identity: f64, max_unitigs: usize) -> Vec<Sequence> {
+    if max_unitigs == 0 {
+        return sequences.clone();
+    }
+    section_header("Trim hairpin overlaps");
+    explanation("Paths for linear replicons may contain hairpin overlaps at the start and/or end \
+                 of the contig. These overlaps are searched for and trimmed if found.");
+    let mut trimmed_sequences = vec![];
+    for seq in sequences {
+        let path = graph.get_unitig_path_for_sequence(&seq);
+        let path = path_to_signed_numbers(&path);
+        let mut extend_start = seq.extend_start;
+        let mut extend_end = seq.extend_end;
+        let mut trimmed_start = false;
+        let mut trimmed_end = false;
+
+        let path_2;
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs);
+        if trimmed_path.is_some() {
+            trimmed_start = true;
+            extend_start = false;
+            path_2 = trimmed_path.unwrap();
+        } else {
+            path_2 = path;
+        }
+
+        let path_3;
+        let trimmed_path = trim_path_hairpin_end(&path_2, &weights, min_identity, max_unitigs);
+        if trimmed_path.is_some() {
+            trimmed_end = true;
+            extend_end = false;
+            path_3 = trimmed_path.unwrap();
+        } else {
+            path_3 = path_2;
+        }
+
+        if !trimmed_start && !trimmed_end {
+            eprintln!("{}: {}", seq, "not trimmed".green());
+            trimmed_sequences.push(seq.clone());
+            continue;
+        }
+
+        graph.remove_sequence_from_graph(seq.id);
+        let mut trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+        let half_k = graph.k_size / 2;
+        if extend_start && !graph.dead_end_start(*path_3.first().unwrap()) { trimmed_length += half_k; }
+        if extend_end && !graph.dead_end_end(*path_3.first().unwrap()) { trimmed_length += half_k; }
+
+        if trimmed_start && trimmed_end {
+            eprintln!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
+        } else if trimmed_start {
+            eprintln!("{}: {}", seq, format!("trimmed from start to {} bp", trimmed_length).red());
+        } else if trimmed_end {
+            eprintln!("{}: {}", seq, format!("trimmed from end to {} bp", trimmed_length).red());
+        }
+
+        let trimmed_sequence = graph.create_sequence_and_positions(seq.id, trimmed_length, seq.filename.clone(), seq.contig_header.clone(), seq.cluster,
+                                                                   extend_start, extend_end, path_to_tuples(&path_3));
+        trimmed_sequences.push(trimmed_sequence);
+
     }
     eprintln!();
     trimmed_sequences
