@@ -311,7 +311,7 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
 
             // Find unitigs which can potentially start a mergeable path.
             if already_used.contains(&unitig_number) {continue;}
-            if has_single_exclusive_input(&unitig_rc, unitig_strand) {continue;}
+            if has_single_exclusive_input(&unitig_rc, unitig_strand) && can_merge_start(unitig_number, unitig_strand, &fixed_starts, &fixed_ends) {continue;}
             let mut current_path = vec![UnitigStrand::new(&unitig_rc, unitig_strand)];
             already_used.insert(unitig_number);
 
@@ -350,6 +350,11 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
 fn cannot_merge_start(unitig_number: u32, unitig_strand: bool, fixed_starts: &HashSet<u32>, fixed_ends: &HashSet<u32>) -> bool {
     // Checks whether a given unitig (by number and strand) can have its start merged with other unitigs.
     (unitig_strand && fixed_starts.contains(&unitig_number)) || (!unitig_strand && fixed_ends.contains(&unitig_number))
+}
+
+
+fn can_merge_start(unitig_number: u32, unitig_strand: bool, fixed_starts: &HashSet<u32>, fixed_ends: &HashSet<u32>) -> bool {
+    !cannot_merge_start(unitig_number, unitig_strand, fixed_starts, fixed_ends)
 }
 
 
@@ -540,6 +545,20 @@ mod tests {
         L\t6\t-\t7\t+\t0M\n".to_string()
     }
 
+    fn get_test_gfa_4() -> String {
+        "H\tVN:Z:1.0\tKM:i:3\n\
+        S\t1\tACGACTACGAGCACG\tDP:f:1\n\
+        S\t2\tTACGACGACGACT\tDP:f:1\n\
+        S\t3\tACTGACT\tDP:f:1\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t2\t-\t3\t+\t0M\n\
+        L\t3\t-\t2\t+\t0M\n\
+        L\t3\t+\t1\t+\t0M\n\
+        L\t1\t-\t3\t-\t0M\n\
+        P\t1\t1+,2-,3+\t*\tLN:i:35\tFN:Z:assembly.fasta\tHD:Z:tig\tES:Z:false\tEE:Z:false".to_string()
+    }
+
     #[test]
     fn test_get_common_start_seq() {
         let a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tACGATCAGC\tDP:f:1")));
@@ -711,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_linear_paths() {
+    fn test_merge_linear_paths_1() {
         let temp_dir = tempdir().unwrap();
         let gfa_filename = temp_dir.path().join("graph.gfa");
         make_test_file(&gfa_filename, &get_test_gfa_3());
@@ -733,8 +752,25 @@ mod tests {
                                       ("10".to_string(), "-".to_string(), "8".to_string(), "-".to_string()),
                                       ("10".to_string(), "+".to_string(), "10".to_string(), "+".to_string()),
                                       ("10".to_string(), "-".to_string(), "10".to_string(), "-".to_string())];
-        links.sort();
-        expected_links.sort();
+        links.sort(); expected_links.sort();
+        assert_eq!(links, expected_links);
+    }
+
+    #[test]
+    fn test_merge_linear_paths_2() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_4());
+        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.unitigs.len(), 3);
+        merge_linear_paths(&mut graph, &seqs);
+        assert_eq!(graph.unitigs.len(), 1);
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&4).unwrap().borrow().forward_seq).unwrap(),
+                   "ACGACTACGAGCACGAGTCGTCGTCGTAACTGACT");
+        let mut links = graph.get_links_for_gfa();
+        let mut expected_links = vec![("4".to_string(), "+".to_string(), "4".to_string(), "+".to_string()),
+                                      ("4".to_string(), "-".to_string(), "4".to_string(), "-".to_string())];
+        links.sort(); expected_links.sort();
         assert_eq!(links, expected_links);
     }
 }
