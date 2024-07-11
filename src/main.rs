@@ -109,8 +109,8 @@ enum Commands {
         #[clap(short = 'c', long = "cluster_dir", required = true)]
         cluster_dir: PathBuf,
 
-        /// Minimum alignment identity for overlap alignment
-        #[clap(long = "min_identity", default_value = "0.95")]
+        /// Minimum alignment identity for trimming alignments
+        #[clap(long = "min_identity", default_value = "0.8")]
         min_identity: f64,
 
         /// Maximum unitigs used for overlap alignment, set to 0 to disable trimming
@@ -118,7 +118,7 @@ enum Commands {
         max_unitigs: usize,
 
         /// Allowed variability in cluster length, measured in median absolute deviations
-        #[clap(long = "mad", default_value = "3.0")]
+        #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
     },
 

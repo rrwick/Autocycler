@@ -302,9 +302,12 @@ fn trim_gaps_b_back(alignment: &mut VecDeque<AlignmentPiece>) {
 
 fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32, u32>,
                      min_identity: f64, max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
-    // This function performs a dynamic-programming overlap alignment on a path vs itself:
+    // This function performs a dynamic-programming alignment to find overlaps between two paths,
+    // with some special logic for Autocycler trim:
     // * Scores are weighted by the length of the unitig (matches are positive scores, mismatches
     //   and indels are negative scores).
+    // * Looks only for overlap alignments that extend from the right edge of the matrix to the top
+    //   edge of the matrix.
     // * The matrix is limited in size (by max_unitigs) to prevent bad scaling with huge paths.
     // * Only sufficiently high identity alignments are returned (min_identity).
     // This function can be used on a path vs itself (same strand), in which case path_a and path_b
@@ -387,6 +390,11 @@ fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32
             alignment_b_indices.push(global_j);
             j -= 1;
         }
+    }
+
+    // Ensure that the traceback hit the top edge and not the left edge.
+    if i > 0 {
+        return VecDeque::new();
     }
 
     alignment_a.reverse();
@@ -644,6 +652,25 @@ mod tests {
         let path = vec![1, 2, 3, 4, 6, -4, -3];
         let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 6]);
+
+        let path = vec![1, 2, 3, 4, -4, -3, 6, 7, 8, 9, 10];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4]);
+
+        let path = vec![6, 5, 4, 3, 2, 1, -1, -2, -3, 9];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![6, 5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_end_3() {
+        // When a start overlap is so big that it could be processed as a low-identity end overlap,
+        // it should be not be trimmed.
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10,
+                               6 => 10, 7 => 10, 8 => 10, 9 => 10, 10 => 10};
+        let path = vec![-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8];
+        let trimmed_path = trim_path_hairpin_end(&path, &weights, 0.2, 1000);
+        assert!(trimmed_path.is_none());
     }
 
     #[test]
@@ -694,5 +721,24 @@ mod tests {
         let path = vec![-2, -1, 6, 1, 2, 3, 4];
         let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![6, 1, 2, 3, 4]);
+
+        let path = vec![6, 7, 8, 9, 10, -2, -1, 1, 2, 3, 4];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4]);
+
+        let path = vec![-9, 3, 2, 1, -1, -2, -3, -4, -5, -6];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![-1, -2, -3, -4, -5, -6]);
+    }
+
+    #[test]
+    fn test_trim_path_hairpin_start_3() {
+        // When an end overlap is so big that it could be processed as a low-identity start overlap,
+        // it should be not be trimmed.
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10,
+                               6 => 10, 7 => 10, 8 => 10, 9 => 10, 10 => 10};
+        let path = vec![-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.2, 1000);
+        assert!(trimmed_path.is_none());
     }
 }
