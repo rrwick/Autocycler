@@ -741,4 +741,36 @@ mod tests {
         let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.2, 1000);
         assert!(trimmed_path.is_none());
     }
+
+    #[test]
+    fn test_trim_path_hairpin_start_and_end() {
+        // Tests some exact hairpin overlaps on both ends of a path.
+        let weights = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10,
+                               6 => 10, 7 => 10, 8 => 10, 9 => 10, 10 => 10};
+
+        let path = vec![-1, 1, 2, 3, 4, 5, -5];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        let trimmed_path = trim_path_hairpin_end(&trimmed_path.unwrap(), &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-2, -1, 1, 2, 3, 4, 5, -5, -4];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        let trimmed_path = trim_path_hairpin_end(&trimmed_path.unwrap(), &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-3, -2, -1, 1, 2, 3, 4, 5, -5, -4, -3];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        let trimmed_path = trim_path_hairpin_end(&trimmed_path.unwrap(), &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-4, -3, -2, -1, 1, 2, 3, 4, 5, -5, -4, -3, -2];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        let trimmed_path = trim_path_hairpin_end(&trimmed_path.unwrap(), &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+
+        let path = vec![-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, -5, -4, -3, -2, -1];
+        let trimmed_path = trim_path_hairpin_start(&path, &weights, 0.95, 1000);
+        let trimmed_path = trim_path_hairpin_end(&trimmed_path.unwrap(), &weights, 0.95, 1000);
+        assert_eq!(trimmed_path.unwrap(), vec![1, 2, 3, 4, 5]);
+    }
 }
