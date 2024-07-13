@@ -430,7 +430,7 @@ fn define_clusters_automatically(tree: &TreeNode, sequences: &mut Vec<Sequence>,
     for s in sequences.iter_mut() {
         s.cluster = *seq_id_to_cluster.get(&s.id).unwrap();
     }
-    eprintln!("{} clusters", current_cluster);
+    eprintln!("{} cluster{}", current_cluster, match current_cluster { 1 => "", _ => "s" });
     eprintln!();
     reorder_clusters(sequences);
     cluster_qc(&sequences, &distances, cutoff, min_assemblies)

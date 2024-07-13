@@ -35,7 +35,7 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     let trimmed_dotplots = cluster_dir.join("4_trimmed_dotplots.png");
     check_settings(&cluster_dir, &untrimmed_gfa, min_identity);
     starting_message();
-    print_settings(&cluster_dir, min_identity, max_unitigs);
+    print_settings(&cluster_dir, min_identity, max_unitigs, mad);
     let (mut unitig_graph, sequences) = load_graph(&untrimmed_gfa);
 
     // TODO: create dotplots of the sequences before trimming
@@ -82,12 +82,21 @@ fn finished_message(untrimmed_dotplots: &PathBuf, trimmed_gfa: &PathBuf, trimmed
 }
 
 
-fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_overlap_unitigs: usize) {
+fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, mad: f64) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
     eprintln!("  --min_identity {}", format_float(min_identity));
-    eprintln!("  --max_overlap_unitigs {}", max_overlap_unitigs);
+    eprintln!("  --max_unitigs {}", max_unitigs);
+    eprintln!("  --mad {}", format_float(mad));
     eprintln!();
+    if max_unitigs == 0 {
+        eprintln!("Since --max_unitigs was set to 0, trimming is disabled.");
+        eprintln!();
+    }
+    if mad == 0.0 {
+        eprintln!("Since --mad was set to 0, exclusion of length outliers is disabled.");
+        eprintln!();
+    }
 }
 
 
@@ -234,6 +243,9 @@ fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32, bool, bool)>>,
 
 fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
                               mad_threshold: f64) -> Vec<Sequence> {
+    if mad_threshold == 0.0 {
+        return sequences.clone();
+    }
     section_header("Exclude outliers");
     explanation("Sequences which vary too much in their length are now excluded from the cluster.");
     let lengths: Vec<_> = sequences.iter().map(|s| s.length as isize).collect();

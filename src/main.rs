@@ -117,7 +117,7 @@ enum Commands {
         #[clap(long = "max_unitigs", default_value = "5000")]
         max_unitigs: usize,
 
-        /// Allowed variability in cluster length, measured in median absolute deviations
+        /// Allowed variability in cluster length, measured in median absolute deviations, set to 0 to disable exclusion of length outliers
         #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
     },
