@@ -98,9 +98,20 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
     // TODO: I should make sure that all sequences have a unique string (assembly filename
     // followed by contig name), because any duplicates could cause problems later.
 
-    sequence_end_repair(&mut sequences, k_size);
     eprintln!();
+    let pb = spinner("repairing sequence ends...");
+    sequence_end_repair(&mut sequences, k_size);
+    pb.finish_and_clear();
+    print_sequence_info(seq_id, assemblies.len());
     (sequences, assemblies.len())
+}
+
+
+fn print_sequence_info(sequence_count: usize, assembly_count: usize) {
+    eprintln!("{} sequence{} loaded from {} assembl{}",
+              sequence_count, match sequence_count { 1 => "", _ => "s" },
+              assembly_count, match assembly_count { 1 => "y", _ => "ies" });
+    eprintln!();
 }
 
 
@@ -158,24 +169,28 @@ fn sequence_end_repair(sequences: &mut Vec<Sequence>, k_size: u32) {
     let overlap_size = (k_size - 1) as usize;
     let all_seqs: Vec<_> = sequences.iter().flat_map(|s| vec![s.forward_seq.clone(), s.reverse_seq.clone()]).collect();
 
+    // TODO: this loop can take a little while to complete because it's O(n^2), but it should be
+    //       parallelisable, so I should look into using threads.
+
     for seq in sequences {
         let start = &seq.forward_seq[..overlap_size];
-        let re = Regex::new(str::from_utf8(start).unwrap()).unwrap();
+        let start_re = Regex::new(str::from_utf8(start).unwrap()).unwrap();
+        let end = &seq.forward_seq[seq.forward_seq.len() - overlap_size..];
+        let end_re = Regex::new(str::from_utf8(end).unwrap()).unwrap();
+
         let mut all_matches = Vec::new();
         for s in &all_seqs {
-            for mat in re.find_iter(s) {
-                all_matches.push(mat.as_bytes().to_vec());
+            for m in start_re.find_iter(s) {
+                all_matches.push(m.as_bytes().to_vec());
             }
         }
         let best_match = find_best_match(all_matches);
         seq.forward_seq.splice(..overlap_size, best_match.iter().cloned());
 
-        let end = &seq.forward_seq[seq.forward_seq.len() - overlap_size..];
-        let re = Regex::new(str::from_utf8(end).unwrap()).unwrap();
         let mut all_matches = Vec::new();
         for s in &all_seqs {
-            for mat in re.find_iter(s) {
-                all_matches.push(mat.as_bytes().to_vec());
+            for m in end_re.find_iter(s) {
+                all_matches.push(m.as_bytes().to_vec());
             }
         }
         let best_match = find_best_match(all_matches);
