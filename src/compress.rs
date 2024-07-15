@@ -11,12 +11,15 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use regex::bytes::Regex;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str;
 use std::time::Instant;
 
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_dir_is_not_dir, create_dir, find_all_assemblies,
-                  load_fasta, format_duration, spinner, quit_with_error};
+                  load_fasta, format_duration, spinner, quit_with_error, reverse_complement};
 use crate::kmer_graph::KmerGraph;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
@@ -73,6 +76,7 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
+    let half_k = k_size / 2;
     let mut seq_id = 0usize;
     let mut sequences = Vec::new();
     for assembly in &assemblies {
@@ -88,11 +92,13 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
             }
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-            sequences.push(Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header, seq_len));
+            sequences.push(Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header, seq_len, half_k));
         }
     }
     // TODO: I should make sure that all sequences have a unique string (assembly filename
     // followed by contig name), because any duplicates could cause problems later.
+
+    sequence_end_repair(&mut sequences, k_size);
     eprintln!();
     (sequences, assemblies.len())
 }
@@ -140,4 +146,147 @@ fn finished_message(start_time: Instant, out_gfa: PathBuf) {
     eprintln!("Final unitig graph: {}", out_gfa.display());
     eprintln!("Time to run: {}", format_duration(start_time.elapsed()));
     eprintln!();
+}
+
+
+fn sequence_end_repair(sequences: &mut Vec<Sequence>, k_size: u32) {
+    // Since each sequence ends with a half-k string of dots, these will create a dead-end tip for
+    // the sequence's start and end in the graph. To prevent this, this function looks for matching
+    // sequences to replace the dots in other sequences, and if found, replaces the dots. Since the
+    // half-k ends will be trimmed off during overlap trimming, it doesn't matter if the replacing
+    // sequences are 'wrong'.
+    let overlap_size = (k_size - 1) as usize;
+    let all_seqs: Vec<_> = sequences.iter().flat_map(|s| vec![s.forward_seq.clone(), s.reverse_seq.clone()]).collect();
+
+    for seq in sequences {
+        let start = &seq.forward_seq[..overlap_size];
+        let re = Regex::new(str::from_utf8(start).unwrap()).unwrap();
+        let mut all_matches = Vec::new();
+        for s in &all_seqs {
+            for mat in re.find_iter(s) {
+                all_matches.push(mat.as_bytes().to_vec());
+            }
+        }
+        let best_match = find_best_match(all_matches);
+        seq.forward_seq.splice(..overlap_size, best_match.iter().cloned());
+
+        let end = &seq.forward_seq[seq.forward_seq.len() - overlap_size..];
+        let re = Regex::new(str::from_utf8(end).unwrap()).unwrap();
+        let mut all_matches = Vec::new();
+        for s in &all_seqs {
+            for mat in re.find_iter(s) {
+                all_matches.push(mat.as_bytes().to_vec());
+            }
+        }
+        let best_match = find_best_match(all_matches);
+        seq.forward_seq.splice(seq.forward_seq.len() - overlap_size.., best_match.iter().cloned());
+
+        seq.reverse_seq = reverse_complement(&seq.forward_seq);
+    }
+}
+
+
+fn find_best_match(matches: Vec<Vec<u8>>) -> Vec<u8> {
+    // This function takes all of the regex matches and returns the best as defined by:
+    // 1. fewest dots
+    // 2. most occurrences
+    // 3. first alphabetically
+    let mut match_counts = HashMap::new();
+    for m in &matches {
+        let entry = match_counts.entry(m.clone()).or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 = m.iter().filter(|&&c| c == b'.').count();
+    }
+    matches.into_iter().min_by(|a, b| {
+        // Compare by number of `.` characters (fewer is better)
+        let dot_count_a = match_counts.get(a).unwrap().1;
+        let dot_count_b = match_counts.get(b).unwrap().1;
+        match dot_count_a.cmp(&dot_count_b) {
+            std::cmp::Ordering::Equal => {
+                // Compare by frequency (higher is better)
+                let freq_a = match_counts.get(a).unwrap().0;
+                let freq_b = match_counts.get(b).unwrap().0;
+                match freq_a.cmp(&freq_b).reverse() {
+                    std::cmp::Ordering::Equal => {
+                        // Compare alphabetically
+                        a.cmp(b)
+                    }
+                    other => other,
+                }
+            }
+            other => other,
+        }
+    }).expect("There should be at least one match")
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_best_match_1() {
+        let all_matches = vec![b"...ACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"...ACGT");
+
+        let all_matches = vec![b"...ACGT".to_vec(), b"..GACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"..GACGT");
+
+        let all_matches = vec![b"..GACGT".to_vec(), b"...ACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"..GACGT");
+
+        let all_matches = vec![b"...GAAA".to_vec(), b"...CAAA".to_vec(), b"...TAAA".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"...CAAA");
+
+        let all_matches = vec![b"...ACGT".to_vec(),
+                               b"..GACGT".to_vec(),
+                               b"..CACGT".to_vec(),
+                               b"..GACGT".to_vec(),
+                               b"..CACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"..CACGT");
+
+        let all_matches = vec![b"...ACGT".to_vec(),
+                               b"..GACGT".to_vec(),
+                               b"..GACGT".to_vec(),
+                               b".AGACGT".to_vec(),
+                               b".CGACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b".AGACGT");
+
+        let all_matches = vec![b"...ACGT".to_vec(),
+                               b".CGACGT".to_vec(),
+                               b"..GACGT".to_vec(),
+                               b".AGACGT".to_vec(),
+                               b".CGACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b".CGACGT");
+    }
+
+    #[test]
+    fn test_find_best_match_2() {
+        let all_matches = vec![b"ACGT...".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"ACGT...");
+
+        let all_matches = vec![b"ACGT...".to_vec(), b"ACGTT..".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"ACGTT..");
+
+        let all_matches = vec![b"..GACGT".to_vec(), b"...ACGT".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"..GACGT");
+
+        let all_matches = vec![b"GAAA...".to_vec(), b"CAAA...".to_vec(), b"TAAA...".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"CAAA...");
+
+        let all_matches = vec![b"CACG...".to_vec(),
+                               b"GACGT..".to_vec(),
+                               b"CACGT..".to_vec(),
+                               b"GACGT..".to_vec(),
+                               b"CACGT..".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"CACGT..");
+
+        let all_matches = vec![b"AGAC...".to_vec(),
+                               b"AGACG..".to_vec(),
+                               b"AGACG..".to_vec(),
+                               b"AGACGT.".to_vec(),
+                               b"CGACGT.".to_vec()];
+        assert_eq!(find_best_match(all_matches), b"AGACGT.");
+    }
+
 }

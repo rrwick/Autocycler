@@ -20,7 +20,7 @@ use crate::misc::{reverse_complement, strand};
 use crate::position::Position;
 use crate::sequence::Sequence;
 
-pub static ALPHABET: [u8; 4] = [b'A', b'C', b'G', b'T'];
+pub static ALPHABET: [u8; 5] = [b'.', b'A', b'C', b'G', b'T'];
 
 
 pub struct Kmer {
@@ -54,9 +54,9 @@ impl Kmer {
         self.positions.len()
     }
 
-    pub fn first_position(&self, half_k: usize) -> bool {
+    pub fn first_position(&self) -> bool {
         // Returns true if any of this k-mer's positions are at the start of an input sequence.
-        self.positions.iter().any(|p| p.pos as usize == half_k)
+        self.positions.iter().any(|p| p.pos as usize == 0)
     }
 }
 
@@ -95,37 +95,38 @@ impl<'a> KmerGraph<'a> {
         // the sequence is added to the Kmer object.
         let k_size = self.k_size as usize;
         let half_k = (self.k_size / 2) as usize;
+        let two_half_k = half_k + half_k;
 
         let forward_raw = seq.forward_seq.as_ptr();
         let reverse_raw = seq.reverse_seq.as_ptr();
 
-        for forward_start in 0..seq.length - k_size + 1 {
-            let reverse_start = seq.length - forward_start - k_size;
+        for forward_start in 0..seq.length {
             let forward_end = forward_start + k_size;
+            let reverse_start = seq.length + two_half_k - forward_end;
             let reverse_end = reverse_start + k_size;
             let forward_k = &seq.forward_seq[forward_start..forward_end];
             let reverse_k = &seq.reverse_seq[reverse_start..reverse_end];
 
             match self.kmers.entry(forward_k) {
                 Entry::Occupied(mut entry) => {
-                    entry.get_mut().add_position(seq.id, strand::FORWARD, forward_start + half_k);
+                    entry.get_mut().add_position(seq.id, strand::FORWARD, forward_start);
                 },
                 Entry::Vacant(entry) => {
                     let mut kmer = unsafe { Kmer::new(forward_raw.add(forward_start), k_size,
                                                       assembly_count) };
-                    kmer.add_position(seq.id, strand::FORWARD, forward_start + half_k);
+                    kmer.add_position(seq.id, strand::FORWARD, forward_start);
                     entry.insert(kmer);
                 }
             }
 
             match self.kmers.entry(reverse_k) {
                 Entry::Occupied(mut entry) => {
-                    entry.get_mut().add_position(seq.id, strand::REVERSE, reverse_start + half_k);
+                    entry.get_mut().add_position(seq.id, strand::REVERSE, reverse_start);
                 },
                 Entry::Vacant(entry) => {
                     let mut kmer = unsafe { Kmer::new(reverse_raw.add(reverse_start), k_size,
                                                       assembly_count) };
-                    kmer.add_position(seq.id, strand::REVERSE, reverse_start + half_k);
+                    kmer.add_position(seq.id, strand::REVERSE, reverse_start);
                     entry.insert(kmer);
                 }
             }
@@ -197,77 +198,83 @@ mod tests {
 
     #[test]
     fn test_kmer_graph() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let k_size = 5; let half_k = k_size / 2;
+        let mut kmer_graph = KmerGraph::new(k_size);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGC".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
         kmer_graph.add_sequence(&seq, 1);
-        // Graph contains these 28 4-mers:
-        // ACAT ACGA ACTG AGCA AGTC AGTG ATCA ATGT CACT CAGC CAGT CATC CGAC CTGA
-        // GACA GACT GATG GCAC GCTG GTCA GTCG GTGC TCAG TCGT TGAC TGAT TGCT TGTC
-        assert_eq!(kmer_graph.kmers.len(), 28);
+        // Graph contains these 40 5-mers:
+        // ..ACG ..GCA .ACGA .GCAG ACATC ACGAC ACTGA ACTGC AGCAC AGTCG
+        // AGTGC ATCAG ATGTC CACTG CAGCA CAGTC CAGTG CATCA CGACT CGT..
+        // CTGAC CTGAT CTGC. GACAT GACTG GATGT GCACT GCAGT GCTGA GTCAG
+        // GTCGT GTGCT TCAGC TCAGT TCGT. TGACA TGATG TGC.. TGCTG TGTCA
+        assert_eq!(kmer_graph.kmers.len(), 40);
     }
 
     #[test]
     fn test_next_kmers() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let k_size = 5; let half_k = k_size / 2;
+        let mut kmer_graph = KmerGraph::new(k_size);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGC".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
         kmer_graph.add_sequence(&seq, 1);
 
-        let next = kmer_graph.next_kmers(b"ACAT");
+        let next = kmer_graph.next_kmers(b"ACATC");
         assert_eq!(next.len(), 1);
-        assert_eq!(next[0].seq(), b"CATC".as_slice());
+        assert_eq!(next[0].seq(), b"CATCA".as_slice());
 
-        let next = kmer_graph.next_kmers(b"AGTC");
+        let next = kmer_graph.next_kmers(b"CACTG");
         assert_eq!(next.len(), 2);
-        assert_eq!(next[0].seq(), b"GTCA".as_slice());
-        assert_eq!(next[1].seq(), b"GTCG".as_slice());
+        assert_eq!(next[0].seq(), b"ACTGA".as_slice());
+        assert_eq!(next[1].seq(), b"ACTGC".as_slice());
 
-        let next = kmer_graph.next_kmers(b"CTGA");
+        let next = kmer_graph.next_kmers(b"ACTGA");
         assert_eq!(next.len(), 2);
-        assert_eq!(next[0].seq(), b"TGAC".as_slice());
-        assert_eq!(next[1].seq(), b"TGAT".as_slice());
+        assert_eq!(next[0].seq(), b"CTGAC".as_slice());
+        assert_eq!(next[1].seq(), b"CTGAT".as_slice());
 
-        let next = kmer_graph.next_kmers(b"AAAA");
+        let next = kmer_graph.next_kmers(b"AAAAA");
         assert_eq!(next.len(), 0);
     }
 
     #[test]
     fn test_prev_kmers() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let k_size = 5; let half_k = k_size / 2;
+        let mut kmer_graph = KmerGraph::new(k_size);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGC".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
         kmer_graph.add_sequence(&seq, 1);
 
-        let prev = kmer_graph.prev_kmers(b"ACAT");
+        let prev = kmer_graph.prev_kmers(b"CATCA");
         assert_eq!(prev.len(), 1);
-        assert_eq!(prev[0].seq(), b"GACA".as_slice());
+        assert_eq!(prev[0].seq(), b"ACATC".as_slice());
 
-        let prev = kmer_graph.prev_kmers(b"CTGA");
+        let prev = kmer_graph.prev_kmers(b"CTGAC");
         assert_eq!(prev.len(), 2);
-        assert_eq!(prev[0].seq(), b"ACTG".as_slice());
-        assert_eq!(prev[1].seq(), b"GCTG".as_slice());
+        assert_eq!(prev[0].seq(), b"ACTGA".as_slice());
+        assert_eq!(prev[1].seq(), b"GCTGA".as_slice());
 
-        let prev = kmer_graph.prev_kmers(b"GACA");
+        let prev = kmer_graph.prev_kmers(b"ACTGC");
         assert_eq!(prev.len(), 2);
-        assert_eq!(prev[0].seq(), b"CGAC".as_slice());
-        assert_eq!(prev[1].seq(), b"TGAC".as_slice());
+        assert_eq!(prev[0].seq(), b"CACTG".as_slice());
+        assert_eq!(prev[1].seq(), b"GACTG".as_slice());
 
-        let prev = kmer_graph.prev_kmers(b"ACGA");
+        let prev = kmer_graph.prev_kmers(b"AAAAA");
         assert_eq!(prev.len(), 0);
     }
 
     #[test]
     fn test_iterate_kmers() {
-        let mut kmer_graph = KmerGraph::new(4);
-        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGA".to_string(),
-                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+        let k_size = 5; let half_k = k_size / 2;
+        let mut kmer_graph = KmerGraph::new(k_size);
+        let seq = Sequence::new_with_seq(1, "ACGACTGACATCAGCACTGC".to_string(),
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
         kmer_graph.add_sequence(&seq, 1);
         let expected_kmers = vec![
-            "ACAT", "ACGA", "ACTG", "AGCA", "AGTC", "AGTG", "ATCA",
-            "ATGT", "CACT", "CAGC", "CAGT", "CATC", "CGAC", "CTGA",
-            "GACA", "GACT", "GATG", "GCAC", "GCTG", "GTCA", "GTCG",
-            "GTGC", "TCAG", "TCGT", "TGAC", "TGAT", "TGCT", "TGTC"
+            "..ACG", "..GCA", ".ACGA", ".GCAG", "ACATC", "ACGAC", "ACTGA", "ACTGC", "AGCAC", "AGTCG",
+            "AGTGC", "ATCAG", "ATGTC", "CACTG", "CAGCA", "CAGTC", "CAGTG", "CATCA", "CGACT", "CGT..",
+            "CTGAC", "CTGAT", "CTGC.", "GACAT", "GACTG", "GATGT", "GCACT", "GCAGT", "GCTGA", "GTCAG",
+            "GTCGT", "GTGCT", "TCAGC", "TCAGT", "TCGT.", "TGACA", "TGATG", "TGC..", "TGCTG", "TGTCA"
         ];
         let expected_kmers: Vec<&[u8]> = expected_kmers.iter().map(|s| s.as_bytes()).collect();
         let actual_kmers: Vec<&[u8]> = kmer_graph.iterate_kmers().map(|kmer| kmer.seq()).collect();

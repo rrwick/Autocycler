@@ -25,19 +25,23 @@ pub struct Sequence {
     pub contig_header: String,
     pub length: usize,
     pub cluster: u16,
-    pub extend_start: bool,
-    pub extend_end: bool,
 }
 
 impl Sequence {
-    pub fn new_with_seq(id: u16, seq: String, filename: String, contig_header: String, length: usize) -> Sequence {
+    pub fn new_with_seq(id: u16, seq: String, filename: String, contig_header: String,
+                        length: usize, half_k: u32) -> Sequence {
         // This constructor creates a Sequence object with the actual sequence stored. This is used
         // when creating a k-mer graph from Sequences, because the actual sequence is needed to get
         // the k-mers.
-        let forward_seq = seq.into_bytes();
+        let mut forward_seq = seq.into_bytes();
         if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
             quit_with_error(&format!("{} contains non-ACGT characters", filename));
         }
+
+        let padding = vec![b'.'; half_k as usize];
+        forward_seq.splice(0..0, padding.iter().cloned());
+        forward_seq.extend(padding.iter().cloned());
+
         let reverse_seq = reverse_complement(&forward_seq);
 
         Sequence {
@@ -48,13 +52,11 @@ impl Sequence {
             contig_header,
             length,
             cluster: 0,
-            extend_start: true,
-            extend_end: true,
         }
     }
 
     pub fn new_without_seq(id: u16, filename: String, contig_header: String, length: usize,
-                           cluster: u16, extend_start: bool, extend_end: bool) -> Sequence {
+                           cluster: u16) -> Sequence {
         // This constructor creates a Sequence object without storing the sequence. This is used at
         // later stages in Autocycler where the sequence is stored in the UnitigGraph and so doesn't
         // need to be stored here as well.
@@ -66,8 +68,6 @@ impl Sequence {
             contig_header,
             length,
             cluster,
-            extend_start,
-            extend_end,
         }
     }
 

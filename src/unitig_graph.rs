@@ -22,7 +22,7 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
-use crate::misc::{reverse_complement, quit_with_error, strand, load_file_lines};
+use crate::misc::{quit_with_error, strand, load_file_lines};
 
 
 pub struct UnitigGraph {
@@ -129,8 +129,6 @@ impl UnitigGraph {
             let mut filename = None;
             let mut header = None;
             let mut cluster = 0;
-            let mut extend_start = true;
-            let mut extend_end = true;
             for p in &parts[2..] {
                 if p.starts_with("LN:i:") {
                     length = Some(p[5..].parse::<u32>().expect("Error parsing length"));
@@ -140,10 +138,6 @@ impl UnitigGraph {
                     header = Some(p[5..].to_string());
                 } else if p.starts_with("CL:i:") {
                     cluster = p[5..].parse::<u16>().expect("Error parsing cluster");
-                } else if *p == "ES:Z:false" {
-                    extend_start = false;
-                } else if *p == "EE:Z:false" {
-                    extend_end = false;
                 }
             }
             if length.is_none() || filename.is_none() || header.is_none() {
@@ -154,7 +148,7 @@ impl UnitigGraph {
             let header = header.unwrap();
             let path = parse_unitig_path(parts[2]);
             let sequence = self.create_sequence_and_positions(seq_id, length, filename, header,
-                                                              cluster, extend_start, extend_end, path);
+                                                              cluster, path);
             sequences.push(sequence);
         }
         sequences
@@ -162,18 +156,15 @@ impl UnitigGraph {
 
     pub fn create_sequence_and_positions(&mut self, seq_id: u16, length: u32,
                                          filename: String, header: String, cluster: u16,
-                                         extend_start: bool, extend_end: bool,
                                          forward_path: Vec<(u32, bool)>) -> Sequence {
         let reverse_path = reverse_path(&forward_path);
-        self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length, extend_start, extend_end);
-        self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length, extend_start, extend_end);
-        Sequence::new_without_seq(seq_id, filename, header, length as usize, cluster, extend_start, extend_end)
+        self.add_positions_from_path(&forward_path, strand::FORWARD, seq_id, length);
+        self.add_positions_from_path(&reverse_path, strand::REVERSE, seq_id, length);
+        Sequence::new_without_seq(seq_id, filename, header, length as usize, cluster)
     }
 
-    fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16,
-                               length: u32, extend_start: bool, extend_end: bool) {
-        let half_k = self.k_size / 2;
-        let mut pos = half_k;
+    fn add_positions_from_path(&mut self, path: &[(u32, bool)], path_strand: bool, seq_id: u16, length: u32) {
+        let mut pos = 0;
         for (unitig_num, unitig_strand) in path {
             if let Some(unitig) = self.unitig_index.get(unitig_num) {
                 let mut u = unitig.borrow_mut();
@@ -181,25 +172,16 @@ impl UnitigGraph {
                                              else {&mut u.reverse_positions};
                 positions.push(Position::new(seq_id, path_strand, pos as usize));
                 pos += u.length();
-                if u.dead_end_start(*unitig_strand) {pos -= half_k;}
-                if u.dead_end_end(*unitig_strand) {pos -= half_k;}
             } else {
                 quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
             }
         }
-        if extend_start && extend_end {
-            assert!(pos + half_k == length, "Position calculation mismatch");
-        } else if extend_start || extend_end {
-            assert!(pos == length, "Position calculation mismatch");
-        } else {
-            assert!(pos - half_k == length, "Position calculation mismatch");
-        }
+        assert!(pos == length, "Position calculation mismatch");
     }
 
     fn build_unitigs_from_kmer_graph(&mut self, k_graph: &KmerGraph) {
         let mut seen: HashSet<&[u8]> = HashSet::new();
         let mut unitig_number = 0;
-        let half_k = self.k_size as usize / 2;
         for forward_kmer in k_graph.iterate_kmers() {
             if seen.contains(forward_kmer.seq()) {
                 continue;
@@ -214,7 +196,7 @@ impl UnitigGraph {
             let mut for_k = forward_kmer;
             let mut rev_k = reverse_kmer;
             loop {
-                if rev_k.first_position(half_k) { break; }
+                if rev_k.first_position() { break; }
                 let next_kmers = k_graph.next_kmers(for_k.seq());
                 if next_kmers.len() != 1 { break; }
                 for_k = &next_kmers[0];
@@ -222,7 +204,7 @@ impl UnitigGraph {
                 let prev_kmers = k_graph.prev_kmers(for_k.seq());
                 if prev_kmers.len() != 1 { break; }
                 rev_k = k_graph.reverse(for_k);
-                if for_k.first_position(half_k) { break; }
+                if for_k.first_position() { break; }
                 unitig.add_kmer_to_end(for_k, rev_k);
                 seen.insert(for_k.seq());
                 seen.insert(rev_k.seq());
@@ -232,7 +214,7 @@ impl UnitigGraph {
             let mut for_k = forward_kmer;
             let mut rev_k;
             loop {
-                if for_k.first_position(half_k) { break; }
+                if for_k.first_position() { break; }
                 let prev_kmers = k_graph.prev_kmers(for_k.seq());
                 if prev_kmers.len() != 1 { break; }
                 for_k = &prev_kmers[0];
@@ -240,7 +222,7 @@ impl UnitigGraph {
                 let next_kmers = k_graph.next_kmers(for_k.seq());
                 if next_kmers.len() != 1 { break; }
                 rev_k = k_graph.reverse(for_k);
-                if rev_k.first_position(half_k) { break; }
+                if rev_k.first_position() { break; }
                 unitig.add_kmer_to_start(for_k, rev_k);
                 seen.insert(for_k.seq());
                 seen.insert(rev_k.seq());
@@ -318,21 +300,6 @@ impl UnitigGraph {
         }
     }
 
-    pub fn restore_overlaps(&mut self) {
-        // This method puts all overlaps back onto the graph. When deleting unitigs, it is necessary
-        // to first restore overlaps with this method, then delete the unitigs, then trim overlaps
-        // again. This is because deleting unitigs can create new dead-ends which changes the
-        // trimming.
-        let overlap = self.k_size as usize / 2;
-        let new_seqs: HashMap<_, _> = self.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number, u.get_extended_seq(strand::FORWARD, overlap, overlap))}).collect();
-        for rc in &self.unitigs {
-            let mut u = rc.borrow_mut();
-            u.forward_seq = new_seqs.get(&u.number).unwrap().clone();
-            u.reverse_seq = reverse_complement(&u.forward_seq);
-            u.trimmed = false;
-        }
-    }
-
     pub fn renumber_unitigs(&mut self) {
         // This method sorts and renumbers Unitigs by: length (decreasing), sequence (lexicographic)
         // and depth (decreasing).
@@ -392,11 +359,8 @@ impl UnitigGraph {
             .map(|(num, strand)| format!("{}{}", num, if *strand { "+" } else { "-" })).collect();
         let path_str = path_str.join(",");
         let cluster_tag = if seq.cluster > 0 {format!("\tCL:i:{}", seq.cluster)} else {"".to_string()};
-        let extend_start_tag = if !seq.extend_start {"\tES:Z:false"} else {""};
-        let extend_end_tag = if !seq.extend_end {"\tEE:Z:false"} else {""};
-        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}{}{}{}",
-                seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag,
-                extend_start_tag, extend_end_tag)
+        format!("P\t{}\t{}\t*\tLN:i:{}\tFN:Z:{}\tHD:Z:{}{}",
+                seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag)
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
@@ -411,22 +375,19 @@ impl UnitigGraph {
     fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
         eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
-        let sequence = self.get_sequence_from_path(&path, seq.extend_start, seq.extend_end);
+        let sequence = self.get_sequence_from_path(&path);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
-    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>, extend_start: bool, extend_end: bool) -> String {
+    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>) -> String {
         // Given a path (vector of unitig IDs and strands), this function returns the sequence
         // traced by that path. It also requires a unitig index so it can quickly look up unitigs
         // by their number.
-        let half_k = (self.k_size / 2) as usize;
         let mut sequence = Vec::new();
-        for (i, (unitig_num, strand)) in path.iter().enumerate() {
+        for (unitig_num, strand) in path.iter() {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
-            let upstream = if !extend_start { 0 } else if i == 0 { half_k } else { 0 };
-            let downstream = if !extend_end { 0 } else if i == path.len() - 1 { half_k } else { 0 };
-            sequence.push(String::from_utf8(unitig.borrow().get_extended_seq(*strand, upstream, downstream)).unwrap());
+            sequence.push(String::from_utf8(unitig.borrow().get_seq(*strand)).unwrap());
         }
         sequence.into_iter().collect()
     }
@@ -434,16 +395,15 @@ impl UnitigGraph {
     fn find_starting_unitig(&self, seq_id: u16) -> UnitigStrand {
         // For a given sequence ID, this function returns the Unitig and strand where that sequence
         // begins.
-        let half_k = self.k_size / 2;
         let mut starting_unitigs = Vec::new();
         for unitig in &self.unitigs {
             for p in &unitig.borrow().forward_positions {
-                if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
+                if p.seq_id() == seq_id && p.strand() && p.pos == 0 {
                     starting_unitigs.push(UnitigStrand::new(unitig, strand::FORWARD));
                 }
             }
             for p in &unitig.borrow().reverse_positions {
-                if p.seq_id() == seq_id && p.strand() && p.pos == half_k {
+                if p.seq_id() == seq_id && p.strand() && p.pos == 0 {
                     starting_unitigs.push(UnitigStrand::new(unitig, strand::REVERSE));
                 }
             }
@@ -457,7 +417,7 @@ impl UnitigGraph {
         // For a given unitig that's part of a sequence's path, this function will return the next
         // unitig in that sequence's path.
         let unitig = unitig_rc.borrow();
-        let next_pos = pos + unitig.untrimmed_length(self.k_size as usize) - self.k_size as u32 + 1;
+        let next_pos = pos + unitig.length();
         let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
         for next in next_unitigs {
             let u = next.unitig.borrow();
@@ -472,10 +432,9 @@ impl UnitigGraph {
     }
 
     pub fn get_unitig_path_for_sequence(&self, seq: &Sequence) -> Vec<(u32, bool)> {
-        let half_k = self.k_size / 2;
         let mut unitig_path = Vec::new();
         let mut u = self.find_starting_unitig(seq.id);
-        let mut pos = half_k;
+        let mut pos = 0;
         loop {
             unitig_path.push((u.number(), u.strand));
             match self.get_next_unitig(seq.id, &u.unitig, u.strand, pos) {
@@ -546,10 +505,8 @@ impl UnitigGraph {
         // Removes zero-depth unitigs from the graph. Doing so can create new dead-ends, so this
         // function first un-trims the contigs (adds overlap back on) and then re-trims after the
         // unitigs have been deleted.
-        self.restore_overlaps();
         self.unitigs.retain(|u| u.borrow().depth > 0.0);
         self.delete_dangling_links();
-        self.trim_overlaps();
         self.build_unitig_index();
     }
 
@@ -623,24 +580,6 @@ impl UnitigGraph {
                 if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
             }
         }
-    }
-
-    pub fn dead_end_start(&self, unitig_num: i32) -> bool {
-        // Returns whether or not the given unitig number has a dead-end start. Takes the unitig
-        // as a signed integer (negative values for reverse strand).
-        let strand = unitig_num > 0;
-        let unitig_num = unitig_num.abs() as u32;
-        let u = self.unitig_index.get(&unitig_num).unwrap().borrow();
-        u.dead_end_start(strand)
-    }
-
-    pub fn dead_end_end(&self, unitig_num: i32) -> bool {
-        // Returns whether or not the given unitig number has a dead-end end. Takes the unitig
-        // as a signed integer (negative values for reverse strand).
-        let strand = unitig_num > 0;
-        let unitig_num = unitig_num.abs() as u32;
-        let u = self.unitig_index.get(&unitig_num).unwrap().borrow();
-        u.dead_end_end(strand)
     }
 }
 

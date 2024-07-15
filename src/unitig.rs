@@ -17,7 +17,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::kmer_graph::Kmer;
-use crate::misc::{reverse_complement, quit_with_error, strand};
+use crate::misc::{reverse_complement, quit_with_error};
 use crate::position::Position;
 
 
@@ -177,16 +177,10 @@ impl Unitig {
     pub fn trim_overlaps(&mut self, k_size: usize) {
         let overlap = k_size / 2;
         assert!(self.forward_seq.len() >= k_size);
-        let trim_start = !self.forward_prev.is_empty();
-        let trim_end = !self.forward_next.is_empty();
-        if trim_start {
-            self.forward_seq = self.forward_seq[overlap..].to_vec();
-            self.reverse_seq = self.reverse_seq[..self.reverse_seq.len() - overlap].to_vec();
-        }
-        if trim_end {
-            self.forward_seq = self.forward_seq[..self.forward_seq.len() - overlap].to_vec();
-            self.reverse_seq = self.reverse_seq[overlap..].to_vec();
-        }
+        self.forward_seq = self.forward_seq[overlap..].to_vec();
+        self.reverse_seq = self.reverse_seq[..self.reverse_seq.len() - overlap].to_vec();
+        self.forward_seq = self.forward_seq[..self.forward_seq.len() - overlap].to_vec();
+        self.reverse_seq = self.reverse_seq[overlap..].to_vec();
         assert!(self.forward_seq.len() >= 1);
         self.trimmed = true;
     }
@@ -196,34 +190,8 @@ impl Unitig {
         format!("S\t{}\t{}\tDP:f:{:.2}", self.number, seq_str, self.depth)
     }
 
-    pub fn dead_end_start(&self, strand: bool) -> bool {
-        match strand {
-            strand::FORWARD => self.forward_prev.is_empty(),
-            strand::REVERSE => self.reverse_prev.is_empty(),
-        }
-    }
-
-    pub fn dead_end_end(&self, strand: bool) -> bool {
-        match strand {
-            strand::FORWARD => self.forward_next.is_empty(),
-            strand::REVERSE => self.reverse_next.is_empty(),
-        }
-    }
-
     pub fn length(&self) -> u32 {
         self.forward_seq.len() as u32
-    }
-
-    pub fn untrimmed_length(&self, k_size: usize) -> u32 {
-        let half_k = k_size / 2;
-        let mut untrimmed_length = self.forward_seq.len();
-        if !self.dead_end_start(strand::FORWARD) {
-            untrimmed_length += half_k;
-        }
-        if !self.dead_end_end(strand::FORWARD) {
-            untrimmed_length += half_k;
-        }
-        untrimmed_length as u32
     }
 
     pub fn get_seq(&self, strand: bool) -> Vec<u8> {
@@ -232,61 +200,6 @@ impl Unitig {
             self.forward_seq.clone()
         } else {
             self.reverse_seq.clone()
-        }
-    }
-
-    pub fn get_extended_seq(&self, strand: bool, upstream: usize, downstream: usize) -> Vec<u8> {
-        // This function returns the unitig's sequence on the given strand. It can also add on a
-        // bit of upstream or downstream sequence, if available.
-        if upstream == 0 && downstream == 0 {
-            return self.get_seq(strand);
-        }
-        let mut seq = Vec::new();
-        if upstream > 0 {
-            seq.extend(self.get_upstream_seq(strand, upstream));
-        }
-        if strand {
-            seq.extend(&self.forward_seq);
-        } else {
-            seq.extend(&self.reverse_seq);
-        }
-        if downstream > 0 {
-            seq.extend(self.get_downstream_seq(strand, downstream));
-        }
-        seq
-    }
-
-    fn get_upstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        let prev_unitigs = if strand { &self.forward_prev } else { &self.reverse_prev };
-        if prev_unitigs.is_empty() {
-            return Vec::new();
-        }
-        let prev = prev_unitigs.first().unwrap();
-        let upstream_seq = prev.get_seq();
-        if amount <= upstream_seq.len() {  // got enough upstream seq
-            let start = upstream_seq.len().saturating_sub(amount);
-            upstream_seq[start..].to_vec()
-        } else {  // need more upstream seq, call recursively
-            let mut more_seq = prev.unitig.borrow().get_upstream_seq(prev.strand, amount - upstream_seq.len());
-            more_seq.extend(upstream_seq);
-            more_seq
-        }
-    }
-
-    fn get_downstream_seq(&self, strand: bool, amount: usize) -> Vec<u8> {
-        let next_unitigs = if strand { &self.forward_next } else {&self.reverse_next };
-        if next_unitigs.is_empty() {
-            return Vec::new();
-        }
-        let next = next_unitigs.first().unwrap();
-        let mut downstream_seq = next.get_seq();
-        if amount <= downstream_seq.len() {  // got enough downstream seq
-            let end = if amount > downstream_seq.len() { downstream_seq.len() } else { amount };
-            downstream_seq[..end].to_vec()
-        } else {  // need more downstream seq, call recursively
-            let more_seq = next.unitig.borrow().get_downstream_seq(next.strand, amount - downstream_seq.len());
-            downstream_seq.extend(more_seq);
-            downstream_seq
         }
     }
 
@@ -400,6 +313,7 @@ impl fmt::Debug for UnitigStrand {
 mod tests {
     use super::*;
     use crate::sequence::Sequence;
+    use crate::misc::strand;
 
     #[test]
     fn test_from_segment_line() {
@@ -412,19 +326,20 @@ mod tests {
 
     #[test]
     fn test_from_kmers() {
+        let k_size = 5; let half_k = k_size / 2;
         let seq = Sequence::new_with_seq(1, "ACGCATAGCACTAGCTACGA".to_string(),
-                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20);
+                                         "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
         let forward_raw = seq.forward_seq.as_ptr();
         let reverse_raw = seq.reverse_seq.as_ptr();
 
         let forward_k1 = Kmer::new(unsafe{forward_raw.add(4)}, 5, 1);
-        let reverse_k1 = Kmer::new(unsafe{reverse_raw.add(11)}, 5, 1);
+        let reverse_k1 = Kmer::new(unsafe{reverse_raw.add(15)}, 5, 1);
 
         let forward_k2 = Kmer::new(unsafe{forward_raw.add(5)}, 5, 1);
-        let reverse_k2 = Kmer::new(unsafe{reverse_raw.add(10)}, 5, 1);
+        let reverse_k2 = Kmer::new(unsafe{reverse_raw.add(14)}, 5, 1);
 
         let forward_k3 = Kmer::new(unsafe{forward_raw.add(6)}, 5, 1);
-        let reverse_k3 = Kmer::new(unsafe{reverse_raw.add(9)}, 5, 1);
+        let reverse_k3 = Kmer::new(unsafe{reverse_raw.add(13)}, 5, 1);
 
         let mut u = Unitig::from_kmers(123, &forward_k2, &reverse_k2);
         u.add_kmer_to_start(&forward_k1, &reverse_k1);
@@ -432,35 +347,13 @@ mod tests {
         u.simplify_seqs();
 
         assert_eq!(u.length(), 7 as u32);
-        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
-        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCATAGC");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCTATGC");
 
-        u.trim_overlaps(5);  // trimming does nothing because the unitig has dead-ends
-        assert_eq!(u.length(), 7 as u32);
-        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATAGCAC");
-        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GTGCTAT");
-
-        assert_eq!(u.untrimmed_length(5), 7 as u32);
-    }
-
-    #[test]
-    fn test_dead_ends() {
-        let unitig_a = Rc::new(RefCell::new(Unitig::from_segment_line("S\t1\tGCTGAAGGGC\tDP:f:1")));
-        let unitig_b = Rc::new(RefCell::new(Unitig::from_segment_line("S\t2\tCGCGTTCGAC\tDP:f:1")));
-        unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
-        unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
-        unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
-        unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
-
-        assert_eq!(unitig_a.borrow().dead_end_start(strand::FORWARD), true);
-        assert_eq!(unitig_a.borrow().dead_end_end(strand::FORWARD), false);
-        assert_eq!(unitig_a.borrow().dead_end_start(strand::REVERSE), false);
-        assert_eq!(unitig_a.borrow().dead_end_end(strand::REVERSE), true);
-
-        assert_eq!(unitig_b.borrow().dead_end_start(strand::FORWARD), false);
-        assert_eq!(unitig_b.borrow().dead_end_end(strand::FORWARD), true);
-        assert_eq!(unitig_b.borrow().dead_end_start(strand::REVERSE), true);
-        assert_eq!(unitig_b.borrow().dead_end_end(strand::REVERSE), false);
+        u.trim_overlaps(k_size as usize);
+        assert_eq!(u.length(), 3 as u32);
+        assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATA");
+        assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "TAT");
     }
 
     #[test]
@@ -472,35 +365,10 @@ mod tests {
         unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
         unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
 
-        // no upstream/downstream seq
         assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD)).unwrap(), "GCTGAAGGGC");
         assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE)).unwrap(), "GCCCTTCAGC");
         assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD)).unwrap(), "CGCGTTCGAC");
         assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE)).unwrap(), "GTCGAACGCG");
-
-        // no upstream/downstream seq
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 0, 0)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 0, 0)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 0)).unwrap(), "GTCGAACGCG");
-
-        // asking for upstream/downstream seq that doesn't exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 5, 0)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 0, 5)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 0, 5)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 5, 0)).unwrap(), "GTCGAACGCG");
-
-        // asking for upstream/downstream seq that does exist
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 5)).unwrap(), "GCTGAAGGGCCGCGT");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 5, 0)).unwrap(), "ACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 5, 0)).unwrap(), "AGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 5)).unwrap(), "GTCGAACGCGGCCCT");
-
-        // asking for more upstream/downstream seq than exists
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::FORWARD, 0, 15)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_extended_seq(strand::REVERSE, 15, 0)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::FORWARD, 15, 0)).unwrap(), "GCTGAAGGGCCGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_extended_seq(strand::REVERSE, 0, 15)).unwrap(), "GTCGAACGCGGCCCTTCAGC");
     }
 
     #[test]

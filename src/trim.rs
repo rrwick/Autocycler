@@ -110,7 +110,7 @@ fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 
 
 fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
-                          min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32, bool, bool)>> {
+                          min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32)>> {
     if max_unitigs == 0 {
         return vec![None; sequences.len()];
     }
@@ -126,7 +126,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
             let trimmed_path = trimmed_path.unwrap();
             let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
             eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
-            results.push(Some((trimmed_path, trimmed_length, false, false)));
+            results.push(Some((trimmed_path, trimmed_length)));
         } else {
             eprintln!("{}: {}", seq, "not trimmed".green());
             results.push(None);
@@ -138,7 +138,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
 
 
 fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
-                       min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32, bool, bool)>> {
+                       min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32)>> {
     if max_unitigs == 0 {
         return vec![None; sequences.len()];
     }
@@ -149,8 +149,6 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
     for seq in sequences {
         let path = graph.get_unitig_path_for_sequence(&seq);
         let path = path_to_signed_numbers(&path);
-        let mut extend_start = seq.extend_start;
-        let mut extend_end = seq.extend_end;
         let mut trimmed_start = false;
         let mut trimmed_end = false;
 
@@ -158,7 +156,6 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         let trimmed_path = trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs);
         if trimmed_path.is_some() {
             trimmed_start = true;
-            extend_start = false;
             path_2 = trimmed_path.unwrap();
         } else {
             path_2 = path;
@@ -168,7 +165,6 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         let trimmed_path = trim_path_hairpin_end(&path_2, &weights, min_identity, max_unitigs);
         if trimmed_path.is_some() {
             trimmed_end = true;
-            extend_end = false;
             path_3 = trimmed_path.unwrap();
         } else {
             path_3 = path_2;
@@ -180,10 +176,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
             continue;
         }
 
-        let mut trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-        let half_k = graph.k_size / 2;
-        if extend_start && !graph.dead_end_start(*path_3.first().unwrap()) { trimmed_length += half_k; }
-        if extend_end && !graph.dead_end_end(*path_3.first().unwrap()) { trimmed_length += half_k; }
+        let trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
         if trimmed_start && trimmed_end {
             eprintln!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
         } else if trimmed_start {
@@ -191,7 +184,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         } else if trimmed_end {
             eprintln!("{}: {}", seq, format!("trimmed from end to {} bp", trimmed_length).red());
         }
-        results.push(Some((path_3, trimmed_length, extend_start, extend_end)));
+        results.push(Some((path_3, trimmed_length)));
 
     }
     eprintln!();
@@ -199,8 +192,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
 }
 
 
-fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32, bool, bool)>>,
-                    hairpin_results: Vec<Option<(Vec<i32>, u32, bool, bool)>>,
+fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_results: Vec<Option<(Vec<i32>, u32)>>,
                     graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
     let start_end_count = start_end_results.iter().filter(|x| x.is_some()).count();
     let hairpin_count = hairpin_results.iter().filter(|x| x.is_some()).count();
@@ -230,10 +222,9 @@ fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32, bool, bool)>>,
             trimmed_sequences.push(seq.clone());
         } else {
             graph.remove_sequence_from_graph(seq.id);
-            let (path, trimmed_length, extend_start, extend_end) = result.as_ref().unwrap();
+            let (path, trimmed_length) = result.as_ref().unwrap();
             let trimmed_sequence = graph.create_sequence_and_positions(seq.id, *trimmed_length, seq.filename.clone(),
-                                                                        seq.contig_header.clone(), seq.cluster,
-                                                                        *extend_start, *extend_end, path_to_tuples(&path));
+                                                                        seq.contig_header.clone(), seq.cluster, path_to_tuples(&path));
             trimmed_sequences.push(trimmed_sequence);
         }
     }

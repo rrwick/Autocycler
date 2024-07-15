@@ -97,17 +97,9 @@ mod tests {
 
         // Load the unitig graph from file, save it back to file and ensure the files are the same.
         let gfa_2 = graph_dir.path().join("graph_2.gfa");
-        let (mut unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa_1);
+        let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa_1);
         unitig_graph.save_gfa(&gfa_2, &sequences).unwrap();
         assert_same_content(&gfa_1, &gfa_2);
-
-        // Restore overlaps, trim overlaps again, then save to GFA and ensure the content is
-        // unchanged.
-        let gfa_3 = graph_dir.path().join("graph_2.gfa");
-        unitig_graph.restore_overlaps();
-        unitig_graph.trim_overlaps();
-        unitig_graph.save_gfa(&gfa_3, &sequences).unwrap();
-        assert_same_content(&gfa_1, &gfa_3);
 
         // Reconstruct the sequences from the unitig graph.
         save_original_seqs(&reconstructed_dir.path().to_path_buf(), &unitig_graph, &sequences);
@@ -165,12 +157,13 @@ mod tests {
         let temp_file = temp_dir.path().join("assembly.fasta");
         let fasta = ">name abc  def\tghi\nCTTATGAGCAGTCCTTAACGTAGCGGT\n".to_string();
         make_test_file(&temp_file, &fasta);
-        let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), 11);
+        let k_size = 11;
+        let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), k_size);
         assert_eq!(assembly_count, 1);
         let sequence = sequences.first().unwrap();
         assert_eq!(sequence.filename, "assembly.fasta");
         assert_eq!(sequence.contig_name(), "name");
         assert_eq!(sequence.contig_header, "name abc def ghi");
-        assert_eq!(sequence.forward_seq, String::from("CTTATGAGCAGTCCTTAACGTAGCGGT").into_bytes());
+        assert_eq!(sequence.forward_seq, String::from(".....CTTATGAGCAGTCCTTAACGTAGCGGT.....").into_bytes());
     }
 }

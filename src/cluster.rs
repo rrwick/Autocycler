@@ -676,27 +676,27 @@ mod tests {
 
     #[test]
     fn test_get_assembly_count() {
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
+        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1, 1),
+                             Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1, 1),
+                             Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1, 1)];
         assert_eq!(get_assembly_count(&sequences), 2);
-        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
-                             Sequence::new_with_seq(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1)];
+        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                             Sequence::new_with_seq(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1, 1)];
         assert_eq!(get_assembly_count(&sequences), 5);
     }
 
     #[test]
     fn test_get_max_cluster() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1),
-                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1)];
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1, 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1, 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1, 1)];
         sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3; sequences[3].cluster = 1; sequences[4].cluster = 2;
         assert_eq!(get_max_cluster(&sequences), 3);
         sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3; sequences[3].cluster = 5; sequences[4].cluster = 4;
@@ -706,11 +706,11 @@ mod tests {
     #[test]
     fn test_upgma_clustering_1() {
         // Uses example from https://en.wikipedia.org/wiki/UPGMA
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1),
-                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1),
-                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1),
-                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1),
-                                 Sequence::new_with_seq(5, "A".to_string(), "e".to_string(), "e".to_string(), 1)];
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1, 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1, 1),
+                                 Sequence::new_with_seq(5, "A".to_string(), "e".to_string(), "e".to_string(), 1, 1)];
         let distances = HashMap::from_iter(vec![((1, 1), 00.0), ((1, 2), 17.0), ((1, 3), 21.0), ((1, 4), 31.0), ((1, 5), 23.0),
                                                 ((2, 1), 17.0), ((2, 2), 00.0), ((2, 3), 30.0), ((2, 4), 34.0), ((2, 5), 21.0),
                                                 ((3, 1), 21.0), ((3, 2), 30.0), ((3, 3), 00.0), ((3, 4), 28.0), ((3, 5), 39.0),
@@ -729,10 +729,10 @@ mod tests {
 
     #[test]
     fn test_upgma_clustering_2() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1),
-                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1),
-                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1),
-                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1)];
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1, 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1, 1)];
         let distances = HashMap::from_iter(vec![((1, 1), 0.0), ((1, 2), 0.1), ((1, 3), 0.5), ((1, 4), 0.5),
                                                 ((2, 1), 0.1), ((2, 2), 0.0), ((2, 3), 0.5), ((2, 4), 0.5),
                                                 ((3, 1), 0.5), ((3, 2), 0.5), ((3, 3), 0.0), ((3, 4), 0.2),
@@ -748,12 +748,12 @@ mod tests {
 
     #[test]
     fn test_reorder_clusters() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5),
-                                 Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10),
-                                 Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5),
-                                 Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10)];
+        let mut sequences = vec![Sequence::new_with_seq(1, "CGCGA".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 5, 1),
+                                 Sequence::new_with_seq(2, "T".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1, 1),
+                                 Sequence::new_with_seq(3, "AACGACTACG".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 10, 1),
+                                 Sequence::new_with_seq(4, "CGCGA".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 5, 1),
+                                 Sequence::new_with_seq(5, "T".to_string(), "assembly_2.fasta".to_string(), "contig_3".to_string(), 1, 1),
+                                 Sequence::new_with_seq(6, "AACGACTACG".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 10, 1)];
         sequences[0].cluster = 1; sequences[1].cluster = 2; sequences[2].cluster = 3;
         sequences[3].cluster = 1; sequences[4].cluster = 2; sequences[5].cluster = 3;
         reorder_clusters(&mut sequences);
@@ -766,21 +766,21 @@ mod tests {
 
     #[test]
     fn test_set_minpts() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(7, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(8, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(9, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_10.fasta".to_string(), "contig_2".to_string(), 1),
-                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_10.fasta".to_string(), "contig_3".to_string(), 1),
-                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1),
-                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_11.fasta".to_string(), "contig_2".to_string(), 1),
-                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1)];
+        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(2, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(3, "A".to_string(), "assembly_3.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(4, "A".to_string(), "assembly_4.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(5, "A".to_string(), "assembly_5.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(6, "A".to_string(), "assembly_6.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(7, "A".to_string(), "assembly_7.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(8, "A".to_string(), "assembly_8.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(9, "A".to_string(), "assembly_9.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_10.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_10.fasta".to_string(), "contig_2".to_string(), 1, 1),
+                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_10.fasta".to_string(), "contig_3".to_string(), 1, 1),
+                                 Sequence::new_with_seq(10, "A".to_string(), "assembly_11.fasta".to_string(), "contig_1".to_string(), 1, 1),
+                                 Sequence::new_with_seq(11, "A".to_string(), "assembly_11.fasta".to_string(), "contig_2".to_string(), 1, 1),
+                                 Sequence::new_with_seq(12, "A".to_string(), "assembly_12.fasta".to_string(), "contig_1".to_string(), 1, 1)];
 
         assert_eq!(set_min_assemblies(Some(2), &sequences), 2);
         assert_eq!(set_min_assemblies(Some(11), &sequences), 11);

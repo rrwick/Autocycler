@@ -277,6 +277,7 @@ fn complement_base(base: u8) -> u8 {
         b'T' => b'A',
         b'G' => b'C',
         b'C' => b'G',
+        b'.' => b'.',
         _ => b'N'
     }
 }
