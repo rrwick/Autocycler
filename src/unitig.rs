@@ -34,7 +34,6 @@ pub struct Unitig {
     pub forward_prev: Vec<UnitigStrand>,
     pub reverse_next: Vec<UnitigStrand>,
     pub reverse_prev: Vec<UnitigStrand>,
-    pub trimmed: bool,
 }
 
 impl Unitig {
@@ -57,7 +56,6 @@ impl Unitig {
             forward_prev: Vec::new(),
             reverse_next: Vec::new(),
             reverse_prev: Vec::new(),
-            trimmed: false,
         }
     }
 
@@ -91,7 +89,6 @@ impl Unitig {
             forward_prev: Vec::new(),
             reverse_next: Vec::new(),
             reverse_prev: Vec::new(),
-            trimmed: true,
         }
     }
 
@@ -115,7 +112,6 @@ impl Unitig {
             forward_prev,
             reverse_next,
             reverse_prev,
-            trimmed: true,
         }
     }
 
@@ -182,7 +178,6 @@ impl Unitig {
         self.forward_seq = self.forward_seq[..self.forward_seq.len() - overlap].to_vec();
         self.reverse_seq = self.reverse_seq[overlap..].to_vec();
         assert!(self.forward_seq.len() >= 1);
-        self.trimmed = true;
     }
 
     pub fn gfa_segment_line(&self) -> String {

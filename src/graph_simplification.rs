@@ -24,6 +24,17 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn simplify_structure(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     while expand_repeats(graph, seqs) > 0 {}
+
+    // TODO: sometimes the simplified graph ends up with a little redundant dead-end contig. This
+    //       occurs because graph simplification won't allow contigs to be shortened to 0-bp. So
+    //       some additional graph-simplification logic to clean these up could be nice.
+    //
+    //       GACTACG - T
+    //                  \
+    //                   ATCGACTACGCTACG
+    //                  /
+    //                 T
+
     graph.renumber_unitigs();
 }
 
@@ -82,7 +93,7 @@ fn shift_sequence_1(sources: &Vec<UnitigStrand>, destination_rc: &Rc<RefCell<Uni
     // This function also guards against a couple of potential complications with sequence paths
     // (which could result in a path having more than one starting unitig):
     // * It won't let unitigs get down to a length of zero. This requires some extra logic for when
-    //   both strands of one unitig appears in the sources (and will therefore have sequence
+    //   both strands of one unitig appear in the sources (and will therefore have sequence
     //   removed from both ends).
     // * It won't add sequence to the destination unitig causing any of its positions to reach the
     //   start of a path.

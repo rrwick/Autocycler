@@ -288,5 +288,4 @@ mod tests {
                                b"CGACGT.".to_vec()];
         assert_eq!(find_best_match(all_matches), b"AGACGT.");
     }
-
 }

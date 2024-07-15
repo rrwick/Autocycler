@@ -33,6 +33,9 @@ impl Sequence {
         // This constructor creates a Sequence object with the actual sequence stored. This is used
         // when creating a k-mer graph from Sequences, because the actual sequence is needed to get
         // the k-mers.
+        // It pads the sequence with a half-k number of dots so the entire sequence will be present
+        // when overlaps are trimmed off. Dots are used because they will be regex wildcards for
+        // substituting this padding with real sequence (as much as possible).
         let mut forward_seq = seq.into_bytes();
         if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
             quit_with_error(&format!("{} contains non-ACGT characters", filename));

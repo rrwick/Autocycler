@@ -293,8 +293,6 @@ impl UnitigGraph {
     }
 
     pub fn trim_overlaps(&mut self) {
-        // This method trims all overlaps from the graph. Dead-ends will not be trimmed, as that
-        // would cause irreversible loss of sequence.
         for unitig in &self.unitigs {
             unitig.borrow_mut().trim_overlaps(self.k_size as usize);
         }
