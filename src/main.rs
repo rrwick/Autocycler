@@ -69,6 +69,10 @@ enum Commands {
         /// K-mer size for De Bruijn graph
         #[clap(long = "kmer", default_value = "51")]
         kmer: u32,
+
+        /// K-mer size for De Bruijn graph
+        #[clap(short = 't', long = "threads", default_value = "8")]
+        threads: usize,
     },
 
     /// decompress contigs from a unitig graph
@@ -142,8 +146,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer }) => {
-            compress::compress(assemblies_dir, autocycler_dir, kmer);
+        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, threads }) => {
+            compress::compress(assemblies_dir, autocycler_dir, kmer, threads);
         },
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);

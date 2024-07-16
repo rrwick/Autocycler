@@ -11,6 +11,8 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use regex::bytes::Regex;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,13 +28,13 @@ use crate::unitig_graph::UnitigGraph;
 use crate::graph_simplification::simplify_structure;
 
 
-pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32) {
+pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, threads: usize) {
     let start_time = Instant::now();
-    check_settings(&assemblies_dir, &autocycler_dir, k_size);
+    check_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     starting_message();
-    print_settings(&assemblies_dir, &autocycler_dir, k_size);
+    print_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     create_dir(&autocycler_dir);
-    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size);
+    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size, threads);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
@@ -42,15 +44,13 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32) {
 }
 
 
-fn check_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32) {
+fn check_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32, threads: usize) {
     check_if_dir_exists(&assemblies_dir);
     check_if_dir_is_not_dir(&autocycler_dir);
-    if k_size < 11 {
-        quit_with_error("--kmer cannot be less than 11");
-    }
-    if k_size > 501 {
-        quit_with_error("--kmer cannot be greater than 501");
-    }
+    if k_size < 11   { quit_with_error("--kmer cannot be less than 11"); }
+    if k_size > 501  { quit_with_error("--kmer cannot be greater than 501"); }
+    if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
+    if threads > 100 { quit_with_error("--threads cannot be greater than 100"); }
 }
 
 
@@ -63,16 +63,17 @@ fn starting_message() {
 }
 
 
-fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32) {
+fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32, threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --assemblies_dir {}", assemblies_dir.display());
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --kmer {}", k_size);
+    eprintln!("  --threads {}", threads);
     eprintln!();
 }
 
 
-pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
+pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, threads: usize) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
@@ -100,7 +101,10 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
 
     eprintln!();
     let pb = spinner("repairing sequence ends...");
-    sequence_end_repair(&mut sequences, k_size);
+    let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+    pool.install(|| {
+        sequence_end_repair(&mut sequences, k_size);
+    });
     pb.finish_and_clear();
     print_sequence_info(seq_id, assemblies.len());
     (sequences, assemblies.len())
@@ -168,11 +172,7 @@ fn sequence_end_repair(sequences: &mut Vec<Sequence>, k_size: u32) {
     // sequences are 'wrong'.
     let overlap_size = (k_size - 1) as usize;
     let all_seqs: Vec<_> = sequences.iter().flat_map(|s| vec![s.forward_seq.clone(), s.reverse_seq.clone()]).collect();
-
-    // TODO: this loop can take a little while to complete because it's O(n^2), but it should be
-    //       parallelisable, so I should look into using threads.
-
-    for seq in sequences {
+    sequences.par_iter_mut().for_each(|seq| {  // parallel for loop with rayon
         let start = &seq.forward_seq[..overlap_size];
         let start_re = Regex::new(str::from_utf8(start).unwrap()).unwrap();
         let end = &seq.forward_seq[seq.forward_seq.len() - overlap_size..];
@@ -197,7 +197,7 @@ fn sequence_end_repair(sequences: &mut Vec<Sequence>, k_size: u32) {
         seq.forward_seq.splice(seq.forward_seq.len() - overlap_size.., best_match.iter().cloned());
 
         seq.reverse_seq = reverse_complement(&seq.forward_seq);
-    }
+    });
 }
 
 

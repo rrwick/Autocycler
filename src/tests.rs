@@ -84,7 +84,7 @@ mod tests {
         make_test_file(&original_f, seq_a);
 
         // Build a k-mer graph from the sequences.
-        let (sequences, assembly_count) = load_sequences(&assembly_dir.path().to_path_buf(), k_size);
+        let (sequences, assembly_count) = load_sequences(&assembly_dir.path().to_path_buf(), k_size, 2);
         assert_eq!(assembly_count, 5);
         let mut kmer_graph = KmerGraph::new(k_size);
         kmer_graph.add_sequences(&sequences, assembly_count);
@@ -158,7 +158,7 @@ mod tests {
         let fasta = ">name abc  def\tghi\nCTTATGAGCAGTCCTTAACGTAGCGGT\n".to_string();
         make_test_file(&temp_file, &fasta);
         let k_size = 11;
-        let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), k_size);
+        let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), k_size, 2);
         assert_eq!(assembly_count, 1);
         let sequence = sequences.first().unwrap();
         assert_eq!(sequence.filename, "assembly.fasta");

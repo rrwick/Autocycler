@@ -357,15 +357,19 @@ pub fn median_isize(values: &[isize]) -> isize {
 
 
 pub fn spinner(message: &str) -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
-    pb.enable_steady_tick(Duration::from_millis(100));
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .tick_strings(&vec!["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners 
-            .template("{spinner} {msg}").unwrap(),
-    );
-    pb.set_message(message.to_string().clone());
-    pb
+    if cfg!(test) {
+        ProgressBar::hidden() // don't show a spinner during unit tests
+    } else {
+        let pb = ProgressBar::new_spinner();
+        pb.enable_steady_tick(Duration::from_millis(100));
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .tick_strings(&vec!["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners 
+                .template("{spinner} {msg}").unwrap(),
+        );
+        pb.set_message(message.to_string().clone());
+        pb
+    }
 }
 
 
