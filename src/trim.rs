@@ -12,6 +12,8 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
@@ -28,14 +30,14 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64) {
+pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, threads: usize) {
     let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
     let untrimmed_dotplots = cluster_dir.join("2_untrimmed_dotplots.png");
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
     let trimmed_dotplots = cluster_dir.join("4_trimmed_dotplots.png");
-    check_settings(&cluster_dir, &untrimmed_gfa, min_identity);
+    check_settings(&cluster_dir, &untrimmed_gfa, min_identity, threads);
     starting_message();
-    print_settings(&cluster_dir, min_identity, max_unitigs, mad);
+    print_settings(&cluster_dir, min_identity, max_unitigs, mad, threads);
     let (mut unitig_graph, sequences) = load_graph(&untrimmed_gfa);
 
     // TODO: create dotplots of the sequences before trimming
@@ -54,12 +56,15 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
 }
 
 
-fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64) {
+fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64, threads: usize) {
     check_if_dir_exists(&cluster_dir);
     check_if_file_exists(&untrimmed_gfa);
     if min_identity < 0.0 || min_identity > 1.0 {
         quit_with_error("--min_identity must be between 0.0 and 1 (inclusive)");
     }
+    if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
+    if threads > 100 { quit_with_error("--threads cannot be greater than 100"); }
+    ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
 }
 
 
@@ -82,12 +87,13 @@ fn finished_message(untrimmed_dotplots: &PathBuf, trimmed_gfa: &PathBuf, trimmed
 }
 
 
-fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, mad: f64) {
+fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
     eprintln!("  --min_identity {}", format_float(min_identity));
     eprintln!("  --max_unitigs {}", max_unitigs);
     eprintln!("  --mad {}", format_float(mad));
+    eprintln!("  --threads {}", threads);
     eprintln!();
     if max_unitigs == 0 {
         eprintln!("Since --max_unitigs was set to 0, trimming is disabled.");
@@ -117,23 +123,23 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
     section_header("Trim start-end overlaps");
     explanation("Paths for circular replicons may contain start-end overlaps. These overlaps \
                  are searched for and trimmed if found.");
-    let mut results = vec![];
-    for seq in sequences {
-        let path = graph.get_unitig_path_for_sequence(&seq);
-        let path = path_to_signed_numbers(&path);
-        let trimmed_path = trim_path_start_end(&path, &weights, min_identity, max_unitigs);
-        if trimmed_path.is_some() {
-            let trimmed_path = trimmed_path.unwrap();
+    let paths: Vec<_> = sequences.iter().map(|seq| {
+        let path = graph.get_unitig_path_for_sequence(seq); path_to_signed_numbers(&path)
+    }).collect();
+    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
+        let trimmed_path = trim_path_start_end(path, &weights, min_identity, max_unitigs);
+        if let Some(trimmed_path) = trimmed_path {
             let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-            eprintln!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red());
-            results.push(Some((trimmed_path, trimmed_length)));
+            (Some((trimmed_path, trimmed_length)), format!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red()))
         } else {
-            eprintln!("{}: {}", seq, "not trimmed".green());
-            results.push(None);
+            (None, format!("{}: {}", seq, "not trimmed".green()))
         }
+    }).collect();
+    for (_, message) in &results {
+        eprintln!("{}", message);
     }
     eprintln!();
-    results
+    results.into_iter().map(|(result, _)| result).collect()
 }
 
 
@@ -145,50 +151,51 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
     section_header("Trim hairpin overlaps");
     explanation("Paths for linear replicons may contain hairpin overlaps at the start and/or end \
                  of the contig. These overlaps are searched for and trimmed if found.");
-    let mut results = vec![];
-    for seq in sequences {
-        let path = graph.get_unitig_path_for_sequence(&seq);
-        let path = path_to_signed_numbers(&path);
+    let paths: Vec<_> = sequences.iter().map(|seq| {
+        let path = graph.get_unitig_path_for_sequence(seq); path_to_signed_numbers(&path)
+    }).collect();
+    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
         let mut trimmed_start = false;
         let mut trimmed_end = false;
 
         let path_2;
-        let trimmed_path = trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs);
-        if trimmed_path.is_some() {
+        let trimmed_path_start = trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs);
+        if trimmed_path_start.is_some() {
             trimmed_start = true;
-            path_2 = trimmed_path.unwrap();
+            path_2 = trimmed_path_start.unwrap();
         } else {
-            path_2 = path;
+            path_2 = path.clone();
         }
 
         let path_3;
-        let trimmed_path = trim_path_hairpin_end(&path_2, &weights, min_identity, max_unitigs);
-        if trimmed_path.is_some() {
+        let trimmed_path_end = trim_path_hairpin_end(&path_2, &weights, min_identity, max_unitigs);
+        if trimmed_path_end.is_some() {
             trimmed_end = true;
-            path_3 = trimmed_path.unwrap();
+            path_3 = trimmed_path_end.unwrap();
         } else {
             path_3 = path_2;
         }
 
         if !trimmed_start && !trimmed_end {
-            eprintln!("{}: {}", seq, "not trimmed".green());
-            results.push(None);
-            continue;
+            (None, format!("{}: {}", seq, "not trimmed".green()))
+        } else {
+            let message;
+            let trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+            if trimmed_start && trimmed_end {
+                message = format!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
+            } else if trimmed_start {
+                message = format!("{}: {}", seq, format!("trimmed from start to {} bp", trimmed_length).red());
+            } else {
+                message = format!("{}: {}", seq, format!("trimmed from end to {} bp", trimmed_length).red());
+            }
+            (Some((path_3, trimmed_length)), message)
         }
-
-        let trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
-        if trimmed_start && trimmed_end {
-            eprintln!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
-        } else if trimmed_start {
-            eprintln!("{}: {}", seq, format!("trimmed from start to {} bp", trimmed_length).red());
-        } else if trimmed_end {
-            eprintln!("{}: {}", seq, format!("trimmed from end to {} bp", trimmed_length).red());
-        }
-        results.push(Some((path_3, trimmed_length)));
-
+    }).collect();
+    for (_, message) in &results {
+        eprintln!("{}", message);
     }
     eprintln!();
-    results
+    results.into_iter().map(|(result, _)| result).collect()
 }
 
 

@@ -70,7 +70,7 @@ enum Commands {
         #[clap(long = "kmer", default_value = "51")]
         kmer: u32,
 
-        /// K-mer size for De Bruijn graph
+        /// Number of CPU threads
         #[clap(short = 't', long = "threads", default_value = "8")]
         threads: usize,
     },
@@ -124,6 +124,10 @@ enum Commands {
         /// Allowed variability in cluster length, measured in median absolute deviations, set to 0 to disable exclusion of length outliers
         #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
+
+        /// Number of CPU threads
+        #[clap(short = 't', long = "threads", default_value = "8")]
+        threads: usize,
     },
 
     /// resolve repeats in the the unitig graph
@@ -155,8 +159,8 @@ fn main() {
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
         },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs, mad);
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
         },
         Some(Commands::Resolve { out_dir }) => {
             resolve::resolve(out_dir);

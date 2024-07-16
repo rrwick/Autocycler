@@ -34,7 +34,7 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
     starting_message();
     print_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     create_dir(&autocycler_dir);
-    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size, threads);
+    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
@@ -51,6 +51,7 @@ fn check_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u3
     if k_size > 501  { quit_with_error("--kmer cannot be greater than 501"); }
     if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
     if threads > 100 { quit_with_error("--threads cannot be greater than 100"); }
+    ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
 }
 
 
@@ -73,7 +74,7 @@ fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u3
 }
 
 
-pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, threads: usize) -> (Vec<Sequence>, usize) {
+pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
@@ -101,10 +102,7 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, threads: usize) -> 
 
     eprintln!();
     let pb = spinner("repairing sequence ends...");
-    let pool = ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
-    pool.install(|| {
-        sequence_end_repair(&mut sequences, k_size);
-    });
+    sequence_end_repair(&mut sequences, k_size);
     pb.finish_and_clear();
     print_sequence_info(seq_id, assemblies.len());
     (sequences, assemblies.len())
