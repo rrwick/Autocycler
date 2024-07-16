@@ -399,7 +399,7 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
     let forward_next = if last.strand {last.unitig.borrow().forward_next.clone()} else {last.unitig.borrow().reverse_next.clone()};
     let reverse_prev = if last.strand {last.unitig.borrow().reverse_prev.clone()} else {last.unitig.borrow().forward_prev.clone()};
 
-    let unitig = Unitig::manual(new_unitig_number, merged_seq, forward_positions, reverse_positions,
+    let unitig = Unitig::manual(new_unitig_number, merged_seq, false, forward_positions, reverse_positions,
                                 forward_next, forward_prev, reverse_next, reverse_prev);
     let unitig_rc = Rc::new(RefCell::new(unitig));
     graph.unitigs.push(unitig_rc.clone());

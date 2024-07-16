@@ -28,6 +28,7 @@ pub struct Unitig {
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
+    pub anchor: bool,
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
     pub forward_next: Vec<UnitigStrand>,
@@ -50,6 +51,7 @@ impl Unitig {
             forward_seq: Vec::new(),
             reverse_seq: Vec::new(),
             depth: 0.0,
+            anchor: false,
             forward_positions: Vec::new(),
             reverse_positions: Vec::new(),
             forward_next: Vec::new(),
@@ -83,6 +85,7 @@ impl Unitig {
             forward_seq,
             reverse_seq,
             depth,
+            anchor: false,
             forward_positions: Vec::new(),
             reverse_positions: Vec::new(),
             forward_next: Vec::new(),
@@ -92,7 +95,8 @@ impl Unitig {
         }
     }
 
-    pub fn manual(number: u32, forward_seq: Vec<u8>, forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
+    pub fn manual(number: u32, forward_seq: Vec<u8>, anchor: bool,
+                  forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
                   forward_next: Vec<UnitigStrand>, forward_prev: Vec<UnitigStrand>,
                   reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>) -> Self {
         // This constructor is for manually building a Unitig object from a sequence and positions.
@@ -100,12 +104,13 @@ impl Unitig {
         let reverse_seq = reverse_complement(&forward_seq);
         let depth = forward_positions.len() as f64;
         Unitig {
-            number: number,
+            number,
             forward_kmers: VecDeque::new(),
             reverse_kmers: VecDeque::new(),
             forward_seq,
             reverse_seq,
             depth,
+            anchor,
             forward_positions,
             reverse_positions,
             forward_next,
@@ -182,7 +187,8 @@ impl Unitig {
 
     pub fn gfa_segment_line(&self) -> String {
         let seq_str = String::from_utf8_lossy(&self.forward_seq);
-        format!("S\t{}\t{}\tDP:f:{:.2}", self.number, seq_str, self.depth)
+        let colour_tag = if self.anchor { "\tCL:z:forestgreen" } else { "" };
+        format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth, colour_tag)
     }
 
     pub fn length(&self) -> u32 {

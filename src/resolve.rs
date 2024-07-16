@@ -19,23 +19,31 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn resolve(out_dir: PathBuf) {
-    let gfa = out_dir.join("06_cleaned_graph.gfa");
-    check_settings(&out_dir, &gfa);
+pub fn resolve(cluster_dir: PathBuf) {
+    let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
+    let resolved_gfa = cluster_dir.join("5_resolved.gfa");
+    check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
-    print_settings(&out_dir);
-    let (_unitig_graph, _sequences) = load_graph(&gfa);
+    print_settings(&cluster_dir);
+    let (mut unitig_graph, sequences) = load_graph(&trimmed_gfa);
+    let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
 
-    // TODO: find initial single-copy contigs
-    // TODO: expand set of single-copy contigs based on graph structure
-    // TODO: find the ordering of single-copy contigs
-    // TODO: resolve repeats by duplicating unitigs
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    unitig_graph.save_gfa(&resolved_gfa, &sequences).unwrap();
 }
 
 
-fn check_settings(out_dir: &PathBuf, gfa: &PathBuf) {
-    check_if_dir_exists(&out_dir);
-    check_if_file_exists(&gfa);
+fn check_settings(cluster_dir: &PathBuf, trimmed_gfa: &PathBuf) {
+    check_if_dir_exists(&cluster_dir);
+    check_if_file_exists(&trimmed_gfa);
 }
 
 
@@ -45,9 +53,9 @@ fn starting_message() {
 }
 
 
-fn print_settings(out_dir: &PathBuf) {
+fn print_settings(cluster_dir: &PathBuf) {
     eprintln!("Settings:");
-    eprintln!("  --out_dir {}", out_dir.display());
+    eprintln!("  --cluster_dir {}", cluster_dir.display());
     eprintln!();
 }
 
@@ -58,4 +66,33 @@ fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
     unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
+}
+
+
+fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<u32> {
+    section_header("Finding anchor unitigs");
+    explanation("Anchor unitigs are those that occur once and only once in each sequence. They \
+                 will definitely be present in the final sequence and will serve as the connection \
+                 points for bridges.");
+    let mut all_seq_ids: Vec<_> = sequences.iter().map(|s| s.id).collect();
+    all_seq_ids.sort();
+    let mut anchor_ids = Vec::new();
+    for unitig_rc in &graph.unitigs {
+        let mut unitig = unitig_rc.borrow_mut();
+        let mut forward_seq_ids: Vec<_> = unitig.forward_positions.iter().map(|p| p.seq_id()).collect();
+        forward_seq_ids.sort();
+
+        // TODO: I can probably remove this later for performance - it's just a sanity check.
+        let mut reverse_seq_ids: Vec<_> = unitig.reverse_positions.iter().map(|p| p.seq_id()).collect();
+        reverse_seq_ids.sort();
+        assert!(forward_seq_ids == reverse_seq_ids);
+
+        if forward_seq_ids == all_seq_ids {
+            unitig.anchor = true;
+            anchor_ids.push(unitig.number);
+        }
+    }
+    eprintln!("{} anchor unitig{} found", anchor_ids.len(), match anchor_ids.len() { 1 => "", _ => "s" });
+    eprintln!();
+    anchor_ids
 }

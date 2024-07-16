@@ -17,7 +17,6 @@ use clap::{Parser, Subcommand, crate_version};
 
 mod cluster;
 mod compress;
-mod correct;
 mod decompress;
 mod graph_simplification;
 mod kmer_graph;
@@ -133,15 +132,8 @@ enum Commands {
     /// resolve repeats in the the unitig graph
     Resolve {
         /// Autocycler directory (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
-        out_dir: PathBuf,
-    },
-
-    /// correct errors in the unitig graph to produce a consensus assembly
-    Correct {
-        /// Autocycler directory (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
-        out_dir: PathBuf,
+        #[clap(short = 'c', long = "cluster_dir", required = true)]
+        cluster_dir: PathBuf,
     },
 }
 
@@ -162,11 +154,8 @@ fn main() {
         Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
             trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
         },
-        Some(Commands::Resolve { out_dir }) => {
-            resolve::resolve(out_dir);
-        },
-        Some(Commands::Correct { out_dir }) => {
-            correct::correct(out_dir);
+        Some(Commands::Resolve { cluster_dir }) => {
+            resolve::resolve(cluster_dir);
         },
         None => {}
     }
