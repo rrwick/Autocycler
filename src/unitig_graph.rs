@@ -410,8 +410,8 @@ impl UnitigGraph {
         starting_unitigs[0].clone()
     }
 
-    fn get_next_unitig(&self, seq_id: u16, unitig_rc: &Rc<RefCell<Unitig>>, strand: bool,
-                       pos: u32) -> Option<(UnitigStrand, u32)> {
+    pub fn get_next_unitig(&self, seq_id: u16, seq_strand: bool, unitig_rc: &Rc<RefCell<Unitig>>,
+                           strand: bool, pos: u32) -> Option<(UnitigStrand, u32)> {
         // For a given unitig that's part of a sequence's path, this function will return the next
         // unitig in that sequence's path.
         let unitig = unitig_rc.borrow();
@@ -421,7 +421,7 @@ impl UnitigGraph {
             let u = next.unitig.borrow();
             let positions = if next.strand { &u.forward_positions } else { &u.reverse_positions};
             for p in positions {
-                if p.seq_id() == seq_id && p.strand() && p.pos == next_pos {
+                if p.seq_id() == seq_id && p.strand() == seq_strand && p.pos == next_pos {
                     return Some((UnitigStrand::new(&next.unitig, next.strand), next_pos));
                 }
             }
@@ -435,7 +435,7 @@ impl UnitigGraph {
         let mut pos = 0;
         loop {
             unitig_path.push((u.number(), u.strand));
-            match self.get_next_unitig(seq.id, &u.unitig, u.strand, pos) {
+            match self.get_next_unitig(seq.id, strand::FORWARD, &u.unitig, u.strand, pos) {
                 None => break,
                 Some((next, next_pos)) => {
                     (u, pos) = (next, next_pos);

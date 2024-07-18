@@ -47,9 +47,6 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
-
-    // TODO: add a setting which allows users to manually specify the exact clustering they want
-    //       using internal node numbers
     let cluster_qc_results = if manual_clusters.is_empty() {
         define_clusters_automatically(&tree, &mut sequences, &asymmetrical_distances, min_assemblies, cutoff)
     } else {

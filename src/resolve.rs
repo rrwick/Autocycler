@@ -11,12 +11,17 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, strand};
+use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
+use crate::unitig::{Unitig, UnitigStrand};
 
 
 pub fn resolve(cluster_dir: PathBuf) {
@@ -27,7 +32,7 @@ pub fn resolve(cluster_dir: PathBuf) {
     print_settings(&cluster_dir);
     let (mut unitig_graph, sequences) = load_graph(&trimmed_gfa);
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
-
+    let bridges = create_bridges(&unitig_graph, &anchors);
     // TODO
     // TODO
     // TODO
@@ -91,8 +96,63 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
             unitig.anchor = true;
             anchor_ids.push(unitig.number);
         }
+
+        // TODO: dead-ends (with or without a hairpin connection) should also become anchors.
     }
     eprintln!("{} anchor unitig{} found", anchor_ids.len(), match anchor_ids.len() { 1 => "", _ => "s" });
     eprintln!();
     anchor_ids
+}
+
+
+fn create_bridges(graph: &UnitigGraph, anchors: &Vec<u32>) -> Vec<Bridge> {
+    section_header("Building bridges");
+    explanation("Bridges connect one anchor unitig to the next.");
+    let mut bridges = Vec::new();
+    let anchor_set: HashSet<u32> = anchors.iter().cloned().collect();
+    for a in anchors {
+        let unitig_rc = graph.unitig_index.get(a).unwrap();
+        let unitig = unitig_rc.borrow();
+        for strand in [strand::FORWARD, strand::REVERSE] {
+            let unitig_strand = UnitigStrand::new(unitig_rc, strand);
+            eprintln!("\n{}", unitig_strand);  // TEMP
+            let positions = match strand {
+                strand::FORWARD => &unitig.forward_positions,
+                _ => &unitig.reverse_positions
+            };
+            for p in positions {
+                let path = get_path_to_next_anchor(graph, unitig_rc, strand, p, &anchor_set);
+                eprintln!("    {:?}", path);  // TEMP
+            }
+
+
+        }
+    }
+    bridges
+}
+
+
+fn get_path_to_next_anchor(graph: &UnitigGraph, unitig_rc: &Rc<RefCell<Unitig>>, strand: bool,
+                           pos: &Position, anchor_set: &HashSet<u32>) -> Vec<i32> {
+    let seq_id = pos.seq_id();
+    let seq_strand = pos.strand();
+    let mut u = UnitigStrand::new(unitig_rc, strand);
+    let mut p = pos.pos;
+    let mut path = vec![u.signed_num()];
+    while let Some((next_u, next_p)) = graph.get_next_unitig(seq_id, seq_strand, &u.unitig, u.strand, p) {
+        u = next_u; p = next_p;
+        path.push(u.signed_num());
+        if anchor_set.contains(&u.number()) {  // the path reached an anchor
+            return path;
+        }
+    }
+    vec![]  // the path ran out before reaching an anchor
+}
+
+
+pub struct Bridge {
+    start: i32,
+    end: i32,
+    all_paths: Vec<Vec<i32>>,
+    best_path: Vec<i32>,
 }
