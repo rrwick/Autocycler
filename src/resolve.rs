@@ -11,17 +11,13 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::rc::Rc;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists, strand};
-use crate::position::Position;
+use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
-use crate::unitig::{Unitig, UnitigStrand};
 
 
 pub fn resolve(cluster_dir: PathBuf) {
@@ -32,15 +28,24 @@ pub fn resolve(cluster_dir: PathBuf) {
     print_settings(&cluster_dir);
     let (mut unitig_graph, sequences) = load_graph(&trimmed_gfa);
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
-    let bridges = create_bridges(&unitig_graph, &anchors);
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
+    let bridges = create_bridges(&unitig_graph, &sequences, &anchors);
+
+    for bridge in bridges {  // TEMP
+        eprintln!("{} -> {}: {:?}", bridge.start, bridge.end, bridge.all_paths);  // TEMP
+    }  // TEMP
+
+    // TODO: save a graph with unambiguous bridges applied, keeping variants in. This graph can
+    //       still contain the input sequence paths.
+    
+    // TODO: save a graph with unambiguous bridges applied, with each bridge reduced to its best
+    //       path. This will allow for a lot of graph simplification (linear path merging), making
+    //       any remaining ambiguities nice and obvious. This graph can't contain the paths.
+
+    // TODO: gather up ambiguous bridges and cull them (in order of increasing support) until there
+    //       is no more ambiguity.
+
+    // TODO: save a graph with all bridges applied, with each bridge reduced to its best
+    //       path. This will hopefully be a completed genome.
 
     unitig_graph.save_gfa(&resolved_gfa, &sequences).unwrap();
 }
@@ -105,48 +110,52 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
 }
 
 
-fn create_bridges(graph: &UnitigGraph, anchors: &Vec<u32>) -> Vec<Bridge> {
+fn create_bridges(graph: &UnitigGraph, sequences: &Vec<Sequence>, anchors: &Vec<u32>) -> Vec<Bridge> {
     section_header("Building bridges");
     explanation("Bridges connect one anchor unitig to the next.");
-    let mut bridges = Vec::new();
     let anchor_set: HashSet<u32> = anchors.iter().cloned().collect();
-    for a in anchors {
-        let unitig_rc = graph.unitig_index.get(a).unwrap();
-        let unitig = unitig_rc.borrow();
-        for strand in [strand::FORWARD, strand::REVERSE] {
-            let unitig_strand = UnitigStrand::new(unitig_rc, strand);
-            eprintln!("\n{}", unitig_strand);  // TEMP
-            let positions = match strand {
-                strand::FORWARD => &unitig.forward_positions,
-                _ => &unitig.reverse_positions
-            };
-            for p in positions {
-                let path = get_path_to_next_anchor(graph, unitig_rc, strand, p, &anchor_set);
-                eprintln!("    {:?}", path);  // TEMP
-            }
-
-
-        }
+    let sequence_paths: Vec<_> = sequences.iter().map(|s| graph.get_unitig_path_for_sequence_i32(s)).collect();
+    let anchor_to_anchor_paths = get_anchor_to_anchor_paths(&sequence_paths, &anchor_set);
+    let grouped_paths = group_paths_by_start_end(anchor_to_anchor_paths);
+    let mut bridges = Vec::new();
+    for ((start, end), paths) in grouped_paths {
+        bridges.push(Bridge::new(start, end, paths));
     }
     bridges
 }
 
 
-fn get_path_to_next_anchor(graph: &UnitigGraph, unitig_rc: &Rc<RefCell<Unitig>>, strand: bool,
-                           pos: &Position, anchor_set: &HashSet<u32>) -> Vec<i32> {
-    let seq_id = pos.seq_id();
-    let seq_strand = pos.strand();
-    let mut u = UnitigStrand::new(unitig_rc, strand);
-    let mut p = pos.pos;
-    let mut path = vec![u.signed_num()];
-    while let Some((next_u, next_p)) = graph.get_next_unitig(seq_id, seq_strand, &u.unitig, u.strand, p) {
-        u = next_u; p = next_p;
-        path.push(u.signed_num());
-        if anchor_set.contains(&u.number()) {  // the path reached an anchor
-            return path;
+fn get_anchor_to_anchor_paths(sequence_paths: &Vec<Vec<i32>>, anchor_set: &HashSet<u32>) -> Vec<Vec<i32>> {
+    let mut anchor_to_anchor_paths = Vec::new();
+    for path in sequence_paths {
+        let mut last_anchor_i: Option<usize> = None;
+        for (i, &value) in path.iter().enumerate() {
+            if anchor_set.contains(&(value.abs() as u32)) {
+                if let Some(start) = last_anchor_i {
+                    let a_to_a_forward = &path[start..=i];
+                    let a_to_a_reverse = reverse_path(a_to_a_forward);
+                    if a_to_a_forward > &a_to_a_reverse {
+                        anchor_to_anchor_paths.push(a_to_a_forward.to_vec());
+                    } else {
+                        anchor_to_anchor_paths.push(a_to_a_reverse);
+                    }
+                }
+                last_anchor_i = Some(i);
+            }
         }
     }
-    vec![]  // the path ran out before reaching an anchor
+    anchor_to_anchor_paths
+}
+
+
+fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>) -> HashMap<(i32, i32), Vec<Vec<i32>>> {
+    let mut grouped_paths: HashMap<(i32, i32), Vec<Vec<i32>>> = HashMap::new();
+    for path in anchor_to_anchor_paths {
+        if let (Some(&start), Some(&end)) = (path.first(), path.last()) {
+            grouped_paths.entry((start, end)).or_insert_with(Vec::new).push(path);
+        }
+    }
+    grouped_paths
 }
 
 
@@ -155,4 +164,54 @@ pub struct Bridge {
     end: i32,
     all_paths: Vec<Vec<i32>>,
     best_path: Vec<i32>,
+}
+
+impl Bridge {
+    pub fn new(start: i32, end: i32, all_paths: Vec<Vec<i32>>) -> Self {
+
+        // TODO: trim start/end off all_paths (should be same as start and end)
+
+        // TODO: set a best path
+
+        Bridge {
+            start,
+            end,
+            all_paths,
+            best_path: vec![],  // TEMP
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use maplit::hashmap;
+    use super::*;
+
+    #[test]
+    fn test_get_anchor_to_anchor_paths() {
+        let sequence_paths = vec![vec![1, -10, 4, 6, -5, -2, -9, 3, 8, -7],
+                                  vec![-2, -9, 12, 8, -7, 1, -10, 4, 6, -5],
+                                  vec![7, -8, -3, 9, 2, 11, -6, -4, 10, -1]];
+        let anchor_set: HashSet<u32> = HashSet::from([1, 2, 6, 8]);
+        let anchor_to_anchor_paths = get_anchor_to_anchor_paths(&sequence_paths, &anchor_set);
+        assert_eq!(anchor_to_anchor_paths,
+                   vec![vec![1, -10, 4, 6], vec![6, -5, -2], vec![-2, -9, 3, 8],
+                        vec![-2, -9, 12, 8], vec![8, -7, 1], vec![1, -10, 4, 6],
+                        vec![-2, -9, 3, 8], vec![6, -11, -2], vec![1, -10, 4, 6]]);
+    }
+
+    #[test]
+    fn test_group_paths_by_start_end() {
+        let anchor_to_anchor_paths = vec![vec![1, -10, 4, 6], vec![6, -5, -2], vec![-2, -9, 3, 8],
+                                          vec![-2, -9, 12, 8], vec![8, -7, 1], vec![1, -10, 4, 6],
+                                          vec![-2, -9, 3, 8], vec![6, -11, -2], vec![1, -10, 4, 6]];
+        let grouped_paths = group_paths_by_start_end(anchor_to_anchor_paths);
+
+        assert_eq!(grouped_paths,
+                   hashmap!{(1, 6) => vec![vec![1, -10, 4, 6], vec![1, -10, 4, 6], vec![1, -10, 4, 6]],
+                            (6, -2) => vec![vec![6, -5, -2], vec![6, -11, -2]],
+                            (-2, 8) => vec![vec![-2, -9, 3, 8], vec![-2, -9, 12, 8], vec![-2, -9, 3, 8]],
+                            (8, 1) => vec![vec![8, -7, 1]]});
+    }
 }

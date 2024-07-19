@@ -445,6 +445,13 @@ impl UnitigGraph {
         unitig_path
     }
 
+    pub fn get_unitig_path_for_sequence_i32(&self, seq: &Sequence) -> Vec<i32> {
+        // Same as the above function, but instead of giving unitig IDs and strands as a (u32, bool)
+        // tuple, it gives them as i32 (negative numbers for reverse strand).
+        let unitig_path = self.get_unitig_path_for_sequence(seq);
+        unitig_path.iter().map(|(u, s)| if *s { *u as i32 } else { -(*u as i32)}).collect()
+    }
+
     pub fn get_total_length(&self) -> u32 {
         self.unitigs.iter().map(|u| u.borrow().length()).sum()
     }

@@ -373,6 +373,11 @@ pub fn spinner(message: &str) -> ProgressBar {
 }
 
 
+pub fn reverse_path(path: &[i32]) -> Vec<i32> {
+    path.iter().rev().map(|&num| -num).collect()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +439,11 @@ mod tests {
         assert_eq!(median_usize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
         assert_eq!(median_usize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
         assert_eq!(median_usize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+    }
+
+    #[test]
+    fn test_reverse_path() {
+        assert_eq!(reverse_path(&vec![1, -2]), vec![2, -1]);
+        assert_eq!(reverse_path(&vec![4, 8, -3]), vec![3, -8, -4]);
     }
 }

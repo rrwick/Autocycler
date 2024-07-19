@@ -290,10 +290,6 @@ impl UnitigStrand {
         self.unitig.borrow().number
     }
 
-    pub fn signed_num(&self) -> i32 {
-        if self.strand { self.number() as i32 } else { -(self.number() as i32) }
-    }
-
     pub fn length(&self) -> u32 {
         self.unitig.borrow().length()
     }

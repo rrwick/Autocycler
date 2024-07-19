@@ -30,6 +30,9 @@ pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
     create_dir(&out_dir);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
     save_original_seqs(&out_dir, &unitig_graph, &sequences);
+
+    // TODO: add an option to decompress all sequences in the graph into a single file. Users can
+    //       then use either --out_dir or --out_file (at least one is required).
 }
 
 

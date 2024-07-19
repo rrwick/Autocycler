@@ -81,7 +81,7 @@ enum Commands {
         in_gfa: PathBuf,
 
         /// Directory where decompressed assemblies will be saved (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
+        #[clap(short = 'd', long = "out_dir", required = true)]
         out_dir: PathBuf,
     },
 

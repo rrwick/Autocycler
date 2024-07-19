@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
-                  median_isize};
+                  median_isize, reverse_path};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -123,9 +123,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
     section_header("Trim start-end overlaps");
     explanation("Paths for circular replicons may contain start-end overlaps. These overlaps \
                  are searched for and trimmed if found.");
-    let paths: Vec<_> = sequences.iter().map(|seq| {
-        let path = graph.get_unitig_path_for_sequence(seq); path_to_signed_numbers(&path)
-    }).collect();
+    let paths: Vec<_> = sequences.iter().map(|seq| graph.get_unitig_path_for_sequence_i32(seq)).collect();
     let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
         let trimmed_path = trim_path_start_end(path, &weights, min_identity, max_unitigs);
         if let Some(trimmed_path) = trimmed_path {
@@ -151,9 +149,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
     section_header("Trim hairpin overlaps");
     explanation("Paths for linear replicons may contain hairpin overlaps at the start and/or end \
                  of the contig. These overlaps are searched for and trimmed if found.");
-    let paths: Vec<_> = sequences.iter().map(|seq| {
-        let path = graph.get_unitig_path_for_sequence(seq); path_to_signed_numbers(&path)
-    }).collect();
+    let paths: Vec<_> = sequences.iter().map(|seq| graph.get_unitig_path_for_sequence_i32(seq)).collect();
     let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
         let mut trimmed_start = false;
         let mut trimmed_end = false;
@@ -280,20 +276,6 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
     merge_linear_paths(graph, &sequences);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
-}
-
-
-fn path_to_signed_numbers(path: &[(u32, bool)]) -> Vec<i32> {
-    // Paths can be represented either as a vector of tuples or as vector of signed integers:
-    //   [(1, true), (2, false), (3, true)]
-    //   [1, -2, 3]
-    // This function converts the former to the latter.
-    path.iter().map(|p| if p.1 {p.0 as i32} else {-(p.0 as i32)}).collect()
-}
-
-
-fn reverse_path(path: &[i32]) -> Vec<i32> {
-    path.iter().rev().map(|&num| -num).collect()
 }
 
 
@@ -532,17 +514,6 @@ mod tests {
     use crate::misc::strand;
 
     #[test]
-    fn test_path_to_signed_numbers() {
-        let path = vec![(1, strand::FORWARD), (2, strand::FORWARD), (3, strand::REVERSE)];
-        assert_eq!(path_to_signed_numbers(&path), vec![1, 2, -3]);
-
-        let path = vec![(4, strand::REVERSE), (5, strand::FORWARD), (6, strand::REVERSE)];
-        assert_eq!(path_to_signed_numbers(&path), vec![-4, 5, -6]);
-
-        assert_eq!(path_to_signed_numbers(&vec![]), vec![]);
-    }
-
-    #[test]
     fn test_path_to_tuples() {
         let path = vec![1, 2, -3];
         assert_eq!(path_to_tuples(&path), vec![(1, strand::FORWARD), (2, strand::FORWARD), (3, strand::REVERSE)]);
@@ -675,12 +646,6 @@ mod tests {
         let path = vec![-1190, -3722, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, -3722, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878, -1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186];
         let trimmed_path = trim_path_start_end(&path, &weights, 0.95, 1000);
         assert_eq!(trimmed_path.unwrap(), vec![-1947, -941, -4983, -1368, -4640, 742, -3928, 3930, -2596, 1920, 3075, -767, 4363, -2545, 3974, 2593, 4959, 2602, -3933, 4334, 3122, 2292, -4336, -2582, -3328, -650, 1186, -535, 2641, 4217, 2641, 1680, -3808, 820, 2191, 1384, -1958, -832, -2128, 1265, 2269, 475, 1970, -938, -709, -1190, 4574, -1473, 4560, -760, -2396, -2590, -4218, -2535, -5177, -734, 4559, 1347, 1989, -1576, 3351, -2585, 4338, 4337, -3935, -4335, 2796, 4638, -3379, -2814, -3223, 2301, -2233, -2908, 3312, -3931, 2082, -1434, 4958, -2638, 4333, -3929, -2835, -3932, -2665, -2431, -4637, -878]);
-    }
-
-    #[test]
-    fn test_reverse_path() {
-        assert_eq!(reverse_path(&vec![1, -2]), vec![2, -1]);
-        assert_eq!(reverse_path(&vec![4, 8, -3]), vec![3, -8, -4]);
     }
 
     #[test]
