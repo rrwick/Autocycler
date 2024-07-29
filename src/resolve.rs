@@ -11,11 +11,15 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use colored::Colorize;
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path};
+use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path, load_file_lines,
+                  sign_at_end, sign_at_end_vec};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -26,13 +30,12 @@ pub fn resolve(cluster_dir: PathBuf) {
     check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
     print_settings(&cluster_dir);
-    let (mut unitig_graph, sequences) = load_graph(&trimmed_gfa);
+    let gfa_lines = load_file_lines(&trimmed_gfa);
+    let (mut unitig_graph, sequences) = load_graph(&gfa_lines);
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
-    let bridges = create_bridges(&unitig_graph, &sequences, &anchors);
-
-    for bridge in bridges {  // TEMP
-        eprintln!("{} -> {}: {:?}", bridge.start, bridge.end, bridge.all_paths);  // TEMP
-    }  // TEMP
+    let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors);
+    determine_ambiguity(&mut bridges);
+    print_bridges(&bridges);
 
     // TODO: save a graph with unambiguous bridges applied, keeping variants in. This graph can
     //       still contain the input sequence paths.
@@ -40,6 +43,8 @@ pub fn resolve(cluster_dir: PathBuf) {
     // TODO: save a graph with unambiguous bridges applied, with each bridge reduced to its best
     //       path. This will allow for a lot of graph simplification (linear path merging), making
     //       any remaining ambiguities nice and obvious. This graph can't contain the paths.
+
+    cull_ambiguity(&mut bridges);
 
     // TODO: gather up ambiguous bridges and cull them (in order of increasing support) until there
     //       is no more ambiguity.
@@ -70,10 +75,10 @@ fn print_settings(cluster_dir: &PathBuf) {
 }
 
 
-fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa_lines: &Vec<String>) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The unitig graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
 }
@@ -121,7 +126,81 @@ fn create_bridges(graph: &UnitigGraph, sequences: &Vec<Sequence>, anchors: &Vec<
     for ((start, end), paths) in grouped_paths {
         bridges.push(Bridge::new(start, end, paths));
     }
+    bridges.sort();
     bridges
+}
+
+
+fn determine_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
+    // This function classifies each Bridge as ambiguous or not. A Bridge is ambiguous if it shares
+    // its start or end unitig with another Bridge. The return value is the number of ambiguous
+    // Bridges.
+    let mut start_count = HashMap::new();
+    for bridge in bridges.iter() {
+        *start_count.entry(bridge.start).or_insert(0) += 1;
+        *start_count.entry(bridge.rev_start()).or_insert(0) += 1;
+    }
+    let mut end_count = HashMap::new();
+    for bridge in bridges.iter() {
+        *end_count.entry(bridge.end).or_insert(0) += 1;
+        *end_count.entry(bridge.rev_end()).or_insert(0) += 1;
+    }
+    let mut ambi_count = 0;
+    let ambi_starts: HashSet<_> = start_count.iter().filter(|&(_, &c)| c > 1).map(|(&n, _)| n).collect();
+    let ambi_ends: HashSet<_> = end_count.iter().filter(|&(_, &c)| c > 1).map(|(&n, _)| n).collect();
+    for bridge in bridges.iter_mut() {
+        if ambi_starts.contains(&bridge.start) || ambi_starts.contains(&bridge.rev_start()) ||
+           ambi_ends.contains(&bridge.end) || ambi_ends.contains(&bridge.rev_end()) {
+            bridge.ambiguous = true;
+            ambi_count += 1;
+        } else {
+            bridge.ambiguous = false;
+        }
+    }
+    ambi_count
+}
+
+
+fn cull_ambiguity(bridges: &mut Vec<Bridge>) {
+    let mut ambi_bridges: Vec<_> = bridges.iter().filter(|b| b.ambiguous).collect();
+    if ambi_bridges.is_empty() {
+        return;
+    }
+    section_header("Culling ambiguous bridges");
+    explanation("The least-supported ambiguous bridges are now culled until there are no more \
+                 ambiguous bridges.");
+    ambi_bridges.sort_by(|a, b| a.depth().cmp(&b.depth()).then(a.cmp(b)));
+    while !ambi_bridges.is_empty() {
+        let to_cull = ambi_bridges[0];
+        eprintln!("CULLING: {}", to_cull);
+        bridges.remove(bridges.iter().position(|b| b.start == to_cull.start && b.end == to_cull.end).unwrap());
+        determine_ambiguity(bridges);
+        ambi_bridges = bridges.iter().filter(|b| b.ambiguous).collect();
+        ambi_bridges.sort_by(|a, b| a.depth().cmp(&b.depth()).then(a.cmp(b)));
+    }
+}
+
+
+fn print_bridges(bridges: &Vec<Bridge>) {
+    let unambiguous_count = bridges.iter().filter(|b| !b.ambiguous).count();
+    let ambiguous_count = bridges.iter().filter(|b| b.ambiguous).count();
+    if unambiguous_count > 0 {
+        eprintln!("Unambiguous bridges:");
+        for b in bridges {
+            if !b.ambiguous {
+                eprintln!("  {}", b);
+            }
+        }
+    }
+    if ambiguous_count > 0 {
+        eprintln!("\nAmbiguous bridges:");
+        for b in bridges {
+            if b.ambiguous {
+                eprintln!("  {}", b);
+            }
+        }
+    }
+    eprintln!();
 }
 
 
@@ -159,26 +238,117 @@ fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>) -> HashMap<(i
 }
 
 
+fn compare_paths(path_a: &Vec<i32>, path_b: &Vec<i32>) -> bool {
+    // Returns true if path_a is 'better' than path_b. Used to break ties when two paths are equally
+    // common in a bridge.
+
+    // TODO: explore different tie-breaking strategies (just using lexographic order at the moment)
+    path_a < path_b
+}
+
+
 pub struct Bridge {
     start: i32,
     end: i32,
     all_paths: Vec<Vec<i32>>,
     best_path: Vec<i32>,
+    ambiguous: bool,
 }
 
 impl Bridge {
-    pub fn new(start: i32, end: i32, all_paths: Vec<Vec<i32>>) -> Self {
+    fn new(start: i32, end: i32, all_paths: Vec<Vec<i32>>) -> Self {
 
-        // TODO: trim start/end off all_paths (should be same as start and end)
+        // Remove the start and end unitigs from the paths.
+        let mut trimmed_paths = all_paths;
+        for path in &mut trimmed_paths {
+            path.remove(0);
+            path.pop();
+        }
 
-        // TODO: set a best path
+        // Set the best path to the most common path, using compare_paths to break ties.
+        let mut path_counts = HashMap::new();
+        for path in &trimmed_paths { *path_counts.entry(path).or_insert(0) += 1; }
+        let mut best_path = Vec::new();
+        let mut max_count = 0;
+        for (path, count) in path_counts {
+            if count > max_count || (count == max_count && compare_paths(&path, &best_path)) {
+                best_path = path.clone();
+                max_count = count;
+            }
+        }
 
         Bridge {
             start,
             end,
-            all_paths,
-            best_path: vec![],  // TEMP
+            all_paths: trimmed_paths,
+            best_path: best_path,
+            ambiguous: false,
         }
+    }
+
+    fn get_unitig_nums_in_best_path(&self) -> Vec<u32> {
+        let mut nums: Vec<u32> = self.best_path.iter().cloned().collect::<HashSet<i32>>()
+            .into_iter().map(|num| num.abs() as u32).collect();
+        nums.sort();
+        nums
+    }
+
+    fn get_unitig_nums_in_all_paths(&self) -> Vec<u32> {
+        let mut nums: HashSet<i32> = HashSet::new();
+        for path in &self.all_paths {
+            for &num in path {
+                nums.insert(num);
+            }
+        }
+        let mut nums: Vec<u32> = nums.into_iter().map(|num| num.abs() as u32).collect();
+        nums.sort();
+        nums
+    }
+
+    fn rev_start(&self) -> i32 {
+        -self.end
+    }
+
+    fn rev_end(&self) -> i32 {
+        -self.start
+    }
+
+    fn depth(&self) -> usize {
+        self.all_paths.len()
+    }
+}
+
+impl fmt::Display for Bridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} {} {} {} ({}×)", sign_at_end(self.start).bold(), "→".dimmed(),
+               sign_at_end_vec(&self.best_path), "→".dimmed(), sign_at_end(self.end).bold(),
+               self.depth())
+    }
+}
+
+impl PartialEq for Bridge {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start &&
+        self.end == other.end &&
+        self.best_path == other.best_path
+    }
+}
+
+impl Eq for Bridge {}
+
+impl PartialOrd for Bridge {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Bridge {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.start.abs().cmp(&other.start.abs())
+            .then_with(|| other.start.cmp(&self.start))
+            .then_with(|| self.end.abs().cmp(&other.end.abs()))
+            .then_with(|| other.end.cmp(&self.end))
+            .then_with(|| self.best_path.cmp(&other.best_path))
     }
 }
 
@@ -213,5 +383,58 @@ mod tests {
                             (6, -2) => vec![vec![6, -5, -2], vec![6, -11, -2]],
                             (-2, 8) => vec![vec![-2, -9, 3, 8], vec![-2, -9, 12, 8], vec![-2, -9, 3, 8]],
                             (8, 1) => vec![vec![8, -7, 1]]});
+    }
+
+    #[test]
+    fn test_bridge_unitig_nums() {
+        let paths = vec![vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, 17, 123, 41, 2]];
+        let bridge = Bridge::new(1, 2, paths);
+        assert_eq!(bridge.get_unitig_nums_in_best_path(), vec![8, 12, 23, 41]);
+        assert_eq!(bridge.get_unitig_nums_in_all_paths(), vec![8, 12, 17, 23, 41, 123]);
+        assert_eq!(bridge.rev_start(), -2);
+        assert_eq!(bridge.rev_end(), -1);
+        assert_eq!(bridge.depth(), 4);
+    }
+
+    #[test]
+    fn test_determine_ambiguity_1() {
+        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]]);
+        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]]);
+        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]]);
+        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]]);
+        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]]);
+        let mut bridges = vec![bridge_a, bridge_b, bridge_c, bridge_d, bridge_e];
+        determine_ambiguity(&mut bridges);
+        assert!(!bridges[0].ambiguous);
+        assert!(!bridges[1].ambiguous);
+        assert!(!bridges[2].ambiguous);
+        assert!(!bridges[3].ambiguous);
+        assert!(!bridges[4].ambiguous);
+    }
+
+    #[test]
+    fn test_determine_ambiguity_2() {
+        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]]);
+        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]]);
+        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]]);
+        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]]);
+        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]]);
+        let bridge_f = Bridge::new(-4, 7, vec![vec![-4, 13, 7]]);
+        let bridge_g = Bridge::new(1, 8, vec![vec![1, 14, 8]]);
+        let bridge_h = Bridge::new(4, -8, vec![vec![4, 9, -8]]);
+        let mut bridges = vec![bridge_a, bridge_b, bridge_c, bridge_d,
+                               bridge_e, bridge_f, bridge_g, bridge_h];
+        determine_ambiguity(&mut bridges);
+        assert!(bridges[0].ambiguous);
+        assert!(!bridges[1].ambiguous);
+        assert!(bridges[2].ambiguous);
+        assert!(bridges[3].ambiguous);
+        assert!(!bridges[4].ambiguous);
+        assert!(bridges[5].ambiguous);
+        assert!(bridges[6].ambiguous);
+        assert!(bridges[7].ambiguous);
     }
 }

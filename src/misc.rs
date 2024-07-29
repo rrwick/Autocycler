@@ -378,6 +378,20 @@ pub fn reverse_path(path: &[i32]) -> Vec<i32> {
 }
 
 
+pub fn sign_at_end(num: i32) -> String {
+    if num >= 0 {
+        format!("{}+", num.abs())
+    } else {
+        format!("{}-", num.abs())
+    }
+}
+
+
+pub fn sign_at_end_vec(nums: &Vec<i32>) -> String {
+    nums.iter().map(|&n| sign_at_end(n)).collect::<Vec<_>>().join(",")
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +459,18 @@ mod tests {
     fn test_reverse_path() {
         assert_eq!(reverse_path(&vec![1, -2]), vec![2, -1]);
         assert_eq!(reverse_path(&vec![4, 8, -3]), vec![3, -8, -4]);
+    }
+
+    #[test]
+    fn test_sign_at_end() {
+        assert_eq!(sign_at_end(123), "123+".to_string());
+        assert_eq!(sign_at_end(-321), "321-".to_string());
+    }
+
+    #[test]
+    fn test_sign_at_end_vec() {
+        assert_eq!(sign_at_end_vec(&vec![8]), "8+".to_string());
+        assert_eq!(sign_at_end_vec(&vec![123, -321]), "123+,321-".to_string());
+        assert_eq!(sign_at_end_vec(&vec![-4, -5, 67, 34345, 1]), "4-,5-,67+,34345+,1+".to_string());
     }
 }
