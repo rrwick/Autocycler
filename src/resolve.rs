@@ -212,11 +212,11 @@ fn apply_bridges(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, bridges: &V
             apply_bridge_best_path(graph, bridge);
         }
     }
-    // graph.recalculate_depths();
-    // graph.remove_zero_depth_unitigs();
+    graph.recalculate_depths();
+    graph.remove_zero_depth_unitigs();
     // merge_linear_paths(graph, &sequences);
-    // graph.print_basic_graph_info();
-    // graph.renumber_unitigs();
+    graph.print_basic_graph_info();
+    graph.renumber_unitigs();
 }
 
 
@@ -228,12 +228,31 @@ fn apply_bridge_all_paths(graph: &mut UnitigGraph, bridge: &Bridge) {
     //       reverse trace all positions from the end into the bridge unitigs, following them until they leave the bridge unitigs
 
     let old_to_new = graph.duplicate_unitigs(&bridge_unitigs);
-    eprintln!("{:?}", old_to_new); // TEMP
 
     // TODO: remove Position objects as appropriate in the old and new Unitigs
 
-    // TODO: sever links between start/end unitigs and any bridge unitigs, replacing them with links
-    //       to the new copied unitigs
+    let mut links_to_delete = Vec::new();
+    let mut links_to_create = Vec::new();
+    for &b in &bridge_unitigs {
+        for sign in [-1, 1] {
+            let old = sign * (b as i32);
+            let new = sign * (*old_to_new.get(&b).unwrap() as i32);
+            if graph.link_exists_signed(bridge.start, old) {
+                links_to_delete.push((bridge.start, old));
+                links_to_create.push((bridge.start, new));
+            }
+            if graph.link_exists_signed(old, bridge.end) {
+                links_to_delete.push((old, bridge.end));
+                links_to_create.push((new, bridge.end));
+            }
+        }
+    }
+    for (a, b) in links_to_delete {
+        graph.delete_link(a, b);
+    }
+    for (a, b) in links_to_create {
+        graph.create_link(a, b);
+    }
 }
 
 

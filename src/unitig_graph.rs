@@ -529,6 +529,12 @@ impl UnitigGraph {
         false
     }
 
+    pub fn link_exists_signed(&self, a_num: i32, b_num: i32) -> bool {
+        let a_strand = a_num > 0;
+        let b_strand = b_num > 0;
+        self.link_exists(a_num.abs() as u32, a_strand, b_num.abs() as u32, b_strand)
+    }
+
     pub fn link_exists_prev(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
         // This is like the link_exists method, but it checks in the opposite direction (looks for
         // it in forward_prev/reverse_prev).
@@ -660,9 +666,10 @@ impl UnitigGraph {
         let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
         let start_num = start_num.abs() as u32;
         let end_num = end_num.abs() as u32;
+        let start_rc = self.unitig_index.get(&start_num).unwrap();
+        let end_rc = self.unitig_index.get(&end_num).unwrap();
 
         // Collect the indices to remove for start unitig
-        let start_rc = self.unitig_index.get(&start_num).unwrap();
         let start_indices: Vec<usize> = {
             let start = start_rc.borrow();
             let next_unitigs = if start_strand { &start.forward_next } else { &start.reverse_next };
@@ -679,7 +686,6 @@ impl UnitigGraph {
         }
 
         // Collect the indices to remove for end unitig
-        let end_rc = self.unitig_index.get(&end_num).unwrap();
         let end_indices: Vec<usize> = {
             let end = end_rc.borrow();
             let prev_unitigs = if start_strand { &end.forward_prev } else { &end.reverse_prev };
@@ -693,6 +699,34 @@ impl UnitigGraph {
             for &i in end_indices.iter().rev() {
                 prev_unitigs.remove(i);
             }
+        }
+    }
+
+    pub fn create_link(&mut self, start_num: i32, end_num: i32) {
+        self.create_link_one_way(start_num, end_num);
+        if start_num != -end_num {
+            self.create_link_one_way(-end_num, -start_num);
+        }
+    }
+
+    fn create_link_one_way(&mut self, start_num: i32, end_num: i32) {
+        let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
+        let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
+        let start_num = start_num.abs() as u32;
+        let end_num = end_num.abs() as u32;
+        let start_rc = self.unitig_index.get(&start_num).unwrap();
+        let end_rc = self.unitig_index.get(&end_num).unwrap();
+        {
+            let mut start = start_rc.borrow_mut();
+            let connection = UnitigStrand { unitig: Rc::clone(&end_rc), strand: end_strand };
+            let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
+            next_unitigs.push(connection);
+        }
+        {
+            let mut end = end_rc.borrow_mut();
+            let reverse_connection = UnitigStrand { unitig: Rc::clone(&start_rc), strand: start_strand };
+            let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
+            prev_unitigs.push(reverse_connection);
         }
     }
 }
@@ -1083,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_link() {
+    fn test_delete_link_and_create_link() {
         let temp_dir = tempdir().unwrap();
         let gfa_filename = temp_dir.path().join("graph.gfa");
         make_test_file(&gfa_filename, &get_test_gfa_1());
@@ -1108,5 +1142,20 @@ mod tests {
         assert_eq!(graph.unitigs.len(), 10);
         assert_eq!(graph.get_total_length(), 92);
         assert_eq!(graph.get_link_count(), 16);
+
+        graph.create_link(5, 6);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 18);
+
+        graph.create_link(6, -6);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 19);
+
+        graph.create_link(-3, 1);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 21);
     }
 }
