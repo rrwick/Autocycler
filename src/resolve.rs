@@ -42,18 +42,18 @@ pub fn resolve(cluster_dir: PathBuf) {
     apply_unique_message();
     apply_bridges(&mut unitig_graph, &sequences, &bridges, true);
     unitig_graph.save_gfa(&unique_gfa, &sequences).unwrap();
-    let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
-    apply_unique_clean_message();
-    apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
-    unitig_graph.save_gfa(&unique_clean_gfa, &sequences).unwrap();
-    let cull_count = cull_ambiguity(&mut bridges);
-    if cull_count > 0 {
-        let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
-        apply_final_message();
-        apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
-    }
-    unitig_graph.save_gfa(&final_gfa, &sequences).unwrap();
-    finished_message(&final_gfa);
+    // let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
+    // apply_unique_clean_message();
+    // apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
+    // unitig_graph.save_gfa(&unique_clean_gfa, &sequences).unwrap();
+    // let cull_count = cull_ambiguity(&mut bridges);
+    // if cull_count > 0 {
+    //     let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
+    //     apply_final_message();
+    //     apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
+    // }
+    // unitig_graph.save_gfa(&final_gfa, &sequences).unwrap();
+    // finished_message(&final_gfa);
 }
 
 
@@ -212,18 +212,25 @@ fn apply_bridges(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, bridges: &V
             apply_bridge_best_path(graph, bridge);
         }
     }
-    graph.recalculate_depths();
-    graph.remove_zero_depth_unitigs();
-    merge_linear_paths(graph, &sequences);
-    graph.print_basic_graph_info();
-    graph.renumber_unitigs();
+    // graph.recalculate_depths();
+    // graph.remove_zero_depth_unitigs();
+    // merge_linear_paths(graph, &sequences);
+    // graph.print_basic_graph_info();
+    // graph.renumber_unitigs();
 }
 
 
 fn apply_bridge_all_paths(graph: &mut UnitigGraph, bridge: &Bridge) {
-    let unitigs = bridge.get_unitig_nums_in_all_paths();
+    let bridge_unitigs = bridge.get_unitig_nums_in_all_paths();
 
-    // TODO: duplicate all unitigs in the bridge paths, splitting Position objects as appropriate
+    // TODO: find all positions in the bridge Unitigs that need to be included in the originals vs copies.
+    //       forward trace all positions from the start into the bridge unitigs, following them until they leave the bridge unitigs
+    //       reverse trace all positions from the end into the bridge unitigs, following them until they leave the bridge unitigs
+
+    let old_to_new = graph.duplicate_unitigs(&bridge_unitigs);
+    eprintln!("{:?}", old_to_new); // TEMP
+
+    // TODO: remove Position objects as appropriate in the old and new Unitigs
 
     // TODO: sever links between start/end unitigs and any bridge unitigs, replacing them with links
     //       to the new copied unitigs

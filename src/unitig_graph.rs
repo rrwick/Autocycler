@@ -649,6 +649,52 @@ impl UnitigGraph {
         self.build_unitig_index();
         old_to_new
     }
+
+    pub fn delete_link(&mut self, start_num: i32, end_num: i32) {
+        self.delete_link_one_way(start_num, end_num);
+        self.delete_link_one_way(-end_num, -start_num);
+    }
+
+    fn delete_link_one_way(&mut self, start_num: i32, end_num: i32) {
+        let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
+        let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
+        let start_num = start_num.abs() as u32;
+        let end_num = end_num.abs() as u32;
+
+        // Collect the indices to remove for start unitig
+        let start_rc = self.unitig_index.get(&start_num).unwrap();
+        let start_indices: Vec<usize> = {
+            let start = start_rc.borrow();
+            let next_unitigs = if start_strand { &start.forward_next } else { &start.reverse_next };
+            next_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig.borrow().number == end_num && connection.strand == end_strand { Some(i) } else { None } }).collect()
+        };
+
+        // Remove the elements from start unitig
+        {
+            let mut start = start_rc.borrow_mut();
+            let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
+            for &i in start_indices.iter().rev() {
+                next_unitigs.remove(i);
+            }
+        }
+
+        // Collect the indices to remove for end unitig
+        let end_rc = self.unitig_index.get(&end_num).unwrap();
+        let end_indices: Vec<usize> = {
+            let end = end_rc.borrow();
+            let prev_unitigs = if start_strand { &end.forward_prev } else { &end.reverse_prev };
+            prev_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig.borrow().number == start_num && connection.strand == start_strand { Some(i) } else { None } }).collect()
+        };
+
+        // Remove the elements from end unitig
+        {
+            let mut end = end_rc.borrow_mut();
+            let prev_unitigs = if start_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
+            for &i in end_indices.iter().rev() {
+                prev_unitigs.remove(i);
+            }
+        }
+    }
 }
 
 
@@ -1034,5 +1080,33 @@ mod tests {
         assert_eq!(graph.get_link_count(), 42);
         assert_eq!(old_to_new, hashmap!{1 => 11, 2 => 12, 3 => 13, 4 => 14, 5 => 15,
                                         6 => 16, 7 => 17, 8 => 18, 9 => 19, 10 => 20});
+    }
+
+    #[test]
+    fn test_delete_link() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        graph.delete_link(-3, 1);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 19);
+
+        graph.delete_link(6, -6);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 18);
+
+        graph.delete_link(5, 6);
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 16);
+
+        graph.delete_link(-1, 7);  // link doesn't exist, should do nothing
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.get_total_length(), 92);
+        assert_eq!(graph.get_link_count(), 16);
     }
 }
