@@ -586,6 +586,69 @@ impl UnitigGraph {
             }
         }
     }
+
+    fn get_max_unitig_number(&self) -> u32 {
+        self.unitigs.iter().map(|u| u.borrow().number).max().unwrap_or(0)
+    }
+
+    pub fn duplicate_unitigs(&mut self, unitig_nums: &Vec<u32>) -> HashMap<u32, u32> {
+        // This function duplicates the given unitigs, along with all of their internal connections.
+        // This means the new unitigs will form one or more separate connected components of the
+        // graph, disconnected from the connected components with the original unitigs.
+        // The return value is a map from original to new unitig numbers.
+        let mut old_to_new = HashMap::new();
+        let mut unitig_number = self.get_max_unitig_number() + 1;
+
+        // Create new unitigs and map old numbers to new numbers.
+        for &num in unitig_nums {
+            let original_unitig = self.unitig_index.get(&num).unwrap();
+            let mut new_unitig = original_unitig.borrow().clone();
+            new_unitig.number = unitig_number;
+            new_unitig.forward_next.clear();
+            new_unitig.forward_prev.clear();
+            new_unitig.reverse_next.clear();
+            new_unitig.reverse_prev.clear();
+            let new_unitig_rc = Rc::new(RefCell::new(new_unitig));
+            self.unitigs.push(new_unitig_rc.clone());
+            self.unitig_index.insert(unitig_number, new_unitig_rc);
+            old_to_new.insert(num, unitig_number);
+            unitig_number += 1;
+        }
+
+        // Create duplicate connections between new unitigs.
+        for &num in unitig_nums {
+            let original = self.unitig_index.get(&num).unwrap().borrow();
+            let new_num = old_to_new.get(&num).unwrap();
+            let mut copy = self.unitig_index.get(&new_num).unwrap().borrow_mut();
+            for connection in &original.forward_next {
+                if let Some(&new_connected_num) = old_to_new.get(&connection.unitig.borrow().number) {
+                    copy.forward_next.push(UnitigStrand { unitig: Rc::clone(self.unitig_index.get(&new_connected_num).unwrap()),
+                                                          strand: connection.strand });
+                }
+            }
+            for connection in &original.forward_prev {
+                if let Some(&new_connected_num) = old_to_new.get(&connection.unitig.borrow().number) {
+                    copy.forward_prev.push(UnitigStrand { unitig: Rc::clone(self.unitig_index.get(&new_connected_num).unwrap()),
+                                                          strand: connection.strand });
+                }
+            }
+            for connection in &original.reverse_next {
+                if let Some(&new_connected_num) = old_to_new.get(&connection.unitig.borrow().number) {
+                    copy.reverse_next.push(UnitigStrand { unitig: Rc::clone(self.unitig_index.get(&new_connected_num).unwrap()),
+                                                          strand: connection.strand });
+                }
+            }
+            for connection in &original.reverse_prev {
+                if let Some(&new_connected_num) = old_to_new.get(&connection.unitig.borrow().number) {
+                    copy.reverse_prev.push(UnitigStrand { unitig: Rc::clone(self.unitig_index.get(&new_connected_num).unwrap()),
+                                                          strand: connection.strand });
+                }
+            }
+        }
+
+        self.build_unitig_index();
+        old_to_new
+    }
 }
 
 
@@ -607,6 +670,7 @@ fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
 
 #[cfg(test)]
 mod tests {
+    use maplit::hashmap;
     use std::io::Write;
     use std::fs::File;
     use std::path::PathBuf;
@@ -909,5 +973,66 @@ mod tests {
         assert!(!graph.link_exists_prev(5, strand::FORWARD, 5, strand::REVERSE));
         assert!(!graph.link_exists_prev(7, strand::REVERSE, 4, strand::REVERSE));
         assert!(!graph.link_exists_prev(8, strand::FORWARD, 9, strand::FORWARD));
+    }
+
+    #[test]
+    fn test_get_max_unitig_number() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.get_max_unitig_number(), 10);
+
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.get_max_unitig_number(), 3);
+
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.get_max_unitig_number(), 7);
+    }
+
+    #[test]
+    fn test_duplicate_unitigs_1() {
+        // Duplicating a few parts of the graph at a time
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        let old_to_new = graph.duplicate_unitigs(&vec![2]);
+        assert_eq!(graph.unitigs.len(), 11);
+        assert_eq!(graph.get_total_length(), 110);
+        assert_eq!(graph.get_link_count(), 21);
+        assert_eq!(old_to_new, hashmap!{2 => 11});
+
+        let old_to_new = graph.duplicate_unitigs(&vec![8, 10]);
+        assert_eq!(graph.unitigs.len(), 13);
+        assert_eq!(graph.get_total_length(), 115);
+        assert_eq!(graph.get_link_count(), 23);
+        assert_eq!(old_to_new, hashmap!{8 => 12, 10 => 13});
+
+        let old_to_new = graph.duplicate_unitigs(&vec![5, 6]);
+        assert_eq!(graph.unitigs.len(), 15);
+        assert_eq!(graph.get_total_length(), 130);
+        assert_eq!(graph.get_link_count(), 26);
+        assert_eq!(old_to_new, hashmap!{5 => 14, 6 => 15});
+    }
+
+    #[test]
+    fn test_duplicate_unitigs_2() {
+        // Duplicating the entire graph
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+
+        let old_to_new = graph.duplicate_unitigs(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(graph.unitigs.len(), 20);
+        assert_eq!(graph.get_total_length(), 184);
+        assert_eq!(graph.get_link_count(), 42);
+        assert_eq!(old_to_new, hashmap!{1 => 11, 2 => 12, 3 => 13, 4 => 14, 5 => 15,
+                                        6 => 16, 7 => 17, 8 => 18, 9 => 19, 10 => 20});
     }
 }

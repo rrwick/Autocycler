@@ -21,6 +21,7 @@ use crate::misc::{reverse_complement, quit_with_error};
 use crate::position::Position;
 
 
+#[derive(Clone)]
 pub struct Unitig {
     pub number: u32,
     forward_kmers: VecDeque<*const Kmer>,

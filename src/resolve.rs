@@ -42,15 +42,15 @@ pub fn resolve(cluster_dir: PathBuf) {
     apply_unique_message();
     apply_bridges(&mut unitig_graph, &sequences, &bridges, true);
     unitig_graph.save_gfa(&unique_gfa, &sequences).unwrap();
-    let (mut unitig_graph, sequences) = load_graph(&gfa_lines, false);
+    let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
     apply_unique_clean_message();
-    apply_bridges(&mut unitig_graph, &sequences, &bridges, false);
+    apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
     unitig_graph.save_gfa(&unique_clean_gfa, &sequences).unwrap();
     let cull_count = cull_ambiguity(&mut bridges);
     if cull_count > 0 {
-        let (mut unitig_graph, sequences) = load_graph(&gfa_lines, false);
+        let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
         apply_final_message();
-        apply_bridges(&mut unitig_graph, &sequences, &bridges, false);
+        apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
     }
     unitig_graph.save_gfa(&final_gfa, &sequences).unwrap();
     finished_message(&final_gfa);
@@ -198,23 +198,44 @@ fn determine_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
 fn apply_bridges(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, bridges: &Vec<Bridge>,
                  keep_all_paths: bool) {
     // This function applies bridges to the graph. If keep_all_paths is true, then unitigs in all
-    // bridge paths are kept, and contig paths are retained. If keep_all_paths is false, then only
-    // the best path is kept and contig paths are lost.
-
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-
+    // bridge paths are kept. If keep_all_paths is false, then only the best path is kept.
+    if !keep_all_paths {
+        // TODO: wipe all Positions from the graph?
+    }
+    for bridge in bridges {
+        if bridge.conflicting {
+            continue;
+        }
+        if keep_all_paths {
+            apply_bridge_all_paths(graph, bridge);
+        } else {
+            apply_bridge_best_path(graph, bridge);
+        }
+    }
+    graph.recalculate_depths();
+    graph.remove_zero_depth_unitigs();
     merge_linear_paths(graph, &sequences);
     graph.print_basic_graph_info();
+    graph.renumber_unitigs();
+}
+
+
+fn apply_bridge_all_paths(graph: &mut UnitigGraph, bridge: &Bridge) {
+    let unitigs = bridge.get_unitig_nums_in_all_paths();
+
+    // TODO: duplicate all unitigs in the bridge paths, splitting Position objects as appropriate
+
+    // TODO: sever links between start/end unitigs and any bridge unitigs, replacing them with links
+    //       to the new copied unitigs
+}
+
+
+fn apply_bridge_best_path(graph: &mut UnitigGraph, bridge: &Bridge) {
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
 }
 
 
