@@ -298,6 +298,14 @@ impl UnitigStrand {
     pub fn get_seq(&self) -> Vec<u8> {
         self.unitig.borrow().get_seq(self.strand)
     }
+
+    pub fn get_positions(&self) -> Vec<Position> {
+        if self.strand {
+            self.unitig.borrow().forward_positions.clone()
+        } else {
+            self.unitig.borrow().reverse_positions.clone()
+        }
+    }
 }
 
 impl fmt::Display for UnitigStrand {

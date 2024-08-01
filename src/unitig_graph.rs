@@ -729,6 +729,13 @@ impl UnitigGraph {
             prev_unitigs.push(reverse_connection);
         }
     }
+
+    pub fn get_unitig_signed(&self, signed_id: i32) -> UnitigStrand {
+        let unsigned_id = signed_id.abs() as u32;
+        let unitig_rc = self.unitig_index.get(&unsigned_id).unwrap();
+        let strand = if signed_id < 0 { strand::REVERSE } else { strand::FORWARD };
+        UnitigStrand::new(unitig_rc, strand)
+    }
 }
 
 

@@ -15,7 +15,7 @@
 use std::fmt;
 
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Position {
     pub pos: u32,
     seq_id_and_strand: u16,  // seq_id (15 bits) and strand (1 bit) are packed into a u16

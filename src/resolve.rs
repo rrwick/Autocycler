@@ -21,7 +21,9 @@ use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path, load_file_lines,
                   sign_at_end, sign_at_end_vec};
+use crate::position::Position;
 use crate::sequence::Sequence;
+use crate::unitig::UnitigStrand;
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -214,22 +216,34 @@ fn apply_bridges(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, bridges: &V
     }
     graph.recalculate_depths();
     graph.remove_zero_depth_unitigs();
-    // merge_linear_paths(graph, &sequences);
+    // merge_linear_paths(graph, &sequences);  // TODO: re-enable this
     graph.print_basic_graph_info();
-    graph.renumber_unitigs();
+    // graph.renumber_unitigs();  // TODO: re-enable this
 }
 
 
 fn apply_bridge_all_paths(graph: &mut UnitigGraph, bridge: &Bridge) {
     let bridge_unitigs = bridge.get_unitig_nums_in_all_paths();
-
-    // TODO: find all positions in the bridge Unitigs that need to be included in the originals vs copies.
-    //       forward trace all positions from the start into the bridge unitigs, following them until they leave the bridge unitigs
-    //       reverse trace all positions from the end into the bridge unitigs, following them until they leave the bridge unitigs
-
+    let positions_in_bridge = bridge.get_all_positions_in_bridge(&graph);
     let old_to_new = graph.duplicate_unitigs(&bridge_unitigs);
+    eprintln!(); // TEMP
+    eprintln!("{}", bridge); // TEMP
+    eprintln!("{:?}", old_to_new); // TEMP
+    for (old, new) in &old_to_new {
+        let mut old_u = graph.unitig_index.get(old).unwrap().borrow_mut();
+        let mut new_u = graph.unitig_index.get(new).unwrap().borrow_mut();
+        new_u.forward_positions.clear(); new_u.reverse_positions.clear();
 
-    // TODO: remove Position objects as appropriate in the old and new Unitigs
+        // Move Position objects as appropriate from the old Unitig into the new Unitig
+        let mut new_forward_positions = Vec::new();
+        old_u.forward_positions.retain(|pos| { if positions_in_bridge.contains(pos) { new_forward_positions.push(pos.clone()); false } else { true } });
+        new_u.forward_positions = new_forward_positions;
+        let mut new_reverse_positions = Vec::new();
+        old_u.reverse_positions.retain(|pos| { if positions_in_bridge.contains(pos) { new_reverse_positions.push(pos.clone()); false } else { true } });
+        new_u.reverse_positions = new_reverse_positions;
+
+        eprintln!("{} -> {}", old_u, new_u); // TEMP
+    }
 
     let mut links_to_delete = Vec::new();
     let mut links_to_create = Vec::new();
@@ -262,6 +276,8 @@ fn apply_bridge_best_path(graph: &mut UnitigGraph, bridge: &Bridge) {
     // TODO
     // TODO
     // TODO
+
+    // Make bridge Unitigs have the same depth as the anchors.
 }
 
 
@@ -424,6 +440,27 @@ impl Bridge {
     fn depth(&self) -> usize {
         self.all_paths.len()
     }
+
+    fn get_all_positions_in_bridge(&self, graph: &UnitigGraph) -> HashSet<Position> {
+        let mut positions = HashSet::new();
+        let start_unitig = graph.get_unitig_signed(self.start);
+        let start_unitig_rev = graph.get_unitig_signed(-self.start);
+        let end_unitig = graph.get_unitig_signed(self.end);
+        let end_unitig_rev = graph.get_unitig_signed(-self.end);
+        for p in start_unitig.get_positions() {
+            gather_positions_forward(&start_unitig, self.end.abs() as u32, &p, &mut positions);
+        }
+        for p in start_unitig_rev.get_positions() {
+            gather_positions_reverse(&start_unitig_rev, self.end.abs() as u32, &p, &mut positions);
+        }
+        for p in end_unitig.get_positions() {
+            gather_positions_reverse(&end_unitig, self.start.abs() as u32, &p, &mut positions);
+        }
+        for p in end_unitig_rev.get_positions() {
+            gather_positions_forward(&end_unitig_rev, self.start.abs() as u32, &p, &mut positions);
+        }
+        positions
+    }
 }
 
 impl fmt::Display for Bridge {
@@ -462,6 +499,49 @@ impl Ord for Bridge {
             .then_with(|| self.end.abs().cmp(&other.end.abs()))
             .then_with(|| other.end.cmp(&self.end))
             .then_with(|| self.best_path.cmp(&other.best_path))
+    }
+}
+
+
+fn gather_positions_forward(u: &UnitigStrand, stop_number: u32, p: &Position, positions: &mut HashSet<Position>) {
+    let unitig = u.unitig.borrow();
+    let next_pos = p.pos + u.length();
+    let next_unitigs = if u.strand { &unitig.forward_next } else { &unitig.reverse_next };
+    for next in next_unitigs {
+        let next_u = next.unitig.borrow();
+        let next_positions = if next.strand { &next_u.forward_positions } else { &next_u.reverse_positions};
+        for next_p in next_positions {
+            if next_p.seq_id() == p.seq_id() && next_p.strand() == p.strand() && next_p.pos == next_pos {
+                if next.number() == stop_number {
+                    return;
+                }
+                positions.insert(next_p.clone());
+                gather_positions_forward(&next, stop_number, &next_p, positions);
+            }
+        }
+    }
+}
+
+
+fn gather_positions_reverse(u: &UnitigStrand, stop_number: u32, p: &Position, positions: &mut HashSet<Position>) {
+    let unitig = u.unitig.borrow();
+    if p.pos < u.length() {
+        return;
+    }
+    let prev_pos = p.pos - u.length();
+    let prev_unitigs = if u.strand { &unitig.forward_prev } else { &unitig.reverse_prev };
+    for prev in prev_unitigs {
+        let prev_u = prev.unitig.borrow();
+        let prev_positions = if prev.strand { &prev_u.forward_positions } else { &prev_u.reverse_positions};
+        for prev_p in prev_positions {
+            if prev_p.seq_id() == p.seq_id() && prev_p.strand() == p.strand() && prev_p.pos == prev_pos {
+                if prev.number() == stop_number {
+                    return;
+                }
+                positions.insert(prev_p.clone());
+                gather_positions_reverse(&prev, stop_number, &prev_p, positions);
+            }
+        }
     }
 }
 
