@@ -193,23 +193,17 @@ fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
     // strand.
     let mut fixed_starts = HashSet::new();
     let mut fixed_ends = HashSet::new();
+
+    // The starts/end of sequence paths are fixed.
     for seq in sequences {
         let unitig_path = graph.get_unitig_path_for_sequence(seq);
-        if unitig_path.len() == 0 {
-            continue
-        }
+        if unitig_path.len() == 0 { continue; }
         let (first_unitig, first_strand) = unitig_path[0];
-        if first_strand {
-            fixed_starts.insert(first_unitig);
-        } else {
-            fixed_ends.insert(first_unitig);
-        }
+        if first_strand { fixed_starts.insert(first_unitig); }
+                   else { fixed_ends.insert(first_unitig); }
         let (last_unitig, last_strand) = unitig_path.last().unwrap();
-        if *last_strand {
-            fixed_ends.insert(*last_unitig);
-        } else {
-            fixed_starts.insert(*last_unitig);
-        }
+        if *last_strand { fixed_ends.insert(*last_unitig); }
+                   else { fixed_starts.insert(*last_unitig); }
     }
     (fixed_starts, fixed_ends)
 }
@@ -312,7 +306,8 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     // To avoid messing with input sequence paths, this function will not merge sequences at the
     // start/ends of such paths. If no sequences are provided, then all possible linear paths will
     // be merged.
-    let (fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
+    let (mut fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(graph, seqs);
+    fix_circular_loops(graph, &mut fixed_starts);
     let mut already_used = HashSet::new();
     let mut merge_paths = Vec::new();
     for unitig_rc in &graph.unitigs {
@@ -320,22 +315,22 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
         for unitig_strand in [strand::FORWARD, strand::REVERSE] {
 
             // Find unitigs which can potentially start a mergeable path.
-            if already_used.contains(&unitig_number) {continue;}
-            if has_single_exclusive_input(&unitig_rc, unitig_strand) && can_merge_start(unitig_number, unitig_strand, &fixed_starts, &fixed_ends) {continue;}
+            if already_used.contains(&unitig_number) { continue; }
+            if has_single_exclusive_input(&unitig_rc, unitig_strand) && can_merge_start(unitig_number, unitig_strand, &fixed_starts, &fixed_ends) { continue; }
             let mut current_path = vec![UnitigStrand::new(&unitig_rc, unitig_strand)];
             already_used.insert(unitig_number);
 
             // Extend the path as far as possible.
             loop {
                 let unitig = current_path.last().unwrap();
-                if cannot_merge_end(unitig.number(), unitig.strand, &fixed_starts, &fixed_ends) {break;}
+                if cannot_merge_end(unitig.number(), unitig.strand, &fixed_starts, &fixed_ends) { break; }
                 let mut outputs = if unitig.strand {get_exclusive_outputs(&unitig.unitig)} else {get_exclusive_inputs(&unitig.unitig)};
-                if outputs.len() != 1 {break;}
+                if outputs.len() != 1 { break; }
                 let output = &mut outputs[0];
-                if !unitig.strand {output.strand = !output.strand;}
+                if !unitig.strand { output.strand = !output.strand; }
                 let output_number = output.number();
-                if already_used.contains(&output_number) {break;}
-                if cannot_merge_start(output_number, output.strand, &fixed_starts, &fixed_ends) {break;}
+                if already_used.contains(&output_number) { break; }
+                if cannot_merge_start(output_number, output.strand, &fixed_starts, &fixed_ends) { break; }
                 current_path.push(UnitigStrand::new(&output.unitig, output.strand));
                 already_used.insert(output_number);
             }
@@ -354,6 +349,19 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     graph.delete_dangling_links();
     graph.build_unitig_index();
     graph.check_links();
+}
+
+
+fn fix_circular_loops(graph: &UnitigGraph, fixed_starts: &mut HashSet<u32>) {
+    // This function looks for components of the graph which form a simple circular loop, and if
+    // any are found, adds their lowest numbered unitig to fixed_starts. This will allow for the
+    // component to be merged into a single unitig.
+    let components = graph.connected_components();
+    for component in components {
+        if graph.component_is_circular_loop(&component) {
+            fixed_starts.insert(component[0]);
+        }
+    }
 }
 
 
@@ -560,13 +568,36 @@ mod tests {
         S\t1\tACGACTACGAGCACG\tDP:f:1\n\
         S\t2\tTACGACGACGACT\tDP:f:1\n\
         S\t3\tACTGACT\tDP:f:1\n\
+        S\t4\tGCTCG\tDP:f:1\n\
+        S\t5\tCAC\tDP:f:1\n\
         L\t1\t+\t2\t-\t0M\n\
         L\t2\t+\t1\t-\t0M\n\
         L\t2\t-\t3\t+\t0M\n\
         L\t3\t-\t2\t+\t0M\n\
         L\t3\t+\t1\t+\t0M\n\
         L\t1\t-\t3\t-\t0M\n\
-        P\t1\t1+,2-,3+\t*\tLN:i:35\tFN:Z:assembly.fasta\tHD:Z:tig\tES:Z:false\tEE:Z:false".to_string()
+        L\t4\t+\t5\t-\t0M\n\
+        L\t5\t+\t4\t-\t0M\n\
+        L\t5\t-\t4\t+\t0M\n\
+        L\t4\t-\t5\t+\t0M".to_string()
+    }
+
+    fn get_test_gfa_5() -> String {
+        "H\tVN:Z:1.0\tKM:i:3\n\
+        S\t1\tAGCATCGACATCGACTACG\tDP:f:1\n\
+        S\t2\tAGCATCAGCATCAGC\tDP:f:1\n\
+        S\t3\tGTCGCATTT\tDP:f:1\n\
+        S\t4\tTCGCGAA\tDP:f:1\n\
+        S\t5\tTTAAAC\tDP:f:1\n\
+        S\t6\tCACA\tDP:f:1\n\
+        L\t1\t+\t5\t+\t0M\n\
+        L\t5\t-\t1\t-\t0M\n\
+        L\t1\t+\t5\t-\t0M\n\
+        L\t5\t+\t1\t-\t0M\n\
+        L\t3\t-\t6\t-\t0M\n\
+        L\t6\t+\t3\t+\t0M\n\
+        L\t4\t+\t4\t+\t0M\n\
+        L\t4\t-\t4\t-\t0M".to_string()
     }
 
     #[test]
@@ -772,15 +803,32 @@ mod tests {
         let gfa_filename = temp_dir.path().join("graph.gfa");
         make_test_file(&gfa_filename, &get_test_gfa_4());
         let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
-        assert_eq!(graph.unitigs.len(), 3);
+        assert_eq!(graph.unitigs.len(), 5);
         merge_linear_paths(&mut graph, &seqs);
-        assert_eq!(graph.unitigs.len(), 1);
-        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&4).unwrap().borrow().forward_seq).unwrap(),
+        assert_eq!(graph.unitigs.len(), 2);
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&6).unwrap().borrow().forward_seq).unwrap(),
                    "ACGACTACGAGCACGAGTCGTCGTCGTAACTGACT");
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
+                   "GCTCGGTG");
         let mut links = graph.get_links_for_gfa();
-        let mut expected_links = vec![("4".to_string(), "+".to_string(), "4".to_string(), "+".to_string()),
-                                      ("4".to_string(), "-".to_string(), "4".to_string(), "-".to_string())];
+        let mut expected_links = vec![("6".to_string(), "+".to_string(), "6".to_string(), "+".to_string()),
+                                      ("6".to_string(), "-".to_string(), "6".to_string(), "-".to_string()),
+                                      ("7".to_string(), "+".to_string(), "7".to_string(), "+".to_string()),
+                                      ("7".to_string(), "-".to_string(), "7".to_string(), "-".to_string())];
         links.sort(); expected_links.sort();
         assert_eq!(links, expected_links);
+    }
+
+    #[test]
+    fn test_merge_linear_paths_3() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+        make_test_file(&gfa_filename, &get_test_gfa_5());
+        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.unitigs.len(), 6);
+        merge_linear_paths(&mut graph, &seqs);
+        assert_eq!(graph.unitigs.len(), 5);
+        assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
+                   "AAATGCGACTGTG");
     }
 }

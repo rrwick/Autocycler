@@ -208,7 +208,6 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
             graph.unitigs.push(bridge_unitig_rc.clone());
             graph.unitig_index.insert(bridge_num, bridge_unitig_rc);
             reduce_depths(graph, bridge);
-            // TODO: substract depth from unitigs in bridge (1 for each occurrence in all_paths)
             graph.create_link(bridge.start, bridge_num as i32);
             graph.create_link(bridge_num as i32, bridge.end)
         }

@@ -701,6 +701,70 @@ impl UnitigGraph {
     pub fn max_unitig_number(&self) -> u32 {
         self.unitigs.iter().map(|u| u.borrow().number).max().unwrap_or(0)
     }
+
+    pub fn connected_components(&self) -> Vec<Vec<u32>> {
+        let mut visited = HashSet::new();
+        let mut components = Vec::new();
+        for unitig in &self.unitigs {
+            let unitig_num = unitig.borrow().number;
+            if !visited.contains(&unitig_num) {
+                let mut component = Vec::new();
+                self.dfs(unitig_num, &mut visited, &mut component);
+                component.sort();
+                components.push(component);
+            }
+        }
+        components.sort();
+        components
+    }
+
+    fn dfs(&self, unitig_num: u32, visited: &mut HashSet<u32>, component: &mut Vec<u32>) {
+        let mut stack = vec![unitig_num];
+        while let Some(current) = stack.pop() {
+            if visited.insert(current) {
+                component.push(current);
+                for neighbor in self.connected_unitigs(current) {
+                    if !visited.contains(&neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    fn connected_unitigs(&self, unitig_num: u32) -> HashSet<u32> {
+        // Given a unitig (by number), this function returns the unitigs (by number) it is directly
+        // connected to.
+        let mut connections = HashSet::new();
+        if let Some(unitig_rc) = self.unitig_index.get(&unitig_num) {
+            let unitig = unitig_rc.borrow();
+            for c in &unitig.forward_next { connections.insert(c.number()); }
+            for c in &unitig.forward_prev { connections.insert(c.number()); }
+            for c in &unitig.reverse_next { connections.insert(c.number()); }
+            for c in &unitig.reverse_prev { connections.insert(c.number()); }
+        }
+        connections
+    }
+
+    pub fn component_is_circular_loop(&self, component: &Vec<u32>) -> bool {
+        // Given a connected component of the graph, this function returns whether or not it forms
+        // a simple circular loop.
+        if component.is_empty() { return false; }
+        let first = component[0];
+        let mut num = first;
+        let mut strand = strand::FORWARD;
+        let mut visited = HashSet::new();
+        while num != first || visited.is_empty() {
+            if !visited.insert(num) { return false; }
+            let unitig = self.unitig_index.get(&num).unwrap().borrow();
+            if unitig.forward_next.len() != 1 || unitig.forward_prev.len() != 1 ||
+               unitig.reverse_next.len() != 1 || unitig.reverse_prev.len() != 1 { return false; }
+            let next = if strand { &unitig.forward_next[0] } else { &unitig.reverse_next[0] };
+            num = next.number();
+            strand = next.strand;
+        }
+        visited.len() == component.len()
+    }
 }
 
 
@@ -808,6 +872,43 @@ mod tests {
         L\t7\t+\t6\t-\t0M\n\
         L\t7\t-\t6\t+\t0M\n\
         L\t6\t-\t7\t+\t0M\n".to_string()
+    }
+
+    fn get_test_gfa_4() -> String {
+        "H\tVN:Z:1.0\tKM:i:3\n\
+        S\t1\tACGACTACGAGCACG\tDP:f:1\n\
+        S\t2\tTACGACGACGACT\tDP:f:1\n\
+        S\t3\tACTGACT\tDP:f:1\n\
+        S\t4\tGCTCG\tDP:f:1\n\
+        S\t5\tCAC\tDP:f:1\n\
+        L\t1\t+\t2\t-\t0M\n\
+        L\t2\t+\t1\t-\t0M\n\
+        L\t2\t-\t3\t+\t0M\n\
+        L\t3\t-\t2\t+\t0M\n\
+        L\t3\t+\t1\t+\t0M\n\
+        L\t1\t-\t3\t-\t0M\n\
+        L\t4\t+\t5\t-\t0M\n\
+        L\t5\t+\t4\t-\t0M\n\
+        L\t5\t-\t4\t+\t0M\n\
+        L\t4\t-\t5\t+\t0M".to_string()
+    }
+
+    fn get_test_gfa_5() -> String {
+        "H\tVN:Z:1.0\tKM:i:3\n\
+        S\t1\tAGCATCGACATCGACTACG\tDP:f:1\n\
+        S\t2\tAGCATCAGCATCAGC\tDP:f:1\n\
+        S\t3\tGTCGCATTT\tDP:f:1\n\
+        S\t4\tTCGCGAA\tDP:f:1\n\
+        S\t5\tTTAAAC\tDP:f:1\n\
+        S\t6\tCACA\tDP:f:1\n\
+        L\t1\t+\t5\t+\t0M\n\
+        L\t5\t-\t1\t-\t0M\n\
+        L\t1\t+\t5\t-\t0M\n\
+        L\t5\t+\t1\t-\t0M\n\
+        L\t3\t-\t6\t-\t0M\n\
+        L\t6\t+\t3\t+\t0M\n\
+        L\t4\t+\t4\t+\t0M\n\
+        L\t4\t-\t4\t-\t0M".to_string()
     }
 
     #[test]
@@ -1108,5 +1209,65 @@ mod tests {
                    "CGAACCATTACTTGTACAAGTAATGGTTCG".as_bytes());
         assert_eq!(graph.get_sequence_from_path_signed(&vec![-3, 1, 4, -7, -9, 7, -4, -1, -2]),
                    "TAGGCGATTCAGGCATTCGCTGCGCTCGCTTCGCTTTGCTCGGCTCGAAGGCGCGCCTTCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCACAGCGACGACGGCA".as_bytes());
+    }
+
+    #[test]
+    fn test_connected_components() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]);
+
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3]]);
+
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7]]);
+
+        make_test_file(&gfa_filename, &get_test_gfa_4());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3], vec![4, 5]]);
+
+        make_test_file(&gfa_filename, &get_test_gfa_5());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert_eq!(graph.connected_components(), vec![vec![1, 5], vec![2], vec![3, 6], vec![4]]);
+    }
+
+    #[test]
+    fn test_component_is_circular_loop() {
+        let temp_dir = tempdir().unwrap();
+        let gfa_filename = temp_dir.path().join("graph.gfa");
+
+        make_test_file(&gfa_filename, &get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+
+        make_test_file(&gfa_filename, &get_test_gfa_2());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3]));
+
+        make_test_file(&gfa_filename, &get_test_gfa_3());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7]));
+
+        make_test_file(&gfa_filename, &get_test_gfa_4());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert!(graph.component_is_circular_loop(&vec![1, 2, 3]));
+        assert!(graph.component_is_circular_loop(&vec![3, 2, 1]));
+        assert!(graph.component_is_circular_loop(&vec![2, 3, 1]));
+        assert!(graph.component_is_circular_loop(&vec![4, 5]));
+        assert!(graph.component_is_circular_loop(&vec![5, 4]));
+
+        make_test_file(&gfa_filename, &get_test_gfa_5());
+        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        assert!(!graph.component_is_circular_loop(&vec![1, 5]));
+        assert!(!graph.component_is_circular_loop(&vec![2]));
+        assert!(!graph.component_is_circular_loop(&vec![3, 6]));
+        assert!(graph.component_is_circular_loop(&vec![4]));
+        assert!(!graph.component_is_circular_loop(&vec![]));
     }
 }
