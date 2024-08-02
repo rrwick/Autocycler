@@ -121,6 +121,26 @@ impl Unitig {
         }
     }
 
+    pub fn bridge(number: u32, forward_seq: Vec<u8>, depth: f64) -> Self {
+        // This constructor is for manually building a Unitig object when creating bridges.
+        let reverse_seq = reverse_complement(&forward_seq);
+        Unitig {
+            number,
+            forward_kmers: VecDeque::new(),
+            reverse_kmers: VecDeque::new(),
+            forward_seq,
+            reverse_seq,
+            depth,
+            anchor: false,
+            forward_positions: vec![],
+            reverse_positions: vec![],
+            forward_next: vec![],
+            forward_prev: vec![],
+            reverse_next: vec![],
+            reverse_prev: vec![],
+        }
+    }
+
     pub fn add_kmer_to_end(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
         self.forward_kmers.push_back(forward_kmer);
         self.reverse_kmers.push_front(reverse_kmer);
@@ -251,6 +271,18 @@ impl Unitig {
     pub fn recalculate_depth(&mut self) {
         self.depth = self.forward_positions.len() as f64;
     }
+
+    pub fn clear_positions(&mut self) {
+        self.forward_positions.clear();
+        self.reverse_positions.clear();
+    }
+
+    pub fn reduce_depth_by_one(&mut self) {
+        self.depth -= 1.0;
+        if self.depth < 0.0 {
+            self.depth = 0.0;
+        }
+    }
 }
 
 impl fmt::Display for Unitig {
@@ -291,20 +323,20 @@ impl UnitigStrand {
         self.unitig.borrow().number
     }
 
+    pub fn signed_number(&self) -> i32 {
+        if self.strand {
+            self.unitig.borrow().number as i32
+        } else {
+            -(self.unitig.borrow().number as i32)
+        }
+    }
+
     pub fn length(&self) -> u32 {
         self.unitig.borrow().length()
     }
 
     pub fn get_seq(&self) -> Vec<u8> {
         self.unitig.borrow().get_seq(self.strand)
-    }
-
-    pub fn get_positions(&self) -> Vec<Position> {
-        if self.strand {
-            self.unitig.borrow().forward_positions.clone()
-        } else {
-            self.unitig.borrow().reverse_positions.clone()
-        }
     }
 }
 

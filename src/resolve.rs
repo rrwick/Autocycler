@@ -12,26 +12,26 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path, load_file_lines,
                   sign_at_end, sign_at_end_vec};
-use crate::position::Position;
 use crate::sequence::Sequence;
-use crate::unitig::UnitigStrand;
+use crate::unitig::Unitig;
 use crate::unitig_graph::UnitigGraph;
 
 
 pub fn resolve(cluster_dir: PathBuf) {
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
     let unique_gfa = cluster_dir.join("4_unique.gfa");
-    let unique_clean_gfa = cluster_dir.join("5_unique_clean.gfa");
-    let final_gfa = cluster_dir.join("6_final.gfa");
+    let final_gfa = cluster_dir.join("5_final.gfa");
     check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
     print_settings(&cluster_dir);
@@ -39,23 +39,22 @@ pub fn resolve(cluster_dir: PathBuf) {
     let (mut unitig_graph, sequences) = load_graph(&gfa_lines, true);
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
     let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors);
+    let bridge_depth = sequences.len() as f64;
     determine_ambiguity(&mut bridges);
     print_bridges(&bridges);
     apply_unique_message();
-    apply_bridges(&mut unitig_graph, &sequences, &bridges, true);
-    unitig_graph.save_gfa(&unique_gfa, &sequences).unwrap();
-    // let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
-    // apply_unique_clean_message();
-    // apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
-    // unitig_graph.save_gfa(&unique_clean_gfa, &sequences).unwrap();
-    // let cull_count = cull_ambiguity(&mut bridges);
-    // if cull_count > 0 {
-    //     let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
-    //     apply_final_message();
-    //     apply_bridges(&mut unitig_graph, &vec![], &bridges, false);
-    // }
-    // unitig_graph.save_gfa(&final_gfa, &sequences).unwrap();
-    // finished_message(&final_gfa);
+    apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
+    unitig_graph.save_gfa(&unique_gfa, &vec![]).unwrap();
+    let cull_count = cull_ambiguity(&mut bridges);
+    if cull_count > 0 {
+        let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
+        apply_final_message();
+        apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
+        unitig_graph.save_gfa(&final_gfa, &vec![]).unwrap();
+    } else {
+        eprintln!("All bridges were unique, no culling necessary.\n")
+    }
+    finished_message(&final_gfa);
 }
 
 
@@ -74,17 +73,8 @@ fn starting_message() {
 fn apply_unique_message() {
     section_header("Applying unique bridges");
     explanation("All unique bridges (those that do not conflict with other bridges) are now \
-                 applied to the graph. This resolve unambiguous repeats, but bubbles (where input \
-                 contigs disagree) are left in at this stage.");
+                 applied to the graph.");
 }
-
-
-fn apply_unique_clean_message() {
-    section_header("Applying unique bridges - clean");
-    explanation("Each bridge is now reduced to its best path, popping bubbles and creating a \
-                 simplified graph structure.");
-}
-
 
 fn apply_final_message() {
     section_header("Applying final bridges");
@@ -197,87 +187,52 @@ fn determine_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
 }
 
 
-fn apply_bridges(graph: &mut UnitigGraph, sequences: &Vec<Sequence>, bridges: &Vec<Bridge>,
-                 keep_all_paths: bool) {
+fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f64) {
     // This function applies bridges to the graph. If keep_all_paths is true, then unitigs in all
     // bridge paths are kept. If keep_all_paths is false, then only the best path is kept.
-    if !keep_all_paths {
-        // TODO: wipe all Positions from the graph?
-    }
+    graph.clear_positions();
     for bridge in bridges {
         if bridge.conflicting {
             continue;
         }
-        if keep_all_paths {
-            apply_bridge_all_paths(graph, bridge);
+        graph.delete_outgoing_links(bridge.start);
+        graph.delete_incoming_links(bridge.end);
+
+        if bridge.best_path.is_empty() {
+            graph.create_link(bridge.start, bridge.end);
         } else {
-            apply_bridge_best_path(graph, bridge);
+            let bridge_seq = graph.get_sequence_from_path_signed(&bridge.best_path);
+            let bridge_num = graph.max_unitig_number() + 1;
+            let bridge_unitig = Unitig::bridge(bridge_num, bridge_seq, bridge_depth);
+            let bridge_unitig_rc = Rc::new(RefCell::new(bridge_unitig));
+            graph.unitigs.push(bridge_unitig_rc.clone());
+            graph.unitig_index.insert(bridge_num, bridge_unitig_rc);
+            reduce_depths(graph, bridge);
+            // TODO: substract depth from unitigs in bridge (1 for each occurrence in all_paths)
+            graph.create_link(bridge.start, bridge_num as i32);
+            graph.create_link(bridge_num as i32, bridge.end)
         }
     }
-    graph.recalculate_depths();
-    graph.remove_zero_depth_unitigs();
-    // merge_linear_paths(graph, &sequences);  // TODO: re-enable this
+
+    // TODO: delete unitigs that are no longer connected to an anchor.
+
+    // TODO: delete non-anchor tips, repeat until none are found.
+
+    // merge_linear_paths(graph, &vec![]);  // TODO: re-enable this
     graph.print_basic_graph_info();
     // graph.renumber_unitigs();  // TODO: re-enable this
 }
 
 
-fn apply_bridge_all_paths(graph: &mut UnitigGraph, bridge: &Bridge) {
-    let bridge_unitigs = bridge.get_unitig_nums_in_all_paths();
-    let positions_in_bridge = bridge.get_all_positions_in_bridge(&graph);
-    let old_to_new = graph.duplicate_unitigs(&bridge_unitigs);
-    eprintln!(); // TEMP
-    eprintln!("{}", bridge); // TEMP
-    eprintln!("{:?}", old_to_new); // TEMP
-    for (old, new) in &old_to_new {
-        let mut old_u = graph.unitig_index.get(old).unwrap().borrow_mut();
-        let mut new_u = graph.unitig_index.get(new).unwrap().borrow_mut();
-        new_u.forward_positions.clear(); new_u.reverse_positions.clear();
-
-        // Move Position objects as appropriate from the old Unitig into the new Unitig
-        let mut new_forward_positions = Vec::new();
-        old_u.forward_positions.retain(|pos| { if positions_in_bridge.contains(pos) { new_forward_positions.push(pos.clone()); false } else { true } });
-        new_u.forward_positions = new_forward_positions;
-        let mut new_reverse_positions = Vec::new();
-        old_u.reverse_positions.retain(|pos| { if positions_in_bridge.contains(pos) { new_reverse_positions.push(pos.clone()); false } else { true } });
-        new_u.reverse_positions = new_reverse_positions;
-
-        eprintln!("{} -> {}", old_u, new_u); // TEMP
-    }
-
-    let mut links_to_delete = Vec::new();
-    let mut links_to_create = Vec::new();
-    for &b in &bridge_unitigs {
-        for sign in [-1, 1] {
-            let old = sign * (b as i32);
-            let new = sign * (*old_to_new.get(&b).unwrap() as i32);
-            if graph.link_exists_signed(bridge.start, old) {
-                links_to_delete.push((bridge.start, old));
-                links_to_create.push((bridge.start, new));
-            }
-            if graph.link_exists_signed(old, bridge.end) {
-                links_to_delete.push((old, bridge.end));
-                links_to_create.push((new, bridge.end));
-            }
+fn reduce_depths(graph: &mut UnitigGraph, bridge: &Bridge) {
+    // This function is run after a bridge has been applied. It reduces the depth of unitigs in the
+    // bridge.
+    for path in &bridge.all_paths {
+        for signed_num in path {
+            let mut unitig = graph.unitig_index.get(&(signed_num.abs() as u32)).unwrap().borrow_mut();
+            unitig.reduce_depth_by_one();
         }
     }
-    for (a, b) in links_to_delete {
-        graph.delete_link(a, b);
-    }
-    for (a, b) in links_to_create {
-        graph.create_link(a, b);
-    }
-}
-
-
-fn apply_bridge_best_path(graph: &mut UnitigGraph, bridge: &Bridge) {
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-
-    // Make bridge Unitigs have the same depth as the anchors.
 }
 
 
@@ -366,7 +321,7 @@ fn compare_paths(path_a: &Vec<i32>, path_b: &Vec<i32>) -> bool {
     // Returns true if path_a is 'better' than path_b. Used to break ties when two paths are equally
     // common in a bridge.
 
-    // TODO: explore different tie-breaking strategies (just using lexographic order at the moment)
+    // TODO: explore different tie-breaking strategies (just using lexographic order at the moment).
     path_a < path_b
 }
 
@@ -410,25 +365,6 @@ impl Bridge {
         }
     }
 
-    fn get_unitig_nums_in_best_path(&self) -> Vec<u32> {
-        let mut nums: Vec<u32> = self.best_path.iter().cloned().collect::<HashSet<i32>>()
-            .into_iter().map(|num| num.abs() as u32).collect();
-        nums.sort();
-        nums
-    }
-
-    fn get_unitig_nums_in_all_paths(&self) -> Vec<u32> {
-        let mut nums: HashSet<i32> = HashSet::new();
-        for path in &self.all_paths {
-            for &num in path {
-                nums.insert(num);
-            }
-        }
-        let mut nums: Vec<u32> = nums.into_iter().map(|num| num.abs() as u32).collect();
-        nums.sort();
-        nums
-    }
-
     fn rev_start(&self) -> i32 {
         -self.end
     }
@@ -439,27 +375,6 @@ impl Bridge {
 
     fn depth(&self) -> usize {
         self.all_paths.len()
-    }
-
-    fn get_all_positions_in_bridge(&self, graph: &UnitigGraph) -> HashSet<Position> {
-        let mut positions = HashSet::new();
-        let start_unitig = graph.get_unitig_signed(self.start);
-        let start_unitig_rev = graph.get_unitig_signed(-self.start);
-        let end_unitig = graph.get_unitig_signed(self.end);
-        let end_unitig_rev = graph.get_unitig_signed(-self.end);
-        for p in start_unitig.get_positions() {
-            gather_positions_forward(&start_unitig, self.end.abs() as u32, &p, &mut positions);
-        }
-        for p in start_unitig_rev.get_positions() {
-            gather_positions_reverse(&start_unitig_rev, self.end.abs() as u32, &p, &mut positions);
-        }
-        for p in end_unitig.get_positions() {
-            gather_positions_reverse(&end_unitig, self.start.abs() as u32, &p, &mut positions);
-        }
-        for p in end_unitig_rev.get_positions() {
-            gather_positions_forward(&end_unitig_rev, self.start.abs() as u32, &p, &mut positions);
-        }
-        positions
     }
 }
 
@@ -503,49 +418,6 @@ impl Ord for Bridge {
 }
 
 
-fn gather_positions_forward(u: &UnitigStrand, stop_number: u32, p: &Position, positions: &mut HashSet<Position>) {
-    let unitig = u.unitig.borrow();
-    let next_pos = p.pos + u.length();
-    let next_unitigs = if u.strand { &unitig.forward_next } else { &unitig.reverse_next };
-    for next in next_unitigs {
-        let next_u = next.unitig.borrow();
-        let next_positions = if next.strand { &next_u.forward_positions } else { &next_u.reverse_positions};
-        for next_p in next_positions {
-            if next_p.seq_id() == p.seq_id() && next_p.strand() == p.strand() && next_p.pos == next_pos {
-                if next.number() == stop_number {
-                    return;
-                }
-                positions.insert(next_p.clone());
-                gather_positions_forward(&next, stop_number, &next_p, positions);
-            }
-        }
-    }
-}
-
-
-fn gather_positions_reverse(u: &UnitigStrand, stop_number: u32, p: &Position, positions: &mut HashSet<Position>) {
-    let unitig = u.unitig.borrow();
-    if p.pos < u.length() {
-        return;
-    }
-    let prev_pos = p.pos - u.length();
-    let prev_unitigs = if u.strand { &unitig.forward_prev } else { &unitig.reverse_prev };
-    for prev in prev_unitigs {
-        let prev_u = prev.unitig.borrow();
-        let prev_positions = if prev.strand { &prev_u.forward_positions } else { &prev_u.reverse_positions};
-        for prev_p in prev_positions {
-            if prev_p.seq_id() == p.seq_id() && prev_p.strand() == p.strand() && prev_p.pos == prev_pos {
-                if prev.number() == stop_number {
-                    return;
-                }
-                positions.insert(prev_p.clone());
-                gather_positions_reverse(&prev, stop_number, &prev_p, positions);
-            }
-        }
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use maplit::hashmap;
@@ -585,8 +457,6 @@ mod tests {
                          vec![1, 12, -23, -8, 41, 2],
                          vec![1, 12, 17, 123, 41, 2]];
         let bridge = Bridge::new(1, 2, paths);
-        assert_eq!(bridge.get_unitig_nums_in_best_path(), vec![8, 12, 23, 41]);
-        assert_eq!(bridge.get_unitig_nums_in_all_paths(), vec![8, 12, 17, 23, 41, 123]);
         assert_eq!(bridge.rev_start(), -2);
         assert_eq!(bridge.rev_end(), -1);
         assert_eq!(bridge.depth(), 4);

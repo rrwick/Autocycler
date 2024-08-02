@@ -346,7 +346,7 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
         }
     }
 
-    let mut new_unitig_number: u32 = graph.unitigs.iter().map(|u| u.borrow().number).max().unwrap();
+    let mut new_unitig_number: u32 = graph.max_unitig_number();
     for path in merge_paths {
         new_unitig_number += 1;
         merge_path(graph, &path, new_unitig_number);
