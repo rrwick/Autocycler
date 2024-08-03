@@ -99,11 +99,12 @@ impl Unitig {
     pub fn manual(number: u32, forward_seq: Vec<u8>, anchor: bool,
                   forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
                   forward_next: Vec<UnitigStrand>, forward_prev: Vec<UnitigStrand>,
-                  reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>) -> Self {
+                  reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>,
+                  depth: Option<f64>) -> Self {
         // This constructor is for manually building a Unitig object from a sequence and positions.
         // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
         let reverse_seq = reverse_complement(&forward_seq);
-        let depth = forward_positions.len() as f64;
+        let depth = if depth.is_none() { forward_positions.len() as f64 } else { depth.unwrap() };
         Unitig {
             number,
             forward_kmers: VecDeque::new(),

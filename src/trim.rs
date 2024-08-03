@@ -273,7 +273,7 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
                  has occurred above.");
     graph.recalculate_depths();
     graph.remove_zero_depth_unitigs();
-    merge_linear_paths(graph, &sequences);
+    merge_linear_paths(graph, &sequences, None);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
 }

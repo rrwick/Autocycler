@@ -47,13 +47,13 @@ pub fn resolve(cluster_dir: PathBuf) {
     unitig_graph.save_gfa(&unique_gfa, &vec![]).unwrap();
     let cull_count = cull_ambiguity(&mut bridges);
     if cull_count > 0 {
-        let (mut unitig_graph, _) = load_graph(&gfa_lines, false);
+        (unitig_graph, _) = load_graph(&gfa_lines, false);
         apply_final_message();
         apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
-        unitig_graph.save_gfa(&final_gfa, &vec![]).unwrap();
     } else {
-        eprintln!("All bridges were unique, no culling necessary.\n")
+        eprintln!("All bridges were unique, no culling necessary.\n");
     }
+    unitig_graph.save_gfa(&final_gfa, &vec![]).unwrap();
     finished_message(&final_gfa);
 }
 
@@ -217,9 +217,9 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
 
     // TODO: delete non-anchor tips, repeat until none are found.
 
-    // merge_linear_paths(graph, &vec![]);  // TODO: re-enable this
+    merge_linear_paths(graph, &vec![], Some(bridge_depth));
     graph.print_basic_graph_info();
-    // graph.renumber_unitigs();  // TODO: re-enable this
+    graph.renumber_unitigs();
 }
 
 

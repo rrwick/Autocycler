@@ -293,7 +293,7 @@ fn get_common_end_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
 }
 
 
-pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
+pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>, depth: Option<f64>) {
     // This function looks for linear paths in the graph (where one Unitig leads only to another
     // and vice versa) and merges them together when possible.
     //
@@ -324,7 +324,7 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
             loop {
                 let unitig = current_path.last().unwrap();
                 if cannot_merge_end(unitig.number(), unitig.strand, &fixed_starts, &fixed_ends) { break; }
-                let mut outputs = if unitig.strand {get_exclusive_outputs(&unitig.unitig)} else {get_exclusive_inputs(&unitig.unitig)};
+                let mut outputs = if unitig.strand { get_exclusive_outputs(&unitig.unitig) } else { get_exclusive_inputs(&unitig.unitig) };
                 if outputs.len() != 1 { break; }
                 let output = &mut outputs[0];
                 if !unitig.strand { output.strand = !output.strand; }
@@ -344,7 +344,7 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     let mut new_unitig_number: u32 = graph.max_unitig_number();
     for path in merge_paths {
         new_unitig_number += 1;
-        merge_path(graph, &path, new_unitig_number);
+        merge_path(graph, &path, new_unitig_number, depth);
     }
     graph.delete_dangling_links();
     graph.build_unitig_index();
@@ -388,7 +388,7 @@ fn has_single_exclusive_input(unitig_rc: &Rc<RefCell<Unitig>>, unitig_strand: bo
 }
 
 
-fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_number: u32) {
+fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_number: u32, depth: Option<f64>) {
     let merged_seq = merge_unitig_seqs(path);
     let first = &path[0];
     let last = path.last().unwrap();
@@ -408,7 +408,7 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
     let reverse_prev = if last.strand {last.unitig.borrow().reverse_prev.clone()} else {last.unitig.borrow().forward_prev.clone()};
 
     let unitig = Unitig::manual(new_unitig_number, merged_seq, false, forward_positions, reverse_positions,
-                                forward_next, forward_prev, reverse_next, reverse_prev);
+                                forward_next, forward_prev, reverse_next, reverse_prev, depth);
     let unitig_rc = Rc::new(RefCell::new(unitig));
     graph.unitigs.push(unitig_rc.clone());
 
@@ -643,7 +643,7 @@ mod tests {
     fn test_merge_linear_paths_1() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.unitigs.len(), 7);
-        merge_linear_paths(&mut graph, &seqs);
+        merge_linear_paths(&mut graph, &seqs, None);
         assert_eq!(graph.unitigs.len(), 3);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&8).unwrap().borrow().forward_seq).unwrap(),
                    "TTCGCTGCGCTCGCTTCGCTTTTGCACAGCGACGACGGCATGCCTGAATCGCCTA");
@@ -667,7 +667,7 @@ mod tests {
     fn test_merge_linear_paths_2() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
         assert_eq!(graph.unitigs.len(), 5);
-        merge_linear_paths(&mut graph, &seqs);
+        merge_linear_paths(&mut graph, &seqs, None);
         assert_eq!(graph.unitigs.len(), 2);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&6).unwrap().borrow().forward_seq).unwrap(),
                    "ACGACTACGAGCACGAGTCGTCGTCGTAACTGACT");
@@ -686,7 +686,7 @@ mod tests {
     fn test_merge_linear_paths_3() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
         assert_eq!(graph.unitigs.len(), 6);
-        merge_linear_paths(&mut graph, &seqs);
+        merge_linear_paths(&mut graph, &seqs, None);
         assert_eq!(graph.unitigs.len(), 5);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
                    "AAATGCGACTGTG");
