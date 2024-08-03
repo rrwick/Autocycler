@@ -650,14 +650,14 @@ impl UnitigGraph {
         // Collect the indices to remove for end unitig
         let end_indices: Vec<usize> = {
             let end = end_rc.borrow();
-            let prev_unitigs = if start_strand { &end.forward_prev } else { &end.reverse_prev };
+            let prev_unitigs = if end_strand { &end.forward_prev } else { &end.reverse_prev };
             prev_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig.borrow().number == start_num && connection.strand == start_strand { Some(i) } else { None } }).collect()
         };
 
         // Remove the elements from end unitig
         {
             let mut end = end_rc.borrow_mut();
-            let prev_unitigs = if start_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
+            let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
             for &i in end_indices.iter().rev() {
                 prev_unitigs.remove(i);
             }
@@ -1082,5 +1082,25 @@ mod tests {
         assert!(!graph.component_is_circular_loop(&vec![3, 6]));
         assert!(graph.component_is_circular_loop(&vec![4]));
         assert!(!graph.component_is_circular_loop(&vec![]));
+    }
+
+    #[test]
+    fn test_delete_link_break_into_components() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_6());
+        assert_eq!(graph.connected_components(), vec![vec![1, 2]]);
+        graph.delete_link(1, -2);
+        assert_eq!(graph.connected_components(), vec![vec![1], vec![2]]);
+
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_7());
+        assert_eq!(graph.connected_components(), vec![vec![1, 2]]);
+        graph.delete_link(-1, 2);
+        assert_eq!(graph.connected_components(), vec![vec![1], vec![2]]);
+
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]);
+        graph.delete_link(4, 8);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 9], vec![8, 10]]);
+        graph.delete_link(-3, 1);
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 4, 5, 6, 7, 9], vec![3], vec![8, 10]]);
     }
 }

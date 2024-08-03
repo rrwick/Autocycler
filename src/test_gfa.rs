@@ -145,3 +145,27 @@ pub fn get_test_gfa_5() -> Vec<String> {
          "L\t4\t+\t4\t+\t0M",
          "L\t4\t-\t4\t-\t0M"].into_iter().map(String::from).collect()
 }
+
+
+#[cfg(test)]
+pub fn get_test_gfa_6() -> Vec<String> {
+    // One connected components
+    // Two unitigs on opposite strands
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "S\t2\tAGCATCAGCATCAGC\tDP:f:1",
+         "L\t1\t+\t2\t-\t0M",
+         "L\t2\t+\t1\t-\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_7() -> Vec<String> {
+    // One connected components
+    // Two unitigs on opposite strands
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "S\t2\tAGCATCAGCATCAGC\tDP:f:1",
+         "L\t1\t-\t2\t+\t0M",
+         "L\t2\t-\t1\t+\t0M"].into_iter().map(String::from).collect()
+}
