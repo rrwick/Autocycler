@@ -469,135 +469,13 @@ fn merge_unitig_seqs(path: &Vec<UnitigStrand>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::fs::File;
-    use std::path::PathBuf;
-    use tempfile::tempdir;
-
+    use crate::test_gfa::*;
     use super::*;
-
-    fn make_test_file(file_path: &PathBuf, contents: &str) {
-        let mut file = File::create(&file_path).unwrap();
-        write!(file, "{}", contents).unwrap();
-    }
 
     fn unitig_vec_to_str(mut unitigs: Vec<UnitigStrand>) -> String {
         // Converts a vector of Unitigs to a string (makes my tests easier to write).
         unitigs.sort_by(|a, b| {a.number().cmp(&b.number()).then_with(|| a.strand.cmp(&b.strand))});
         unitigs.iter().map(|u| {format!("{}{}", u.number(), if u.strand {'+'} else {'-'})}).collect::<Vec<String>>().join(",")
-    }
-
-    fn get_test_gfa_1() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-        S\t4\tGCTCGGCTCG\tDP:f:1\n\
-        S\t5\tCGAACCAT\tDP:f:1\n\
-        S\t6\tTACTTGT\tDP:f:1\n\
-        S\t7\tGCCTT\tDP:f:1\n\
-        S\t8\tATCT\tDP:f:1\n\
-        S\t9\tGC\tDP:f:1\n\
-        S\t10\tT\tDP:f:1\n\
-        L\t1\t+\t4\t+\t0M\n\
-        L\t4\t-\t1\t-\t0M\n\
-        L\t1\t+\t5\t-\t0M\n\
-        L\t5\t+\t1\t-\t0M\n\
-        L\t2\t+\t1\t+\t0M\n\
-        L\t1\t-\t2\t-\t0M\n\
-        L\t3\t-\t1\t+\t0M\n\
-        L\t1\t-\t3\t+\t0M\n\
-        L\t4\t+\t7\t-\t0M\n\
-        L\t7\t+\t4\t-\t0M\n\
-        L\t4\t+\t8\t+\t0M\n\
-        L\t8\t-\t4\t-\t0M\n\
-        L\t6\t-\t5\t-\t0M\n\
-        L\t5\t+\t6\t+\t0M\n\
-        L\t6\t+\t6\t-\t0M\n\
-        L\t7\t-\t9\t+\t0M\n\
-        L\t9\t-\t7\t+\t0M\n\
-        L\t8\t+\t10\t-\t0M\n\
-        L\t10\t+\t8\t-\t0M\n\
-        L\t9\t+\t7\t+\t0M\n\
-        L\t7\t-\t9\t-\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_2() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
-        S\t2\tATGAT\tDP:f:1\n\
-        S\t3\tGCGC\tDP:f:1\n\
-        L\t1\t+\t2\t+\t0M\n\
-        L\t2\t-\t1\t-\t0M\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t1\t-\t3\t+\t0M\n\
-        L\t3\t-\t1\t+\t0M\n\
-        L\t1\t-\t3\t-\t0M\n\
-        L\t3\t+\t1\t+\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_3() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-        S\t4\tGCTCGGCTCG\tDP:f:1\n\
-        S\t5\tCGAACCAT\tDP:f:1\n\
-        S\t6\tTACTTGT\tDP:f:1\n\
-        S\t7\tGCCTT\tDP:f:1\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t2\t-\t3\t+\t0M\n\
-        L\t3\t-\t2\t+\t0M\n\
-        L\t3\t+\t4\t+\t0M\n\
-        L\t4\t-\t3\t-\t0M\n\
-        L\t4\t+\t5\t-\t0M\n\
-        L\t5\t+\t4\t-\t0M\n\
-        L\t5\t-\t5\t+\t0M\n\
-        L\t3\t+\t6\t+\t0M\n\
-        L\t6\t-\t3\t-\t0M\n\
-        L\t6\t+\t7\t-\t0M\n\
-        L\t7\t+\t6\t-\t0M\n\
-        L\t7\t-\t6\t+\t0M\n\
-        L\t6\t-\t7\t+\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_4() -> String {
-        "H\tVN:Z:1.0\tKM:i:3\n\
-        S\t1\tACGACTACGAGCACG\tDP:f:1\n\
-        S\t2\tTACGACGACGACT\tDP:f:1\n\
-        S\t3\tACTGACT\tDP:f:1\n\
-        S\t4\tGCTCG\tDP:f:1\n\
-        S\t5\tCAC\tDP:f:1\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t2\t-\t3\t+\t0M\n\
-        L\t3\t-\t2\t+\t0M\n\
-        L\t3\t+\t1\t+\t0M\n\
-        L\t1\t-\t3\t-\t0M\n\
-        L\t4\t+\t5\t-\t0M\n\
-        L\t5\t+\t4\t-\t0M\n\
-        L\t5\t-\t4\t+\t0M\n\
-        L\t4\t-\t5\t+\t0M".to_string()
-    }
-
-    fn get_test_gfa_5() -> String {
-        "H\tVN:Z:1.0\tKM:i:3\n\
-        S\t1\tAGCATCGACATCGACTACG\tDP:f:1\n\
-        S\t2\tAGCATCAGCATCAGC\tDP:f:1\n\
-        S\t3\tGTCGCATTT\tDP:f:1\n\
-        S\t4\tTCGCGAA\tDP:f:1\n\
-        S\t5\tTTAAAC\tDP:f:1\n\
-        S\t6\tCACA\tDP:f:1\n\
-        L\t1\t+\t5\t+\t0M\n\
-        L\t5\t-\t1\t-\t0M\n\
-        L\t1\t+\t5\t-\t0M\n\
-        L\t5\t+\t1\t-\t0M\n\
-        L\t3\t-\t6\t-\t0M\n\
-        L\t6\t+\t3\t+\t0M\n\
-        L\t4\t+\t4\t+\t0M\n\
-        L\t4\t-\t4\t-\t0M".to_string()
     }
 
     #[test]
@@ -644,10 +522,7 @@ mod tests {
 
     #[test]
     fn test_get_exclusive_inputs_and_outputs() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
         let unitig_1 = &graph.unitigs[0];
         assert_eq!(unitig_vec_to_str(get_exclusive_inputs(unitig_1)), "2+,3-");
@@ -692,10 +567,7 @@ mod tests {
 
     #[test]
     fn test_simplify_structure_1() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         let sequences: Vec<Sequence> = vec![];
 
         assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "TTCGCTGCGCTCGCTTCGCTTT");
@@ -725,10 +597,7 @@ mod tests {
 
     #[test]
     fn test_simplify_structure_2() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         let sequences: Vec<Sequence> = vec![];
 
         assert_eq!(std::str::from_utf8(&graph.unitigs[0].borrow().forward_seq).unwrap(), "ACCGCTGCGCTCGCTTCGCTCT");
@@ -772,10 +641,7 @@ mod tests {
 
     #[test]
     fn test_merge_linear_paths_1() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.unitigs.len(), 7);
         merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 3);
@@ -799,10 +665,7 @@ mod tests {
 
     #[test]
     fn test_merge_linear_paths_2() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_4());
-        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
         assert_eq!(graph.unitigs.len(), 5);
         merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 2);
@@ -821,10 +684,7 @@ mod tests {
 
     #[test]
     fn test_merge_linear_paths_3() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_5());
-        let (mut graph, seqs) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
         assert_eq!(graph.unitigs.len(), 6);
         merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 5);

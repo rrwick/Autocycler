@@ -786,154 +786,26 @@ fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::fs::File;
-    use std::path::PathBuf;
-    use tempfile::tempdir;
-
+    use crate::test_gfa::*;
     use super::*;
-
-    fn make_test_file(file_path: &PathBuf, contents: &str) {
-        let mut file = File::create(&file_path).unwrap();
-        write!(file, "{}", contents).unwrap();
-    }
-
-    fn get_test_gfa_1() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-        S\t4\tGCTCGGCTCG\tDP:f:1\n\
-        S\t5\tCGAACCAT\tDP:f:1\n\
-        S\t6\tTACTTGT\tDP:f:1\n\
-        S\t7\tGCCTT\tDP:f:1\n\
-        S\t8\tATCT\tDP:f:1\n\
-        S\t9\tGC\tDP:f:1\n\
-        S\t10\tT\tDP:f:1\n\
-        L\t1\t+\t4\t+\t0M\n\
-        L\t4\t-\t1\t-\t0M\n\
-        L\t1\t+\t5\t-\t0M\n\
-        L\t5\t+\t1\t-\t0M\n\
-        L\t2\t+\t1\t+\t0M\n\
-        L\t1\t-\t2\t-\t0M\n\
-        L\t3\t-\t1\t+\t0M\n\
-        L\t1\t-\t3\t+\t0M\n\
-        L\t4\t+\t7\t-\t0M\n\
-        L\t7\t+\t4\t-\t0M\n\
-        L\t4\t+\t8\t+\t0M\n\
-        L\t8\t-\t4\t-\t0M\n\
-        L\t6\t-\t5\t-\t0M\n\
-        L\t5\t+\t6\t+\t0M\n\
-        L\t6\t+\t6\t-\t0M\n\
-        L\t7\t-\t9\t+\t0M\n\
-        L\t9\t-\t7\t+\t0M\n\
-        L\t8\t+\t10\t-\t0M\n\
-        L\t10\t+\t8\t-\t0M\n\
-        L\t9\t+\t7\t+\t0M\n\
-        L\t7\t-\t9\t-\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_2() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tACCGCTGCGCTCGCTTCGCTCT\tDP:f:1\n\
-        S\t2\tATGAT\tDP:f:1\n\
-        S\t3\tGCGC\tDP:f:1\n\
-        L\t1\t+\t2\t+\t0M\n\
-        L\t2\t-\t1\t-\t0M\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t1\t-\t3\t+\t0M\n\
-        L\t3\t-\t1\t+\t0M\n\
-        L\t1\t-\t3\t-\t0M\n\
-        L\t3\t+\t1\t+\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_3() -> String {
-        "H\tVN:Z:1.0\tKM:i:9\n\
-        S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1\n\
-        S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1\n\
-        S\t3\tTGCCTGAATCGCCTA\tDP:f:1\n\
-        S\t4\tGCTCGGCTCG\tDP:f:1\n\
-        S\t5\tCGAACCAT\tDP:f:1\n\
-        S\t6\tTACTTGT\tDP:f:1\n\
-        S\t7\tGCCTT\tDP:f:1\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t2\t-\t3\t+\t0M\n\
-        L\t3\t-\t2\t+\t0M\n\
-        L\t3\t+\t4\t+\t0M\n\
-        L\t4\t-\t3\t-\t0M\n\
-        L\t4\t+\t5\t-\t0M\n\
-        L\t5\t+\t4\t-\t0M\n\
-        L\t5\t-\t5\t+\t0M\n\
-        L\t3\t+\t6\t+\t0M\n\
-        L\t6\t-\t3\t-\t0M\n\
-        L\t6\t+\t7\t-\t0M\n\
-        L\t7\t+\t6\t-\t0M\n\
-        L\t7\t-\t6\t+\t0M\n\
-        L\t6\t-\t7\t+\t0M\n".to_string()
-    }
-
-    fn get_test_gfa_4() -> String {
-        "H\tVN:Z:1.0\tKM:i:3\n\
-        S\t1\tACGACTACGAGCACG\tDP:f:1\n\
-        S\t2\tTACGACGACGACT\tDP:f:1\n\
-        S\t3\tACTGACT\tDP:f:1\n\
-        S\t4\tGCTCG\tDP:f:1\n\
-        S\t5\tCAC\tDP:f:1\n\
-        L\t1\t+\t2\t-\t0M\n\
-        L\t2\t+\t1\t-\t0M\n\
-        L\t2\t-\t3\t+\t0M\n\
-        L\t3\t-\t2\t+\t0M\n\
-        L\t3\t+\t1\t+\t0M\n\
-        L\t1\t-\t3\t-\t0M\n\
-        L\t4\t+\t5\t-\t0M\n\
-        L\t5\t+\t4\t-\t0M\n\
-        L\t5\t-\t4\t+\t0M\n\
-        L\t4\t-\t5\t+\t0M".to_string()
-    }
-
-    fn get_test_gfa_5() -> String {
-        "H\tVN:Z:1.0\tKM:i:3\n\
-        S\t1\tAGCATCGACATCGACTACG\tDP:f:1\n\
-        S\t2\tAGCATCAGCATCAGC\tDP:f:1\n\
-        S\t3\tGTCGCATTT\tDP:f:1\n\
-        S\t4\tTCGCGAA\tDP:f:1\n\
-        S\t5\tTTAAAC\tDP:f:1\n\
-        S\t6\tCACA\tDP:f:1\n\
-        L\t1\t+\t5\t+\t0M\n\
-        L\t5\t-\t1\t-\t0M\n\
-        L\t1\t+\t5\t-\t0M\n\
-        L\t5\t+\t1\t-\t0M\n\
-        L\t3\t-\t6\t-\t0M\n\
-        L\t6\t+\t3\t+\t0M\n\
-        L\t4\t+\t4\t+\t0M\n\
-        L\t4\t-\t4\t-\t0M".to_string()
-    }
 
     #[test]
     fn test_graph_stats() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 10);
         assert_eq!(graph.get_total_length(), 92);
         assert_eq!(graph.get_link_count(), 21);
 
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 3);
         assert_eq!(graph.get_total_length(), 31);
         assert_eq!(graph.get_link_count(), 8);
 
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 7);
@@ -957,11 +829,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_1() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert!(graph.link_exists(1, strand::FORWARD, 4, strand::FORWARD));
         assert!(graph.link_exists(4, strand::REVERSE, 1, strand::REVERSE));
         assert!(graph.link_exists(1, strand::FORWARD, 5, strand::REVERSE));
@@ -983,7 +851,6 @@ mod tests {
         assert!(graph.link_exists(10, strand::FORWARD, 8, strand::REVERSE));
         assert!(graph.link_exists(9, strand::FORWARD, 7, strand::FORWARD));
         assert!(graph.link_exists(7, strand::REVERSE, 9, strand::REVERSE));
-
         assert!(!graph.link_exists(5, strand::REVERSE, 5, strand::FORWARD));
         assert!(!graph.link_exists(7, strand::FORWARD, 9, strand::FORWARD));
         assert!(!graph.link_exists(123, strand::FORWARD, 456, strand::FORWARD));
@@ -991,11 +858,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_2() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         assert!(graph.link_exists(1, strand::FORWARD, 2, strand::FORWARD));
         assert!(graph.link_exists(2, strand::REVERSE, 1, strand::REVERSE));
         assert!(graph.link_exists(1, strand::FORWARD, 2, strand::REVERSE));
@@ -1004,7 +867,6 @@ mod tests {
         assert!(graph.link_exists(3, strand::REVERSE, 1, strand::FORWARD));
         assert!(graph.link_exists(1, strand::REVERSE, 3, strand::REVERSE));
         assert!(graph.link_exists(3, strand::FORWARD, 1, strand::FORWARD));
-
         assert!(!graph.link_exists(2, strand::FORWARD, 1, strand::FORWARD));
         assert!(!graph.link_exists(2, strand::FORWARD, 2, strand::REVERSE));
         assert!(!graph.link_exists(2, strand::REVERSE, 3, strand::REVERSE));
@@ -1014,11 +876,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_3() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert!(graph.link_exists(1, strand::FORWARD, 2, strand::REVERSE));
         assert!(graph.link_exists(2, strand::FORWARD, 1, strand::REVERSE));
         assert!(graph.link_exists(2, strand::REVERSE, 3, strand::FORWARD));
@@ -1034,7 +892,6 @@ mod tests {
         assert!(graph.link_exists(7, strand::FORWARD, 6, strand::REVERSE));
         assert!(graph.link_exists(7, strand::REVERSE, 6, strand::FORWARD));
         assert!(graph.link_exists(6, strand::REVERSE, 7, strand::FORWARD));
-
         assert!(!graph.link_exists(1, strand::FORWARD, 3, strand::FORWARD));
         assert!(!graph.link_exists(5, strand::FORWARD, 5, strand::REVERSE));
         assert!(!graph.link_exists(7, strand::REVERSE, 4, strand::REVERSE));
@@ -1043,11 +900,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_prev_1() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert!(graph.link_exists_prev(1, strand::FORWARD, 4, strand::FORWARD));
         assert!(graph.link_exists_prev(4, strand::REVERSE, 1, strand::REVERSE));
         assert!(graph.link_exists_prev(1, strand::FORWARD, 5, strand::REVERSE));
@@ -1069,7 +922,6 @@ mod tests {
         assert!(graph.link_exists_prev(10, strand::FORWARD, 8, strand::REVERSE));
         assert!(graph.link_exists_prev(9, strand::FORWARD, 7, strand::FORWARD));
         assert!(graph.link_exists_prev(7, strand::REVERSE, 9, strand::REVERSE));
-
         assert!(!graph.link_exists_prev(5, strand::REVERSE, 5, strand::FORWARD));
         assert!(!graph.link_exists_prev(7, strand::FORWARD, 9, strand::FORWARD));
         assert!(!graph.link_exists_prev(123, strand::FORWARD, 456, strand::FORWARD));
@@ -1077,11 +929,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_prev_2() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::FORWARD));
         assert!(graph.link_exists_prev(2, strand::REVERSE, 1, strand::REVERSE));
         assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::REVERSE));
@@ -1090,7 +938,6 @@ mod tests {
         assert!(graph.link_exists_prev(3, strand::REVERSE, 1, strand::FORWARD));
         assert!(graph.link_exists_prev(1, strand::REVERSE, 3, strand::REVERSE));
         assert!(graph.link_exists_prev(3, strand::FORWARD, 1, strand::FORWARD));
-
         assert!(!graph.link_exists_prev(2, strand::FORWARD, 1, strand::FORWARD));
         assert!(!graph.link_exists_prev(2, strand::FORWARD, 2, strand::REVERSE));
         assert!(!graph.link_exists_prev(2, strand::REVERSE, 3, strand::REVERSE));
@@ -1100,11 +947,7 @@ mod tests {
 
     #[test]
     fn test_link_exists_prev_3() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
-
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert!(graph.link_exists_prev(1, strand::FORWARD, 2, strand::REVERSE));
         assert!(graph.link_exists_prev(2, strand::FORWARD, 1, strand::REVERSE));
         assert!(graph.link_exists_prev(2, strand::REVERSE, 3, strand::FORWARD));
@@ -1120,7 +963,6 @@ mod tests {
         assert!(graph.link_exists_prev(7, strand::FORWARD, 6, strand::REVERSE));
         assert!(graph.link_exists_prev(7, strand::REVERSE, 6, strand::FORWARD));
         assert!(graph.link_exists_prev(6, strand::REVERSE, 7, strand::FORWARD));
-
         assert!(!graph.link_exists_prev(1, strand::FORWARD, 3, strand::FORWARD));
         assert!(!graph.link_exists_prev(5, strand::FORWARD, 5, strand::REVERSE));
         assert!(!graph.link_exists_prev(7, strand::REVERSE, 4, strand::REVERSE));
@@ -1129,28 +971,19 @@ mod tests {
 
     #[test]
     fn test_max_unitig_number() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert_eq!(graph.max_unitig_number(), 10);
 
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         assert_eq!(graph.max_unitig_number(), 3);
 
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.max_unitig_number(), 7);
     }
 
     #[test]
     fn test_delete_link_and_create_link() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (mut graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
         graph.delete_link(-3, 1);
         assert_eq!(graph.unitigs.len(), 10);
@@ -1190,10 +1023,7 @@ mod tests {
 
     #[test]
     fn test_get_sequence_from_path() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let ( graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
         assert_eq!(graph.get_sequence_from_path(&vec![(10, true), (8, false), (4, false), (1, false), (3, true)]),
                    "TAGATCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCCTGAATCGCCTA".to_string());
@@ -1201,7 +1031,6 @@ mod tests {
                    "CGAACCATTACTTGTACAAGTAATGGTTCG".to_string());
         assert_eq!(graph.get_sequence_from_path(&vec![(3, false), (1, true), (4, true), (7, false), (9, false), (7, true), (4, false), (1, false), (2, false)]),
                    "TAGGCGATTCAGGCATTCGCTGCGCTCGCTTCGCTTTGCTCGGCTCGAAGGCGCGCCTTCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCACAGCGACGACGGCA".to_string());
-
 
         assert_eq!(graph.get_sequence_from_path_signed(&vec![10, -8, -4, -1, 3]),
                    "TAGATCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCCTGAATCGCCTA".as_bytes());
@@ -1213,57 +1042,41 @@ mod tests {
 
     #[test]
     fn test_connected_components() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]);
 
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3]]);
 
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7]]);
 
-        make_test_file(&gfa_filename, &get_test_gfa_4());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3], vec![4, 5]]);
 
-        make_test_file(&gfa_filename, &get_test_gfa_5());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
         assert_eq!(graph.connected_components(), vec![vec![1, 5], vec![2], vec![3, 6], vec![4]]);
     }
 
     #[test]
     fn test_component_is_circular_loop() {
-        let temp_dir = tempdir().unwrap();
-        let gfa_filename = temp_dir.path().join("graph.gfa");
-
-        make_test_file(&gfa_filename, &get_test_gfa_1());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 
-        make_test_file(&gfa_filename, &get_test_gfa_2());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         assert!(!graph.component_is_circular_loop(&vec![1, 2, 3]));
 
-        make_test_file(&gfa_filename, &get_test_gfa_3());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7]));
 
-        make_test_file(&gfa_filename, &get_test_gfa_4());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
         assert!(graph.component_is_circular_loop(&vec![1, 2, 3]));
         assert!(graph.component_is_circular_loop(&vec![3, 2, 1]));
         assert!(graph.component_is_circular_loop(&vec![2, 3, 1]));
         assert!(graph.component_is_circular_loop(&vec![4, 5]));
         assert!(graph.component_is_circular_loop(&vec![5, 4]));
 
-        make_test_file(&gfa_filename, &get_test_gfa_5());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa_filename);
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
         assert!(!graph.component_is_circular_loop(&vec![1, 5]));
         assert!(!graph.component_is_circular_loop(&vec![2]));
         assert!(!graph.component_is_circular_loop(&vec![3, 6]));

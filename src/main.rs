@@ -26,10 +26,10 @@ mod position;
 mod resolve;
 mod sequence;
 mod tests;
+mod test_gfa;
 mod trim;
 mod unitig;
 mod unitig_graph;
-
 
 #[derive(Parser)]
 #[clap(name = "Autocycler",
