@@ -512,10 +512,13 @@ impl UnitigGraph {
     }
 
     pub fn remove_zero_depth_unitigs(&mut self) {
-        // Removes zero-depth unitigs from the graph. Doing so can create new dead-ends, so this
-        // function first un-trims the contigs (adds overlap back on) and then re-trims after the
-        // unitigs have been deleted.
         self.unitigs.retain(|u| u.borrow().depth > 0.0);
+        self.delete_dangling_links();
+        self.build_unitig_index();
+    }
+
+    pub fn remove_unitigs_by_number(&mut self, to_remove: HashSet<u32>) {
+        self.unitigs.retain(|u| !to_remove.contains(&u.borrow().number));
         self.delete_dangling_links();
         self.build_unitig_index();
     }
@@ -1102,5 +1105,15 @@ mod tests {
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 9], vec![8, 10]]);
         graph.delete_link(-3, 1);
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 4, 5, 6, 7, 9], vec![3], vec![8, 10]]);
+    }
+
+    #[test]
+    fn test_remove_unitigs_by_number() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]);
+        graph.remove_unitigs_by_number(HashSet::from([4, 5]));
+        assert_eq!(graph.connected_components(), vec![vec![1, 2, 3], vec![6], vec![7, 9], vec![8, 10]]);
+        graph.remove_unitigs_by_number(HashSet::from([1]));
+        assert_eq!(graph.connected_components(), vec![vec![2], vec![3], vec![6], vec![7, 9], vec![8, 10]]);
     }
 }

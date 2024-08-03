@@ -339,6 +339,10 @@ impl UnitigStrand {
     pub fn get_seq(&self) -> Vec<u8> {
         self.unitig.borrow().get_seq(self.strand)
     }
+
+    pub fn anchor(&self) -> bool {
+        self.unitig.borrow().anchor
+    }
 }
 
 impl fmt::Display for UnitigStrand {

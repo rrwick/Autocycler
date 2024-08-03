@@ -30,13 +30,13 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn resolve(cluster_dir: PathBuf) {
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
-    let unique_gfa = cluster_dir.join("4_unique.gfa");
-    let final_gfa = cluster_dir.join("5_final.gfa");
+    let unique_gfa = cluster_dir.join("5_unique.gfa");
+    let final_gfa = cluster_dir.join("6_final.gfa");
     check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
     print_settings(&cluster_dir);
     let gfa_lines = load_file_lines(&trimmed_gfa);
-    let (mut unitig_graph, sequences) = load_graph(&gfa_lines, true);
+    let (mut unitig_graph, sequences) = load_graph(&gfa_lines, true, None);
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
     let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors);
     let bridge_depth = sequences.len() as f64;
@@ -47,7 +47,7 @@ pub fn resolve(cluster_dir: PathBuf) {
     unitig_graph.save_gfa(&unique_gfa, &vec![]).unwrap();
     let cull_count = cull_ambiguity(&mut bridges);
     if cull_count > 0 {
-        (unitig_graph, _) = load_graph(&gfa_lines, false);
+        (unitig_graph, _) = load_graph(&gfa_lines, false, Some(&anchors));
         apply_final_message();
         apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
     } else {
@@ -97,12 +97,18 @@ fn print_settings(cluster_dir: &PathBuf) {
 }
 
 
-fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa_lines: &Vec<String>, print_info: bool,
+              anchors: Option<&Vec<u32>>) -> (UnitigGraph, Vec<Sequence>) {
     if print_info {
         section_header("Loading graph");
         explanation("The unitig graph is now loaded into memory.");
     }
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
+    if let Some(anchors) = anchors {
+        for num in anchors {
+            unitig_graph.unitig_index.get(&num).unwrap().borrow_mut().anchor = true;
+        }
+    }
     if print_info {
         unitig_graph.print_basic_graph_info();
     }
@@ -122,12 +128,6 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
         let mut unitig = unitig_rc.borrow_mut();
         let mut forward_seq_ids: Vec<_> = unitig.forward_positions.iter().map(|p| p.seq_id()).collect();
         forward_seq_ids.sort();
-
-        // TODO: I can probably remove this later for performance - it's just a sanity check.
-        let mut reverse_seq_ids: Vec<_> = unitig.reverse_positions.iter().map(|p| p.seq_id()).collect();
-        reverse_seq_ids.sort();
-        assert!(forward_seq_ids == reverse_seq_ids);
-
         if forward_seq_ids == all_seq_ids {
             unitig.anchor = true;
             anchor_ids.push(unitig.number);
@@ -212,8 +212,7 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
             graph.create_link(bridge_num as i32, bridge.end)
         }
     }
-
-    // TODO: delete unitigs that are no longer connected to an anchor.
+    delete_unitigs_not_connected_to_anchor(graph);
 
     // TODO: delete non-anchor tips, repeat until none are found.
 
@@ -232,6 +231,17 @@ fn reduce_depths(graph: &mut UnitigGraph, bridge: &Bridge) {
             unitig.reduce_depth_by_one();
         }
     }
+}
+
+
+fn delete_unitigs_not_connected_to_anchor(graph: &mut UnitigGraph) {
+    let to_delete: HashSet<u32> = graph.connected_components().into_iter()
+        .filter_map(|component| {
+            if component.iter().all(|&num| !graph.unitig_index.get(&num).unwrap().borrow().anchor) { Some(component) }
+            else { None } })
+        .flat_map(|component| component.into_iter())
+        .collect();
+    graph.remove_unitigs_by_number(to_delete);
 }
 
 
