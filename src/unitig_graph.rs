@@ -471,7 +471,9 @@ impl UnitigGraph {
     }
 
     pub fn print_basic_graph_info(&self) {
-        eprintln!("{} unitigs, {} links", self.unitigs.len(), self.get_link_count());
+        eprintln!("{} unitig{}, {} link{}",
+                  self.unitigs.len(), match self.unitigs.len() { 1 => "", _ => "s" },
+                  self.get_link_count(), match self.get_link_count() { 1 => "", _ => "s" });
         eprintln!("total length: {} bp", self.get_total_length());
         eprintln!();
     }

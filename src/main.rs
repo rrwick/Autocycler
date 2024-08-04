@@ -134,6 +134,10 @@ enum Commands {
         /// Autocycler directory (required)
         #[clap(short = 'c', long = "cluster_dir", required = true)]
         cluster_dir: PathBuf,
+
+        /// Enable verbose output
+        #[clap(long = "verbose")]
+        verbose: bool,
     },
 }
 
@@ -154,8 +158,8 @@ fn main() {
         Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
             trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
         },
-        Some(Commands::Resolve { cluster_dir }) => {
-            resolve::resolve(cluster_dir);
+        Some(Commands::Resolve { cluster_dir, verbose }) => {
+            resolve::resolve(cluster_dir, verbose);
         },
         None => {}
     }

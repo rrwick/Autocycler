@@ -30,6 +30,7 @@ pub struct Unitig {
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
     pub anchor: bool,
+    pub bridge: bool,
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
     pub forward_next: Vec<UnitigStrand>,
@@ -53,6 +54,7 @@ impl Unitig {
             reverse_seq: Vec::new(),
             depth: 0.0,
             anchor: false,
+            bridge: false,
             forward_positions: Vec::new(),
             reverse_positions: Vec::new(),
             forward_next: Vec::new(),
@@ -87,6 +89,7 @@ impl Unitig {
             reverse_seq,
             depth,
             anchor: false,
+            bridge: false,
             forward_positions: Vec::new(),
             reverse_positions: Vec::new(),
             forward_next: Vec::new(),
@@ -96,7 +99,7 @@ impl Unitig {
         }
     }
 
-    pub fn manual(number: u32, forward_seq: Vec<u8>, anchor: bool,
+    pub fn manual(number: u32, forward_seq: Vec<u8>,
                   forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
                   forward_next: Vec<UnitigStrand>, forward_prev: Vec<UnitigStrand>,
                   reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>,
@@ -112,7 +115,8 @@ impl Unitig {
             forward_seq,
             reverse_seq,
             depth,
-            anchor,
+            anchor: false,
+            bridge: false,
             forward_positions,
             reverse_positions,
             forward_next,
@@ -133,6 +137,7 @@ impl Unitig {
             reverse_seq,
             depth,
             anchor: false,
+            bridge: true,
             forward_positions: vec![],
             reverse_positions: vec![],
             forward_next: vec![],
@@ -209,7 +214,13 @@ impl Unitig {
 
     pub fn gfa_segment_line(&self) -> String {
         let seq_str = String::from_utf8_lossy(&self.forward_seq);
-        let colour_tag = if self.anchor { "\tCL:z:forestgreen" } else { "" };
+        let colour_tag = if self.anchor {
+            "\tCL:z:forestgreen"
+        } else if self.bridge {
+            "\tCL:z:pink"
+        } else {
+            ""
+        };
         format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth, colour_tag)
     }
 

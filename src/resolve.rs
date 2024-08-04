@@ -28,28 +28,37 @@ use crate::unitig::Unitig;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn resolve(cluster_dir: PathBuf) {
+pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
-    let unique_gfa = cluster_dir.join("5_unique.gfa");
-    let final_gfa = cluster_dir.join("6_final.gfa");
+    let bridged_gfa = cluster_dir.join("5_bridged.gfa");
+    let merged_gfa = cluster_dir.join("6_merged.gfa");
+    let final_gfa = cluster_dir.join("7_final.gfa");
+
     check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
-    print_settings(&cluster_dir);
+    print_settings(&cluster_dir, verbose);
+
     let gfa_lines = load_file_lines(&trimmed_gfa);
     let (mut unitig_graph, sequences) = load_graph(&gfa_lines, true, None);
+
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
     let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors);
     let bridge_depth = sequences.len() as f64;
     determine_ambiguity(&mut bridges);
-    print_bridges(&bridges);
+    print_bridges(&bridges, verbose);
+
     apply_unique_message();
     apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
-    unitig_graph.save_gfa(&unique_gfa, &vec![]).unwrap();
-    let cull_count = cull_ambiguity(&mut bridges);
+    unitig_graph.save_gfa(&bridged_gfa, &vec![]).unwrap();
+    merge_after_bridging(&mut unitig_graph, bridge_depth);
+    unitig_graph.save_gfa(&merged_gfa, &vec![]).unwrap();
+
+    let cull_count = cull_ambiguity(&mut bridges, verbose);
     if cull_count > 0 {
         (unitig_graph, _) = load_graph(&gfa_lines, false, Some(&anchors));
         apply_final_message();
         apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
+        merge_after_bridging(&mut unitig_graph, bridge_depth);
     } else {
         eprintln!("All bridges were unique, no culling necessary.\n");
     }
@@ -90,9 +99,12 @@ fn finished_message(final_gfa: &PathBuf) {
 }
 
 
-fn print_settings(cluster_dir: &PathBuf) {
+fn print_settings(cluster_dir: &PathBuf, verbose: bool) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
+    if verbose {
+        eprintln!("  --verbose");
+    }
     eprintln!();
 }
 
@@ -132,9 +144,12 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
             unitig.anchor = true;
             anchor_ids.push(unitig.number);
         }
-
-        // TODO: dead-ends (with or without a hairpin connection) should also become anchors.
     }
+
+    // TODO: add additional logic to better handle blunt ends of linear replicons?
+
+    // TODO: I should also allow users to manually specify anchor unitigs via their ID.
+
     eprintln!("{} anchor unitig{} found", anchor_ids.len(), match anchor_ids.len() { 1 => "", _ => "s" });
     eprintln!();
     anchor_ids
@@ -214,8 +229,11 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
     }
     delete_unitigs_not_connected_to_anchor(graph);
 
-    // TODO: delete non-anchor tips, repeat until none are found.
+    // TODO: add logic for removing non-anchor tips to handle blunt ends?
+}
 
+
+fn merge_after_bridging(graph: &mut UnitigGraph, bridge_depth: f64) {
     merge_linear_paths(graph, &vec![], Some(bridge_depth));
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
@@ -245,7 +263,7 @@ fn delete_unitigs_not_connected_to_anchor(graph: &mut UnitigGraph) {
 }
 
 
-fn cull_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
+fn cull_ambiguity(bridges: &mut Vec<Bridge>, verbose: bool) -> usize {
     let mut ambi_bridges: Vec<_> = bridges.iter().filter(|b| b.conflicting).collect();
     if ambi_bridges.is_empty() {
         return 0;
@@ -255,38 +273,50 @@ fn cull_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
                  conflict.");
     ambi_bridges.sort_by(|a, b| a.depth().cmp(&b.depth()).then(a.cmp(b)));
     let mut cull_count = 0;
+    if verbose {
+        eprintln!("Culled bridges:");
+    }
     while !ambi_bridges.is_empty() {
         let to_cull = ambi_bridges[0];
-        eprintln!("CULLING: {}", to_cull);
+        if verbose {
+            eprintln!("  {}", to_cull);
+        }
         bridges.remove(bridges.iter().position(|b| b.start == to_cull.start && b.end == to_cull.end).unwrap());
         cull_count += 1;
         determine_ambiguity(bridges);
         ambi_bridges = bridges.iter().filter(|b| b.conflicting).collect();
         ambi_bridges.sort_by(|a, b| a.depth().cmp(&b.depth()).then(a.cmp(b)));
     }
+    if verbose { eprintln!(); }
+    eprintln!("{} conflicting bridge{} culled", cull_count, match cull_count { 1 => "", _ => "s" });
     eprintln!();
     cull_count
 }
 
 
-fn print_bridges(bridges: &Vec<Bridge>) {
+fn print_bridges(bridges: &Vec<Bridge>, verbose: bool) {
     let unique_count = bridges.iter().filter(|b| !b.conflicting).count();
     let conflicting_count = bridges.iter().filter(|b| b.conflicting).count();
-    if unique_count > 0 {
-        eprintln!("Unique bridges:");
-        for b in bridges {
-            if !b.conflicting {
-                eprintln!("  {}", b);
+    if verbose {
+        if unique_count > 0 {
+            eprintln!("Unique bridges:");
+            for b in bridges {
+                if !b.conflicting {
+                    eprintln!("  {}", b);
+                }
             }
         }
-    }
-    if conflicting_count > 0 {
-        eprintln!("\nConflicting bridges:");
-        for b in bridges {
-            if b.conflicting {
-                eprintln!("  {}", b);
+        if conflicting_count > 0 {
+            eprintln!("\nConflicting bridges:");
+            for b in bridges {
+                if b.conflicting {
+                    eprintln!("  {}", b);
+                }
             }
         }
+    } else {
+        eprintln!("     Unique bridges: {}", unique_count);
+        eprintln!("Conflicting bridges: {}", conflicting_count);
     }
     eprintln!();
 }
