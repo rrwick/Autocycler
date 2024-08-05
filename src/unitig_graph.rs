@@ -460,26 +460,47 @@ impl UnitigGraph {
         unitig_path.iter().map(|(u, s)| if *s { *u as i32 } else { -(*u as i32)}).collect()
     }
 
-    pub fn get_total_length(&self) -> u32 {
+    pub fn total_length(&self) -> u32 {
         self.unitigs.iter().map(|u| u.borrow().length()).sum()
     }
 
-    pub fn get_link_count(&self) -> u32 {
-        let mut link_count = 0;
-        for unitig in &self.unitigs {
-            link_count += unitig.borrow().forward_next.len();
-            link_count += unitig.borrow().reverse_next.len();
+    pub fn link_count(&self) -> (usize, usize) {
+        // Returns the number of links in the graph in two ways:
+        // * All links (both directions, as Bandage would show in double mode)
+        // * Single-direction links (no redundancy, as Bandage would show in single mode)
+        // Usually the former is twice the latter, but not when there are hairpin links (which don't
+        // have a reverse).
+        let mut all_links = HashSet::new();
+        let mut one_way_links = HashSet::new();
+        for a_rc in &self.unitigs {
+            let a = a_rc.borrow();
+            let a_num = a_rc.borrow().number as i32;
+            for b in &a.forward_next {
+                let b_num = b.signed_number();
+                let link = (a_num, b_num);
+                let rev_link = (-b_num, -a_num);
+                all_links.insert(link);
+                all_links.insert(rev_link);
+                one_way_links.insert(if link > rev_link { link } else { rev_link });
+            }
+            for b in &a.reverse_next {
+                let b_num = b.signed_number();
+                let link = (-a_num, b_num);
+                let rev_link = (-b_num, a_num);
+                all_links.insert(link);
+                all_links.insert(rev_link);
+                one_way_links.insert(if link > rev_link { link } else { rev_link });
+            }
         }
-        // TODO: fix link count to not count both directions. Convert each to a canonical direction
-        //       and remove duplicates.
-        link_count.try_into().unwrap()
+        (all_links.len(), one_way_links.len())
     }
 
     pub fn print_basic_graph_info(&self) {
+        let link_count = self.link_count().1;
         eprintln!("{} unitig{}, {} link{}",
                   self.unitigs.len(), match self.unitigs.len() { 1 => "", _ => "s" },
-                  self.get_link_count(), match self.get_link_count() { 1 => "", _ => "s" });
-        eprintln!("total length: {} bp", self.get_total_length());
+                  link_count, match link_count { 1 => "", _ => "s" });
+        eprintln!("total length: {} bp", self.total_length());
         eprintln!();
     }
 
@@ -805,22 +826,50 @@ mod tests {
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 21);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (21, 11));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 3);
-        assert_eq!(graph.get_total_length(), 31);
-        assert_eq!(graph.get_link_count(), 8);
+        assert_eq!(graph.total_length(), 31);
+        assert_eq!(graph.link_count(), (8, 4));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         graph.check_links();
         assert_eq!(graph.k_size, 9);
         assert_eq!(graph.unitigs.len(), 7);
-        assert_eq!(graph.get_total_length(), 85);
-        assert_eq!(graph.get_link_count(), 15);
+        assert_eq!(graph.total_length(), 85);
+        assert_eq!(graph.link_count(), (15, 8));
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
+        graph.check_links();
+        assert_eq!(graph.k_size, 3);
+        assert_eq!(graph.unitigs.len(), 5);
+        assert_eq!(graph.total_length(), 43);
+        assert_eq!(graph.link_count(), (10, 5));
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        graph.check_links();
+        assert_eq!(graph.k_size, 3);
+        assert_eq!(graph.unitigs.len(), 6);
+        assert_eq!(graph.total_length(), 60);
+        assert_eq!(graph.link_count(), (8, 4));
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_6());
+        graph.check_links();
+        assert_eq!(graph.k_size, 3);
+        assert_eq!(graph.unitigs.len(), 2);
+        assert_eq!(graph.total_length(), 34);
+        assert_eq!(graph.link_count(), (2, 1));
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_7());
+        graph.check_links();
+        assert_eq!(graph.k_size, 3);
+        assert_eq!(graph.unitigs.len(), 2);
+        assert_eq!(graph.total_length(), 34);
+        assert_eq!(graph.link_count(), (2, 1));
     }
 
     #[test]
@@ -997,38 +1046,38 @@ mod tests {
 
         graph.delete_link(-3, 1);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 19);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (19, 10));
 
         graph.delete_link(6, -6);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 18);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (18, 9));
 
         graph.delete_link(5, 6);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 16);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (16, 8));
 
         graph.delete_link(-1, 7);  // link doesn't exist, should do nothing
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 16);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (16, 8));
 
         graph.create_link(5, 6);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 18);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (18, 9));
 
         graph.create_link(6, -6);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 19);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (19, 10));
 
         graph.create_link(-3, 1);
         assert_eq!(graph.unitigs.len(), 10);
-        assert_eq!(graph.get_total_length(), 92);
-        assert_eq!(graph.get_link_count(), 21);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (21, 11));
     }
 
     #[test]
