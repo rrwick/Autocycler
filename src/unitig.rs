@@ -295,6 +295,16 @@ impl Unitig {
             self.depth = 0.0;
         }
     }
+
+    pub fn is_isolated_and_circular(&self) -> bool {
+        // Returns whether or not this unitig has a circularising link and no other links.
+        if self.forward_next.len() != 1 || self.forward_prev.len() != 1 {
+            return false;
+        }
+        let next = &self.forward_next[0];
+        let prev = &self.forward_prev[0];
+        next.number() == self.number && next.strand && prev.number() == self.number && prev.strand
+    }
 }
 
 impl fmt::Display for Unitig {

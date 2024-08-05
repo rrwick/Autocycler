@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, crate_version};
 
 mod cluster;
+mod combine;
 mod compress;
 mod decompress;
 mod graph_simplification;
@@ -80,8 +81,8 @@ enum Commands {
         #[clap(short = 'i', long = "in_gfa", required = true)]
         in_gfa: PathBuf,
 
-        /// Directory where decompressed assemblies will be saved (required)
-        #[clap(short = 'd', long = "out_dir", required = true)]
+        /// Directory where decompressed sequences will be saved (required)
+        #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
     },
 
@@ -139,6 +140,17 @@ enum Commands {
         #[clap(long = "verbose")]
         verbose: bool,
     },
+
+    /// combine Autocycler GFAs into one assembly
+    Combine {
+        /// Autocycler GFA files (one or more required)
+        #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
+        in_gfas: Vec<PathBuf>,
+
+        /// Output prefix (required)
+        #[clap(short = 'o', long = "out_prefix", required = true)]
+        out_prefix: PathBuf,
+    },
 }
 
 
@@ -160,6 +172,9 @@ fn main() {
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
+        },
+        Some(Commands::Combine { in_gfas, out_prefix }) => {
+            combine::combine(in_gfas, out_prefix);
         },
         None => {}
     }

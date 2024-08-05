@@ -654,7 +654,7 @@ mod tests {
                     "GCTCGGCTCGATGGTTCG");
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&10).unwrap().borrow().forward_seq).unwrap(),
                     "TACTTGTAAGGC");
-        let mut links = graph.get_links_for_gfa();
+        let mut links = graph.get_links_for_gfa(0);
         let mut expected_links = vec![("8".to_string(), "+".to_string(), "9".to_string(), "+".to_string()),
                                       ("9".to_string(), "-".to_string(), "8".to_string(), "-".to_string()),
                                       ("9".to_string(), "+".to_string(), "9".to_string(), "-".to_string()),
@@ -676,7 +676,7 @@ mod tests {
                    "ACGACTACGAGCACGAGTCGTCGTCGTAACTGACT");
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
                    "GCTCGGTG");
-        let mut links = graph.get_links_for_gfa();
+        let mut links = graph.get_links_for_gfa(0);
         let mut expected_links = vec![("6".to_string(), "+".to_string(), "6".to_string(), "+".to_string()),
                                       ("6".to_string(), "-".to_string(), "6".to_string(), "-".to_string()),
                                       ("7".to_string(), "+".to_string(), "7".to_string(), "+".to_string()),

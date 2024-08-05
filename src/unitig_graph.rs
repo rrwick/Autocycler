@@ -326,7 +326,7 @@ impl UnitigGraph {
         for unitig in &self.unitigs {
             writeln!(file, "{}", unitig.borrow().gfa_segment_line())?;
         }
-        for (a, a_strand, b, b_strand) in self.get_links_for_gfa() {
+        for (a, a_strand, b, b_strand) in self.get_links_for_gfa(0) {
             writeln!(file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand)?;
         }
         for s in sequences {
@@ -335,16 +335,19 @@ impl UnitigGraph {
         Ok(())
     }
 
-    pub fn get_links_for_gfa(&self) -> Vec<(String, String, String, String)> {
+    pub fn get_links_for_gfa(&self, offset: u32) -> Vec<(String, String, String, String)> {
         let mut links = Vec::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
+            let a_num = a.number + offset;
             for b in &a.forward_next {
-                links.push((a.number.to_string(), "+".to_string(), b.number().to_string(),
+                let b_num = b.number() + offset;
+                links.push((a_num.to_string(), "+".to_string(), b_num.to_string(),
                             (if b.strand {"+"} else {"-"}).to_string()));
             }
             for b in &a.reverse_next {
-                links.push((a.number.to_string(), "-".to_string(), b.number().to_string(),
+                let b_num = b.number() + offset;
+                links.push((a_num.to_string(), "-".to_string(), b_num.to_string(),
                             (if b.strand {"+"} else {"-"}).to_string()));
             }
         }
@@ -467,6 +470,8 @@ impl UnitigGraph {
             link_count += unitig.borrow().forward_next.len();
             link_count += unitig.borrow().reverse_next.len();
         }
+        // TODO: fix link count to not count both directions. Convert each to a canonical direction
+        //       and remove duplicates.
         link_count.try_into().unwrap()
     }
 
@@ -1117,5 +1122,46 @@ mod tests {
         assert_eq!(graph.connected_components(), vec![vec![1, 2, 3], vec![6], vec![7, 9], vec![8, 10]]);
         graph.remove_unitigs_by_number(HashSet::from([1]));
         assert_eq!(graph.connected_components(), vec![vec![2], vec![3], vec![6], vec![7, 9], vec![8, 10]]);
+    }
+
+    #[test]
+    fn test_is_isolated_and_circular() {
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        assert!(!graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_circular());
+        assert!(!graph.unitig_index.get(&2).unwrap().borrow().is_isolated_and_circular());
+        assert!(!graph.unitig_index.get(&3).unwrap().borrow().is_isolated_and_circular());
+        assert!(graph.unitig_index.get(&4).unwrap().borrow().is_isolated_and_circular());
+        assert!(!graph.unitig_index.get(&5).unwrap().borrow().is_isolated_and_circular());
+        assert!(!graph.unitig_index.get(&6).unwrap().borrow().is_isolated_and_circular());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_6());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_7());
+        for unitig in &graph.unitigs {
+            assert!(!unitig.borrow().is_isolated_and_circular());
+        }
     }
 }
