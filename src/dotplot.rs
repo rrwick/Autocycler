@@ -11,10 +11,9 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-use ab_glyph::{FontArc, PxScale, ScaleFont};
+use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use image::{RgbImage, Rgb};
-use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, draw_hollow_rect_mut,
-                         draw_line_segment_mut};
+use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,35 +30,47 @@ static BETWEEN_SEQ_GAP: f64 = 0.01;
 static OUTLINE_WIDTH: f64 = 0.0015;
 static TEXT_GAP: f64 = 0.005;
 static MAX_FONT_SIZE: f64 = 0.025;
-static BACKGROUND_COLOUR: image::Rgb<u8> = Rgb([255, 255, 255]);  // white
-static SELF_VS_SELF_COLOUR: image::Rgb<u8> = Rgb([211, 211, 211]);  // lightgrey
-static SELF_VS_OTHER_COLOUR: image::Rgb<u8> = Rgb([245, 245, 245]);  // whitesmoke
-static TEXT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 0]);  // black
-static OUTLINE_COLOUR: image::Rgb<u8> = Rgb([0, 0, 0]);  // black
-static FORWARD_STRAND_DOT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 205]);  // mediumblue
+static BACKGROUND_COLOUR: image::Rgb<u8> = Rgb([255, 255, 255]);        // white
+static SELF_VS_SELF_COLOUR: image::Rgb<u8> = Rgb([211, 211, 211]);      // lightgrey
+static SELF_VS_OTHER_COLOUR: image::Rgb<u8> = Rgb([245, 245, 245]);     // whitesmoke
+static TEXT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 0]);                    // black
+static OUTLINE_COLOUR: image::Rgb<u8> = Rgb([0, 0, 0]);                 // black
+static FORWARD_STRAND_DOT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 205]);    // mediumblue
 static REVERSE_STRAND_DOT_COLOUR: image::Rgb<u8> = Rgb([178, 34, 34]);  // firebrick
 
 
 pub fn dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: &PathBuf, res: u32,
                kmer: u32) {
     let seqs = graph.reconstruct_original_sequences_vec(sequences);
-    let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).expect("Error loading font");
-    let mut img = RgbImage::new(res, res);
-    draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(res, res), BACKGROUND_COLOUR);
-    let (top_left_gap, border_gap, between_seq_gap,
-         text_gap, outline_width, max_font_size) = get_sizes(res);
 
+    // We create an initial image to test the label sizes.
+    let (top_left_gap, border_gap, between_seq_gap,
+        text_gap, outline_width, max_font_size) = get_sizes(res);
     let (start_positions, end_positions, bp_per_pixel) =
         get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
-    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, true);
+    let mut img = RgbImage::new(res, res);
+    let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).expect("Error loading font");
+    let text_height = draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap,
+                                  outline_width, &font, max_font_size);
 
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
-    // TODO
+    // Now that we know the values for text_height, we start over, this time readjusting the
+    // top-left gap (so it isn't bigger than necessary).
+    let top_left_gap = (2.0 * text_height) as u32 + border_gap;
+    let (start_positions, end_positions, bp_per_pixel) =
+        get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
+    draw_filled_rect_mut(&mut img, Rect::at(0, 0).of_size(res, res), BACKGROUND_COLOUR);
+    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, true);
+    for (name_a, seq_a) in &seqs {
+        for (name_b, seq_b) in &seqs {
+            draw_dots(&mut img, name_a, name_b, seq_a, seq_b, &start_positions, bp_per_pixel, kmer);
+        }
+    }
+    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, outline_width,
+                &font, max_font_size);
+
+    // The boxes are drawn once more, this time with no fill. This is to overwrite any dots which
+    // leaked into the outline, which would look messy.
+    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, false);
 
     img.save(png_filename).unwrap();
 }
@@ -125,4 +136,66 @@ fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), String)
             draw_hollow_rect_mut(img, rect, OUTLINE_COLOUR);
         }
     }
+}
+
+
+fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), String)>,
+               start_positions: &HashMap<(String, String), u32>,
+               end_positions: &HashMap<(String, String), u32>,
+               text_gap: u32, outline_width: u32, font: &FontArc, max_font_size: u32) -> f32 {
+    let min_pos = start_positions.values().min().cloned().unwrap_or_default();
+
+    let mut text_height = max_font_size as f32;
+    let mut scale = PxScale::from(text_height);
+
+    // Reduce the scale as needed to ensure that all labels will fit in their available space.
+    for (name, _) in seqs {
+        let (filename, contig_name) = name;
+        let start = start_positions[name];
+        let end = end_positions[name];
+        let available_width = (end - start) as f32;
+        let text_width = calculate_text_width(&filename, scale, &font).max(
+                         calculate_text_width(&contig_name, scale, &font));
+        if text_width > available_width {
+            text_height *= available_width / text_width;
+            scale = PxScale::from(text_height);
+        }
+    }
+
+    for (name, _) in seqs {
+        let (filename, contig_name) = name;
+        let start = start_positions[name];
+
+        // Horizontal labels on the top side.
+        let pos_1 = min_pos - outline_width - text_gap - (text_height as u32);
+        let pos_2 = pos_1 - (text_height as u32);
+        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, contig_name);
+        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, &filename);
+
+        // TODO: draw vertical labels on the left side.
+    }
+    text_height
+}
+
+
+fn calculate_text_width(text: &str, scale: PxScale, font: &FontArc) -> f32 {
+    let scaled_font = font.as_scaled(scale);
+    text.chars()
+        .filter_map(|c| {
+            let glyph_id = scaled_font.glyph_id(c);
+            Some(scaled_font.h_advance(glyph_id))
+        }).sum()
+}
+
+
+fn draw_dots(img: &mut RgbImage, name_a: &(String, String), name_b: &(String, String),
+             seq_a: &String, seq_b: &String, start_positions: &HashMap<(String, String), u32>,
+             bp_per_pixel: f64, kmer_size: u32) {
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
 }
