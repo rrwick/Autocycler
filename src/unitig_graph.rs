@@ -365,11 +365,21 @@ impl UnitigGraph {
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
-        let mut original_seqs: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut original_seqs = HashMap::new();
         for seq in seqs {
             let (filename, header, sequence) = self.reconstruct_original_sequence(&seq);
             original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
         }
+        original_seqs
+    }
+
+    pub fn reconstruct_original_sequences_vec(&self, seqs: &Vec<Sequence>) -> Vec<((String, String), String)> {
+        let mut original_seqs = Vec::new();
+        for seq in seqs {
+            let (filename, _header, sequence) = self.reconstruct_original_sequence(&seq);
+            original_seqs.push(((filename, seq.contig_name()), sequence));
+        }
+        original_seqs.sort();
         original_seqs
     }
 

@@ -18,6 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::dotplot::dotplot;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
@@ -30,7 +31,8 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, threads: usize) {
+pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, res: u32,
+            kmer: u32, threads: usize) {
     let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
     let untrimmed_dotplots = cluster_dir.join("2_untrimmed_dotplots.png");
     let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
@@ -38,20 +40,16 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     check_settings(&cluster_dir, &untrimmed_gfa, min_identity, threads);
     starting_message();
     print_settings(&cluster_dir, min_identity, max_unitigs, mad, threads);
-    let (mut unitig_graph, sequences) = load_graph(&untrimmed_gfa);
-
-    // TODO: create dotplots of the sequences before trimming
-
-    let unitig_lengths: HashMap<_, _> = unitig_graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
-    let start_end_results = trim_start_end_overlap(&unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
-    let hairpin_results = trim_harpin_overlap(&unitig_graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
-    let sequences = choose_trim_type(start_end_results, hairpin_results, &mut unitig_graph, &sequences);
-    let sequences = exclude_outliers_in_length(&mut unitig_graph, &sequences, mad);
-    clean_up_graph(&mut unitig_graph, &sequences);
-    unitig_graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
-
-    // TODO: create dotplots of the sequences after trimming
-
+    let (mut graph, sequences) = load_graph(&untrimmed_gfa);
+    dotplot(&graph, &sequences, &untrimmed_dotplots, res, kmer);
+    let unitig_lengths: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
+    let start_end_results = trim_start_end_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
+    let hairpin_results = trim_harpin_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
+    let sequences = choose_trim_type(start_end_results, hairpin_results, &mut graph, &sequences);
+    let sequences = exclude_outliers_in_length(&mut graph, &sequences, mad);
+    clean_up_graph(&mut graph, &sequences);
+    graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
+    dotplot(&graph, &sequences, &trimmed_dotplots, res, kmer);
     finished_message(&untrimmed_dotplots, &trimmed_gfa, &trimmed_dotplots);
 }
 

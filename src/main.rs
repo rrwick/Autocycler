@@ -19,6 +19,7 @@ mod cluster;
 mod combine;
 mod compress;
 mod decompress;
+mod dotplot;
 mod graph_simplification;
 mod kmer_graph;
 mod log;
@@ -125,6 +126,14 @@ enum Commands {
         #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
 
+        /// Size (in pixels) of dot plots
+        #[clap(long = "res", default_value = "2000")]
+        res: u32,
+
+        /// K-mer size to use in dot plots
+        #[clap(long = "kmer", default_value = "32")]
+        kmer: u32,
+
         /// Number of CPU threads
         #[clap(short = 't', long = "threads", default_value = "8")]
         threads: usize,
@@ -167,8 +176,8 @@ fn main() {
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
         },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, res, kmer, threads }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad, res, kmer, threads);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
