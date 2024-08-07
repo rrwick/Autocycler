@@ -18,7 +18,6 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::dotplot::dotplot;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
@@ -31,19 +30,13 @@ const GAP: i32 = 0;
 const NONE: usize = usize::MAX;
 
 
-pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, res: u32,
-            kmer: u32, threads: usize) {
+pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, threads: usize) {
     let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
-    let untrimmed_dotplots = cluster_dir.join("2_untrimmed_dotplots.png");
-    let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
-    let trimmed_dotplots = cluster_dir.join("4_trimmed_dotplots.png");
-    check_settings(&cluster_dir, &untrimmed_gfa, min_identity, mad, res, kmer, threads);
+    let trimmed_gfa = cluster_dir.join("2_trimmed.gfa");
+    check_settings(&cluster_dir, &untrimmed_gfa, min_identity, mad, threads);
     starting_message();
-    print_settings(&cluster_dir, min_identity, max_unitigs, mad, res, kmer, threads);
+    print_settings(&cluster_dir, min_identity, max_unitigs, mad, threads);
     let (mut graph, sequences) = load_graph(&untrimmed_gfa);
-    if res > 0 {
-        dotplot(&graph, &sequences, &untrimmed_dotplots, res, kmer);
-    }
     let unitig_lengths: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
     let start_end_results = trim_start_end_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
     let hairpin_results = trim_harpin_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
@@ -51,15 +44,12 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     let sequences = exclude_outliers_in_length(&mut graph, &sequences, mad);
     clean_up_graph(&mut graph, &sequences);
     graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
-    if res > 0 {
-        dotplot(&graph, &sequences, &trimmed_dotplots, res, kmer);
-    }
-    finished_message(&untrimmed_dotplots, &trimmed_gfa, &trimmed_dotplots);
+    finished_message(&trimmed_gfa);
 }
 
 
 fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64, mad: f64,
-                  res: u32, kmer: u32, threads: usize) {
+                  threads: usize) {
     check_if_dir_exists(&cluster_dir);
     check_if_file_exists(&untrimmed_gfa);
     if min_identity < 0.0 || min_identity > 1.0 {
@@ -68,10 +58,6 @@ fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: 
     if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
     if threads > 100 { quit_with_error("--threads cannot be greater than 100"); }
     if mad < 0.0     { quit_with_error("--mad cannot be less than 0"); }
-    if kmer < 10     { quit_with_error("--kmer cannot be less than 10"); }
-    if res > 10000   { quit_with_error("--res cannot be greater than 10000"); }
-    if kmer < 10     { quit_with_error("--kmer cannot be less than 10"); }
-    if kmer > 100    { quit_with_error("--kmer cannot be greater than 100"); }
     ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
 }
 
@@ -84,38 +70,27 @@ fn starting_message() {
 }
 
 
-fn finished_message(untrimmed_dotplots: &PathBuf, trimmed_gfa: &PathBuf, trimmed_dotplots: &PathBuf) {
+fn finished_message(trimmed_gfa: &PathBuf) {
     section_header("Finished!");
     explanation("You can now run autocycler resolve on this cluster. If you want to manually \
-                 inspect the trimming, you can view the following files.");
-    eprintln!("Pairwise dotplots of untrimmed sequences: {}", untrimmed_dotplots.display());
-    eprintln!("Unitig graph of trimmed sequences:        {}", trimmed_gfa.display());
-    eprintln!("Pairwise dotplots of trimmed sequences:   {}", trimmed_dotplots.display());
+                 inspect the trimming, you can run autocycler dotplot on the sequences both before \
+                 and after trimming.");
+    eprintln!("Unitig graph of trimmed sequences: {}", trimmed_gfa.display());
     eprintln!();
 }
 
 
 fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, mad: f64,
-                  res: u32, kmer: u32, threads: usize) {
+                  threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
     eprintln!("  --min_identity {}", format_float(min_identity));
     eprintln!("  --max_unitigs {}", max_unitigs);
     eprintln!("  --mad {}", format_float(mad));
-    eprintln!("  --res {}", res);
-    eprintln!("  --kmer {}", kmer);
     eprintln!("  --threads {}", threads);
     eprintln!();
     if max_unitigs == 0 {
         eprintln!("Since --max_unitigs was set to 0, trimming is disabled.");
-        eprintln!();
-    }
-    if mad == 0.0 {
-        eprintln!("Since --mad was set to 0, exclusion of length outliers is disabled.");
-        eprintln!();
-    }
-    if res == 0 {
-        eprintln!("Since --res was set to 0, dot plots are disabled.");
         eprintln!();
     }
 }

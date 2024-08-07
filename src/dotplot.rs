@@ -18,13 +18,13 @@ use imageproc::rect::Rect;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::misc::{reverse_complement, spinner};
+use crate::log::{section_header, explanation};
+use crate::misc::{check_if_file_exists, quit_with_error, reverse_complement, spinner};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-// Some hard-coded settings for the dotplot generation. Values between 0 and 1 are relative to full
-// image resolution.
+// Some hard-coded settings. Values between 0 and 1 are relative to full image resolution.
 static INITIAL_TOP_LEFT_GAP: f64 = 0.1;
 static BORDER_GAP: f64 = 0.015;
 static BETWEEN_SEQ_GAP: f64 = 0.01;
@@ -40,7 +40,58 @@ static FORWARD_DOT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 205]);        // mediumbl
 static REVERSE_DOT_COLOUR: image::Rgb<u8> = Rgb([178, 34, 34]);      // firebrick
 
 
-pub fn dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: &PathBuf, res: u32,
+pub fn dotplot(in_gfa: PathBuf, out_png: PathBuf, res: u32, kmer: u32) {
+    check_settings(&in_gfa, res, kmer);
+    starting_message();
+    print_settings(&in_gfa, res, kmer);
+    let (graph, sequences) = load_graph(&in_gfa);
+    create_dotplot(&graph, &sequences, &out_png, res, kmer);
+    finished_message(&out_png);
+}
+
+
+fn check_settings(in_gfa: &PathBuf, res: u32, kmer: u32) {
+    check_if_file_exists(&in_gfa);
+    if res < 100     { quit_with_error("--res cannot be less than 100"); }
+    if res > 10000   { quit_with_error("--res cannot be greater than 10000"); }
+    if kmer < 10     { quit_with_error("--kmer cannot be less than 10"); }
+    if kmer > 100    { quit_with_error("--kmer cannot be greater than 100"); }
+}
+
+
+fn starting_message() {
+    section_header("Starting autocycler dotplot");
+    explanation("This command will take a unitig graph (either before or after trimming) and \
+                 generate a dot plot image containing all pairwise comparisons of the sequences.");
+}
+
+
+fn print_settings(in_gfa: &PathBuf, res: u32, kmer: u32) {
+    eprintln!("Settings:");
+    eprintln!("  --in_gfa {}", in_gfa.display());
+    eprintln!("  --res {}", res);
+    eprintln!("  --kmer {}", kmer);
+    eprintln!();
+}
+
+
+fn finished_message(out_png: &PathBuf) {
+    section_header("Finished!");
+    eprintln!("Pairwise dotplots: {}", out_png.display());
+    eprintln!();
+}
+
+
+fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+    section_header("Loading graph");
+    explanation("The unitig graph is now loaded into memory.");
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    unitig_graph.print_basic_graph_info();
+    (unitig_graph, sequences)
+}
+
+
+fn create_dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: &PathBuf, res: u32,
                kmer: u32) {
     let seqs = graph.reconstruct_original_sequences_u8(sequences);
     eprintln!();
@@ -96,7 +147,8 @@ fn get_sizes(res: u32) -> (u32, u32, u32, u32, u32, u32) {
 
 
 fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
-                 bottom_right_gap: u32, between_seq_gap: u32) -> (HashMap<(String, String), u32>, HashMap<(String, String), u32>, f64) {
+                 bottom_right_gap: u32, between_seq_gap: u32) ->
+        (HashMap<(String, String), u32>, HashMap<(String, String), u32>, f64) {
     // This function returns the image coordinates that start/end each sequence. Since the dot plot
     // is symmetrical, there is only one start/end per sequence (used for both x and y coordinates).
     let mut seq_lengths: HashMap<(String, String), u32> = HashMap::new();

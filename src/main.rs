@@ -87,6 +87,25 @@ enum Commands {
         out_dir: PathBuf,
     },
 
+    /// generate an all-vs-all dot plot from a unitig graph
+    Dotplot {
+        /// Autocycler GFA file (required)
+        #[clap(short = 'i', long = "in_gfa", required = true)]
+        in_gfa: PathBuf,
+
+        /// File path where dot plot PNG will be saved (required)
+        #[clap(short = 'o', long = "out_png", required = true)]
+        out_png: PathBuf,
+
+        /// Size (in pixels) of dot plot image
+        #[clap(long = "res", default_value = "2000")]
+        res: u32,
+
+        /// K-mer size to use in dot plot
+        #[clap(long = "kmer", default_value = "32")]
+        kmer: u32,
+    },
+
     /// cluster contigs in the unitig graph based on similarity
     Cluster {
         /// Autocycler directory containing 1_input_assemblies.gfa file (required)
@@ -125,14 +144,6 @@ enum Commands {
         /// Allowed variability in cluster length, measured in median absolute deviations, set to 0 to disable exclusion of length outliers
         #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
-
-        /// Size (in pixels) of dot plots, set to 0 to disable generation of dot plots
-        #[clap(long = "res", default_value = "2000")]
-        res: u32,
-
-        /// K-mer size to use in dot plots
-        #[clap(long = "kmer", default_value = "32")]
-        kmer: u32,
 
         /// Number of CPU threads
         #[clap(short = 't', long = "threads", default_value = "8")]
@@ -173,11 +184,14 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir }) => {
             decompress::decompress(in_gfa, out_dir);
         },
+        Some(Commands::Dotplot { in_gfa, out_png, res, kmer }) => {
+            dotplot::dotplot(in_gfa, out_png, res, kmer);
+        },
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
         },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, res, kmer, threads }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs, mad, res, kmer, threads);
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
