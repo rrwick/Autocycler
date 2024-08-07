@@ -44,7 +44,11 @@ pub fn dotplot(in_gfa: PathBuf, out_png: PathBuf, res: u32, kmer: u32) {
     starting_message();
     print_settings(&in_gfa, res, kmer);
     let (graph, sequences) = load_graph(&in_gfa);
-    create_dotplot(&graph, &sequences, &out_png, res, kmer);
+    let seqs = graph.reconstruct_original_sequences_u8(&sequences);
+
+    // TODO: create alternative input options: a FASTA file or a directory of FASTA files.
+
+    create_dotplot(&seqs, &out_png, res, kmer);
     finished_message(&out_png);
 }
 
@@ -90,41 +94,41 @@ fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn create_dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: &PathBuf, res: u32,
-               kmer: u32) {
-    let seqs = graph.reconstruct_original_sequences_u8(sequences);
+fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBuf, res: u32,
+                  kmer: u32) {
     eprintln!();
     let pb = spinner("creating dot plot...");
 
     // We create an initial image to test the label sizes.
     let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) = get_sizes(res);
     let (start_positions, end_positions, _) =
-        get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
+        get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     let mut img = ImageBuffer::from_pixel(res, res, BACKGROUND_COLOUR);
-    let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).expect("Error loading font");
-    let text_height = draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap,
+    let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).unwrap();
+    let text_height = draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap,
                                   &font, max_font_size, true);
 
     // Now that we know the values for text_height, we start over, this time readjusting the
     // top-left gap (so it isn't bigger than necessary).
     let top_left_gap = (2.0 * text_height) as u32 + border_gap;
     let (start_positions, end_positions, bp_per_pixel) =
-        get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
-    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, true);
-    for (name_a, seq_a) in &seqs {
+        get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
+    draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, true);
+    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
+                false);
+
+    for (name_a, seq_a) in seqs {
         let rev_comp_seq_a = reverse_complement(seq_a);
         let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a,
                                                                     &rev_comp_seq_a);
-        for (name_b, seq_b) in &seqs {
+        for (name_b, seq_b) in seqs {
             draw_dots(&mut img, name_a, name_b, seq_a, seq_b, &start_positions,
                       &forward_kmers, &reverse_kmers, bp_per_pixel, kmer as usize);
         }
     }
-    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
-                false);
 
     // The boxes are drawn once more, this time with no fill, to overwrite any dots which leaked
-    // into the outline, which would look messy.
+    // into the outline.
     draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, false);
 
     img.save(png_filename).unwrap();
@@ -224,7 +228,11 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
             scale = PxScale::from(text_height_f32);
         }
     }
-    if skip_draw { return text_height_f32; }
+
+    // The first time this function is run, we only need the text height.
+    if skip_draw {
+        return text_height_f32;
+    }
 
     let text_height = text_height_f32 as u32;
     let text_width = (available_width.ceil()) as u32;
@@ -232,10 +240,10 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
         let (filename, contig_name) = name;
         let start = start_positions[name];
         let end = end_positions[name];
-
-        // Horizontal labels on the top side.
         let pos_1 = min_pos - text_gap - text_height;
         let pos_2 = pos_1 - text_height;
+
+        // Horizontal labels on the top side.
         draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, contig_name);
         draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, filename);
 
@@ -249,11 +257,10 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
 
 fn calculate_text_width(text: &str, scale: PxScale, font: &FontArc) -> f32 {
     let scaled_font = font.as_scaled(scale);
-    text.chars()
-        .filter_map(|c| {
-            let glyph_id = scaled_font.glyph_id(c);
-            Some(scaled_font.h_advance(glyph_id))
-        }).sum()
+    text.chars().filter_map(|c| {
+                    let glyph_id = scaled_font.glyph_id(c);
+                    Some(scaled_font.h_advance(glyph_id))
+                }).sum()
 }
 
 
@@ -308,6 +315,8 @@ fn draw_dots(img: &mut RgbImage, name_a: &(String, String), name_b: &(String, St
         }
     }
 }
+
+
 fn draw_dot(img: &mut RgbImage, i: u32, j: u32, width: u32, height: u32, colour: Rgb<u8>) {
     if i < width && j < height {
         img.put_pixel(i, j, colour);
