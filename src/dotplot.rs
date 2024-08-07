@@ -51,7 +51,7 @@ pub fn dotplot(in_gfa: PathBuf, out_png: PathBuf, res: u32, kmer: u32) {
 
 fn check_settings(in_gfa: &PathBuf, res: u32, kmer: u32) {
     check_if_file_exists(&in_gfa);
-    if res < 100     { quit_with_error("--res cannot be less than 100"); }
+    if res < 500     { quit_with_error("--res cannot be less than 500"); }
     if res > 10000   { quit_with_error("--res cannot be greater than 10000"); }
     if kmer < 10     { quit_with_error("--kmer cannot be less than 10"); }
     if kmer > 100    { quit_with_error("--kmer cannot be greater than 100"); }
@@ -144,7 +144,7 @@ fn get_sizes(res: u32) -> (u32, u32, u32, u32, u32) {
 
 
 fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
-                 bottom_right_gap: u32, between_seq_gap: u32) ->
+                 bottom_right_gap: u32, mut between_seq_gap: u32) ->
         (HashMap<(String, String), u32>, HashMap<(String, String), u32>, f64) {
     // This function returns the image coordinates that start/end each sequence. Since the dot plot
     // is symmetrical, there is only one start/end per sequence (used for both x and y coordinates).
@@ -152,8 +152,16 @@ fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, t
     for (key, seq) in seqs {
         seq_lengths.insert(key.clone(), (seq.len() as u32).saturating_sub(kmer).saturating_add(1));
     }
-    let all_gaps = top_left_gap + bottom_right_gap + between_seq_gap * (seqs.len() as u32 - 1);
-    let pixels_for_sequence = res.saturating_sub(all_gaps);
+    let mut all_gaps = top_left_gap + bottom_right_gap + between_seq_gap * (seqs.len() as u32 - 1);
+    let mut pixels_for_sequence = res.saturating_sub(all_gaps);
+
+    // If there isn't enough room for the dot plots, reduce between_seq_gap.
+    if all_gaps > pixels_for_sequence && seqs.len() > 1 {
+        between_seq_gap = ((res / 2) - top_left_gap - bottom_right_gap) / (seqs.len() as u32 - 1);
+        all_gaps = top_left_gap + bottom_right_gap + between_seq_gap * (seqs.len() as u32 - 1);
+        pixels_for_sequence = res.saturating_sub(all_gaps);
+    }
+
     let total_seq_length: u32 = seq_lengths.values().sum();
     let bp_per_pixel = total_seq_length as f64 / pixels_for_sequence as f64;
 
