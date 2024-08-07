@@ -29,10 +29,10 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
-    let trimmed_gfa = cluster_dir.join("3_trimmed.gfa");
-    let bridged_gfa = cluster_dir.join("5_bridged.gfa");
-    let merged_gfa = cluster_dir.join("6_merged.gfa");
-    let final_gfa = cluster_dir.join("7_final.gfa");
+    let trimmed_gfa = cluster_dir.join("2_trimmed.gfa");
+    let bridged_gfa = cluster_dir.join("3_bridged.gfa");
+    let merged_gfa = cluster_dir.join("4_merged.gfa");
+    let final_gfa = cluster_dir.join("5_final.gfa");
 
     check_settings(&cluster_dir, &trimmed_gfa);
     starting_message();
