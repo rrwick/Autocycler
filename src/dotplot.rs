@@ -28,8 +28,7 @@ use crate::unitig_graph::UnitigGraph;
 static INITIAL_TOP_LEFT_GAP: f64 = 0.1;
 static BORDER_GAP: f64 = 0.015;
 static BETWEEN_SEQ_GAP: f64 = 0.01;
-static OUTLINE_WIDTH: f64 = 0.0015;
-static TEXT_GAP: f64 = 0.005;
+static TEXT_GAP: f64 = 0.0025;
 static MAX_FONT_SIZE: f64 = 0.025;
 static BACKGROUND_COLOUR: image::Rgb<u8> = Rgb([255, 255, 255]);     // white
 static SELF_VS_SELF_COLOUR: image::Rgb<u8> = Rgb([211, 211, 211]);   // lightgrey
@@ -98,21 +97,20 @@ fn create_dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: 
     let pb = spinner("creating dot plot...");
 
     // We create an initial image to test the label sizes.
-    let (top_left_gap, border_gap, between_seq_gap,
-        text_gap, outline_width, max_font_size) = get_sizes(res);
+    let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) = get_sizes(res);
     let (start_positions, end_positions, _) =
         get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     let mut img = ImageBuffer::from_pixel(res, res, BACKGROUND_COLOUR);
     let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).expect("Error loading font");
     let text_height = draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap,
-                                  outline_width, &font, max_font_size, true);
+                                  &font, max_font_size, true);
 
     // Now that we know the values for text_height, we start over, this time readjusting the
     // top-left gap (so it isn't bigger than necessary).
     let top_left_gap = (2.0 * text_height) as u32 + border_gap;
     let (start_positions, end_positions, bp_per_pixel) =
         get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
-    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, true);
+    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, true);
     for (name_a, seq_a) in &seqs {
         let rev_comp_seq_a = reverse_complement(seq_a);
         let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a,
@@ -122,27 +120,26 @@ fn create_dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: 
                       &forward_kmers, &reverse_kmers, bp_per_pixel, kmer as usize);
         }
     }
-    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, outline_width,
-                &font, max_font_size, false);
+    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
+                false);
 
     // The boxes are drawn once more, this time with no fill, to overwrite any dots which leaked
     // into the outline, which would look messy.
-    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, false);
+    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, false);
 
     img.save(png_filename).unwrap();
     pb.finish_and_clear();
 }
 
 
-fn get_sizes(res: u32) -> (u32, u32, u32, u32, u32, u32) {
+fn get_sizes(res: u32) -> (u32, u32, u32, u32, u32) {
     let res = res as f64;
     let top_left_gap = (INITIAL_TOP_LEFT_GAP * res).round() as u32;
     let border_gap = ((BORDER_GAP * res).round() as u32).max(2);
     let between_seq_gap = ((BETWEEN_SEQ_GAP * res).round() as u32).max(2);
     let text_gap = ((TEXT_GAP * res).round() as u32).max(1);
-    let outline_width = ((OUTLINE_WIDTH * res).round() as u32).max(1);
     let max_font_size = ((MAX_FONT_SIZE * res).round() as u32).max(1);
-    (top_left_gap, border_gap, between_seq_gap, text_gap, outline_width, max_font_size)
+    (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size)
 }
 
 
@@ -177,14 +174,13 @@ fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, t
 
 fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
                        start_positions: &HashMap<(String, String), u32>,
-                       end_positions: &HashMap<(String, String), u32>,
-                       outline_width: u32, fill: bool) {
+                       end_positions: &HashMap<(String, String), u32>, fill: bool) {
     for (name_a, _) in seqs {
-        let start_a = start_positions[name_a] - outline_width;
-        let end_a = end_positions[name_a] + outline_width;
+        let start_a = start_positions[name_a] - 1;
+        let end_a = end_positions[name_a] + 2;
         for (name_b, _) in seqs {
-            let start_b = start_positions[name_b] - outline_width;
-            let end_b = end_positions[name_b] + outline_width;
+            let start_b = start_positions[name_b] - 1;
+            let end_b = end_positions[name_b] + 2;
             let rect = Rect::at(start_a as i32, start_b as i32)
                 .of_size((end_a - start_a) as u32, (end_b - start_b) as u32);
             if fill {
@@ -201,9 +197,8 @@ fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>
 fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
                start_positions: &HashMap<(String, String), u32>,
                end_positions: &HashMap<(String, String), u32>,
-               text_gap: u32, outline_width: u32, font: &FontArc, max_font_size: u32, skip_draw: bool) -> f32 {
+               text_gap: u32, font: &FontArc, max_font_size: u32, skip_draw: bool) -> f32 {
     let min_pos = start_positions.values().min().cloned().unwrap_or_default();
-
     let mut text_height_f32 = max_font_size as f32;
     let mut scale = PxScale::from(text_height_f32);
     let mut available_width = 1.0;
@@ -231,7 +226,7 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
         let end = end_positions[name];
 
         // Horizontal labels on the top side.
-        let pos_1 = min_pos - outline_width - text_gap - text_height;
+        let pos_1 = min_pos - text_gap - text_height;
         let pos_2 = pos_1 - text_height;
         draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, contig_name);
         draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, filename);
