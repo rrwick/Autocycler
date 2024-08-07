@@ -126,7 +126,7 @@ enum Commands {
         #[clap(long = "mad", default_value = "5.0")]
         mad: f64,
 
-        /// Size (in pixels) of dot plots
+        /// Size (in pixels) of dot plots, set to 0 to disable generation of dot plots
         #[clap(long = "res", default_value = "2000")]
         res: u32,
 

@@ -373,11 +373,11 @@ impl UnitigGraph {
         original_seqs
     }
 
-    pub fn reconstruct_original_sequences_vec(&self, seqs: &Vec<Sequence>) -> Vec<((String, String), String)> {
+    pub fn reconstruct_original_sequences_u8(&self, seqs: &Vec<Sequence>) -> Vec<((String, String), Vec<u8>)> {
         let mut original_seqs = Vec::new();
         for seq in seqs {
             let (filename, _header, sequence) = self.reconstruct_original_sequence(&seq);
-            original_seqs.push(((filename, seq.contig_name()), sequence));
+            original_seqs.push(((filename, seq.contig_name()), sequence.as_bytes().to_owned()));
         }
         original_seqs.sort();
         original_seqs
