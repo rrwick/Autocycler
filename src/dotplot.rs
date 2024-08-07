@@ -63,7 +63,9 @@ pub fn dotplot(graph: &UnitigGraph, sequences: &Vec<Sequence>, png_filename: &Pa
         get_positions(&seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, outline_width, true);
     for (name_a, seq_a) in &seqs {
-        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a);
+        let rev_comp_seq_a = reverse_complement(seq_a);
+        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a,
+                                                                    &rev_comp_seq_a);
         for (name_b, seq_b) in &seqs {
             draw_dots(&mut img, name_a, name_b, seq_a, seq_b, &start_positions,
                       &forward_kmers, &reverse_kmers, bp_per_pixel, kmer as usize);
@@ -226,8 +228,8 @@ fn draw_vertical_text(img: &mut RgbImage, width: u32, height: u32, text: &str, x
 
 fn draw_dots(img: &mut RgbImage, name_a: &(String, String), name_b: &(String, String),
              seq_a: &[u8], seq_b: &[u8], start_positions: &HashMap<(String, String), u32>,
-             a_forward_kmers: &HashMap<Vec<u8>, Vec<u32>>,
-             a_reverse_kmers: &HashMap<Vec<u8>, Vec<u32>>, bp_per_pixel: f64, kmer_size: usize) {
+             a_forward_kmers: &HashMap<&[u8], Vec<u32>>,
+             a_reverse_kmers: &HashMap<&[u8], Vec<u32>>, bp_per_pixel: f64, kmer_size: usize) {
     let a_start_pos = start_positions[name_a];
     let b_start_pos = start_positions[name_b];
     let (width, height) = (img.width(), img.height());
@@ -258,20 +260,19 @@ fn draw_dot(img: &mut RgbImage, i: u32, j: u32, width: u32, height: u32, colour:
 }
 
 
-fn get_all_kmer_positions(kmer_size: usize, seq: &[u8]) ->
-        (HashMap<Vec<u8>, Vec<u32>>, HashMap<Vec<u8>, Vec<u32>>) {
-    let mut forward_kmers: HashMap<Vec<u8>, Vec<u32>> = HashMap::new();
-    let mut reverse_kmers: HashMap<Vec<u8>, Vec<u32>> = HashMap::new();
-    let rev_comp_seq = reverse_complement(seq);
+fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a [u8]) ->
+        (HashMap<&'a [u8], Vec<u32>>, HashMap<&'a [u8], Vec<u32>>) {
+    let mut forward_kmers: HashMap<&[u8], Vec<u32>> = HashMap::new();
+    let mut reverse_kmers: HashMap<&[u8], Vec<u32>> = HashMap::new();
     if seq.len() < kmer_size {
         return (forward_kmers, reverse_kmers);
     }
     let seq_len = seq.len() - kmer_size + 1;
     for i in 0..seq_len {
         let forward_kmer = &seq[i..i+kmer_size];
-        forward_kmers.entry(forward_kmer.to_vec()).or_insert_with(Vec::new).push(i as u32);
+        forward_kmers.entry(forward_kmer).or_insert_with(Vec::new).push(i as u32);
         let reverse_kmer = &rev_comp_seq[i..i+kmer_size];
-        reverse_kmers.entry(reverse_kmer.to_vec()).or_insert_with(Vec::new).push((seq_len - i - 1) as u32);
+        reverse_kmers.entry(reverse_kmer).or_insert_with(Vec::new).push((seq_len - i - 1) as u32);
     }
     assert!(forward_kmers.len() < seq.len());
     assert!(reverse_kmers.len() < seq.len());
@@ -281,43 +282,54 @@ fn get_all_kmer_positions(kmer_size: usize, seq: &[u8]) ->
 
 #[cfg(test)]
 mod tests {
-    use maplit::hashmap;
     use super::*;
 
     #[test]
     fn test_get_all_kmer_positions() {
-        let seq = String::from("ACGACTGACATCAGCACTGA").into_bytes();
-        let expected_forward = hashmap!{String::from("ACGA").into_bytes() => vec![0],
-                                        String::from("CGAC").into_bytes() => vec![1],
-                                        String::from("GACT").into_bytes() => vec![2],
-                                        String::from("ACTG").into_bytes() => vec![3, 15],
-                                        String::from("CTGA").into_bytes() => vec![4, 16],
-                                        String::from("TGAC").into_bytes() => vec![5],
-                                        String::from("GACA").into_bytes() => vec![6],
-                                        String::from("ACAT").into_bytes() => vec![7],
-                                        String::from("CATC").into_bytes() => vec![8],
-                                        String::from("ATCA").into_bytes() => vec![9],
-                                        String::from("TCAG").into_bytes() => vec![10],
-                                        String::from("CAGC").into_bytes() => vec![11],
-                                        String::from("AGCA").into_bytes() => vec![12],
-                                        String::from("GCAC").into_bytes() => vec![13],
-                                        String::from("CACT").into_bytes() => vec![14]};
-        let expected_reverse = hashmap!{String::from("TCAG").into_bytes() => vec![16, 4],
-                                        String::from("CAGT").into_bytes() => vec![15, 3],
-                                        String::from("AGTG").into_bytes() => vec![14],
-                                        String::from("GTGC").into_bytes() => vec![13],
-                                        String::from("TGCT").into_bytes() => vec![12],
-                                        String::from("GCTG").into_bytes() => vec![11],
-                                        String::from("CTGA").into_bytes() => vec![10],
-                                        String::from("TGAT").into_bytes() => vec![9],
-                                        String::from("GATG").into_bytes() => vec![8],
-                                        String::from("ATGT").into_bytes() => vec![7],
-                                        String::from("TGTC").into_bytes() => vec![6],
-                                        String::from("GTCA").into_bytes() => vec![5],
-                                        String::from("AGTC").into_bytes() => vec![2],
-                                        String::from("GTCG").into_bytes() => vec![1],
-                                        String::from("TCGT").into_bytes() => vec![0]};
-        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(4, &seq);
+        let seq = b"ACGACTGACATCAGCACTGA".to_vec();
+        let rev_seq = reverse_complement(&seq);
+
+        let expected_forward: HashMap<&[u8], Vec<u32>> = {
+            let mut map = HashMap::new();
+            map.insert(&b"ACGA"[..], vec![0]);
+            map.insert(&b"CGAC"[..], vec![1]);
+            map.insert(&b"GACT"[..], vec![2]);
+            map.insert(&b"ACTG"[..], vec![3, 15]);
+            map.insert(&b"CTGA"[..], vec![4, 16]);
+            map.insert(&b"TGAC"[..], vec![5]);
+            map.insert(&b"GACA"[..], vec![6]);
+            map.insert(&b"ACAT"[..], vec![7]);
+            map.insert(&b"CATC"[..], vec![8]);
+            map.insert(&b"ATCA"[..], vec![9]);
+            map.insert(&b"TCAG"[..], vec![10]);
+            map.insert(&b"CAGC"[..], vec![11]);
+            map.insert(&b"AGCA"[..], vec![12]);
+            map.insert(&b"GCAC"[..], vec![13]);
+            map.insert(&b"CACT"[..], vec![14]);
+            map
+        };
+
+        let expected_reverse: HashMap<&[u8], Vec<u32>> = {
+            let mut map = HashMap::new();
+            map.insert(&b"TCAG"[..], vec![16, 4]);
+            map.insert(&b"CAGT"[..], vec![15, 3]);
+            map.insert(&b"AGTG"[..], vec![14]);
+            map.insert(&b"GTGC"[..], vec![13]);
+            map.insert(&b"TGCT"[..], vec![12]);
+            map.insert(&b"GCTG"[..], vec![11]);
+            map.insert(&b"CTGA"[..], vec![10]);
+            map.insert(&b"TGAT"[..], vec![9]);
+            map.insert(&b"GATG"[..], vec![8]);
+            map.insert(&b"ATGT"[..], vec![7]);
+            map.insert(&b"TGTC"[..], vec![6]);
+            map.insert(&b"GTCA"[..], vec![5]);
+            map.insert(&b"AGTC"[..], vec![2]);
+            map.insert(&b"GTCG"[..], vec![1]);
+            map.insert(&b"TCGT"[..], vec![0]);
+            map
+        };
+
+        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(4, &seq, &rev_seq);
         assert_eq!(forward_kmers, expected_forward);
         assert_eq!(reverse_kmers, expected_reverse);
     }
