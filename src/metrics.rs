@@ -53,34 +53,32 @@ impl ClusteringMetrics {
         }
     }
 
-    pub fn calculate_balance(&mut self, all_filenames: HashSet<String>,
-                              pass_cluster_filenames: HashMap<u16, Vec<String>>) {
-        // The cluster balance score ranges from 0 to 1, with 0 being worst and 1 being best. It
-        // quantifies how well each assembly is represented in each cluster, with the ideal case
-        // being that each assembly contributes one contig to each cluster.
-        // 1. For each cluster, count the occurrences of each filename.
-        // 2. Calculate the proportion of unique filenames present in each cluster relative to all
-        //    unique filenames.
-        // 3. Penalize clusters for repeated filenames by computing a penalty ratio.
-        // 4. Compute a score for each cluster based on the proportion of unique filename and
-        //    penalty ratio.
-        // 5. The overall balance metric is the average score of all clusters.
+    pub fn calculate_balance(&mut self, cluster_filenames: HashMap<u16, Vec<String>>) {
+        // Calculates the balance score for clustering, indicating how evenly filenames are
+        // distributed.
+        // * For each cluster:
+        //   * Count the occurrences of each filename.
+        //   * Score each filename based on the count: 0 => 0.0, n => 1/n
+        //     (a count of 1 is the best number, i.e. the cluster contains one contig from the file)
+        //   * Average (mean) the filename scores to get the cluster score.
+        // * The overall balance score is a weighted mean of the cluster scores, weighted by the
+        //   number of sequences in the cluster.
+        fn count_score(count: u32) -> f64 { if count == 0 { 0.0 } else { 1.0 / count as f64 } }
+        let all_filenames: HashSet<String> = cluster_filenames.values()
+            .flat_map(|cluster| cluster.iter().cloned()).collect();
         let mut cluster_scores = Vec::new();
-        let total_unique_labels = all_filenames.len() as f64;
-        for cluster in pass_cluster_filenames.values() {
-            let mut label_counter = HashMap::new();
-            for item in cluster { *label_counter.entry(item).or_insert(0) += 1; }
-            let unique_labels_in_cluster = label_counter.len() as f64;
-            let proportion_unique = unique_labels_in_cluster / total_unique_labels;
-            let mut penalty = 0.0;
-            for &count in label_counter.values() {
-                if count > 1 { penalty += (count - 1) as f64; }
-            }
-            let penalty_ratio = penalty / cluster.len() as f64;
-            let cluster_score = proportion_unique * (1.0 - penalty_ratio);
-            cluster_scores.push(cluster_score);
+        let mut total_weight = 0.0;
+        for cluster in cluster_filenames.values() {
+            let mut counter = HashMap::new();
+            for filename in cluster { *counter.entry(filename).or_insert(0) += 1; }
+            let scores: Vec<f64> = all_filenames.iter()
+                .map(|filename| count_score(*counter.get(filename).unwrap_or(&0))).collect();
+            let cluster_score: f64 = scores.iter().sum::<f64>() / all_filenames.len() as f64;
+            cluster_scores.push((cluster_score, cluster.len() as f64));
+            total_weight += cluster.len() as f64;
         }
-        self.cluster_balance = cluster_scores.iter().sum::<f64>() / cluster_scores.len() as f64;
+        self.cluster_balance = cluster_scores.iter().map(|(score, weight)| score * weight)
+            .sum::<f64>() / total_weight;
     }
 }
 
@@ -128,32 +126,50 @@ mod tests {
 
     #[test]
     fn test_calculate_balance() {
-        let mut metrics = ClusteringMetrics::new();
-        let pass_cluster_filenames = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
-                                              2 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
-                                              3 => vec!["a".to_string(), "b".to_string(), "c".to_string()]};
-        let all_filenames: HashSet<String> = pass_cluster_filenames.values()
-            .flat_map(|cluster| cluster.iter().cloned()).collect();
-        metrics.calculate_balance(all_filenames, pass_cluster_filenames);
-        assert_almost_eq(metrics.cluster_balance, 1.0, 1e-8);
+        // These test cases are ordered by decreasing balance score.
+        let filenames_1 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   3 => vec!["a".to_string(), "b".to_string(), "c".to_string()]};
 
-        let mut metrics = ClusteringMetrics::new();
-        let pass_cluster_filenames = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
-                                              2 => vec!["a".to_string(), "b".to_string(), "c".to_string(), "a".to_string()],
-                                              3 => vec!["a".to_string(), "b".to_string()]};
-        let all_filenames: HashSet<String> = pass_cluster_filenames.values()
-            .flat_map(|cluster| cluster.iter().cloned()).collect();
-        metrics.calculate_balance(all_filenames, pass_cluster_filenames);
-        assert_almost_eq(metrics.cluster_balance, 0.8055555555555555, 1e-8);
+        let filenames_2 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["a".to_string(), "b".to_string(), "c".to_string(), "a".to_string()],
+                                   3 => vec!["a".to_string(), "b".to_string(), "c".to_string()]};
 
-        let mut metrics = ClusteringMetrics::new();
-        let pass_cluster_filenames = hashmap!{1 => vec!["a".to_string(), "b".to_string()],
-                                              2 => vec!["c".to_string(), "d".to_string()],
-                                              3 => vec!["e".to_string(), "f".to_string()],
-                                              4 => vec!["g".to_string(), "h".to_string()]};
-        let all_filenames: HashSet<String> = pass_cluster_filenames.values()
-            .flat_map(|cluster| cluster.iter().cloned()).collect();
-        metrics.calculate_balance(all_filenames, pass_cluster_filenames);
-        assert_almost_eq(metrics.cluster_balance, 0.25, 1e-8);
+        let filenames_3 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["a".to_string(), "b".to_string(), "c".to_string(), "a".to_string()],
+                                   3 => vec!["a".to_string(), "b".to_string()]};
+
+        let filenames_4 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["a".to_string(), "b".to_string(), "c".to_string(), "a".to_string()],
+                                   3 => vec!["a".to_string()]};
+
+        let filenames_5 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["a".to_string(), "b".to_string(), "c".to_string(), "a".to_string()],
+                                   3 => vec!["a".to_string(), "a".to_string()]};
+
+        let filenames_6 = hashmap!{1 => vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                                   2 => vec!["d".to_string(), "e".to_string()],
+                                   3 => vec!["f".to_string()]};
+
+        let mut metrics_1 = ClusteringMetrics::new();
+        let mut metrics_2 = ClusteringMetrics::new();
+        let mut metrics_3 = ClusteringMetrics::new();
+        let mut metrics_4 = ClusteringMetrics::new();
+        let mut metrics_5 = ClusteringMetrics::new();
+        let mut metrics_6 = ClusteringMetrics::new();
+
+        metrics_1.calculate_balance(filenames_1);
+        metrics_2.calculate_balance(filenames_2);
+        metrics_3.calculate_balance(filenames_3);
+        metrics_4.calculate_balance(filenames_4);
+        metrics_5.calculate_balance(filenames_5);
+        metrics_6.calculate_balance(filenames_6);
+
+        assert_almost_eq(metrics_1.cluster_balance, 1.0, 1e-8);
+        assert!(metrics_2.cluster_balance < metrics_1.cluster_balance);
+        assert!(metrics_3.cluster_balance < metrics_2.cluster_balance);
+        assert!(metrics_4.cluster_balance < metrics_3.cluster_balance);
+        assert!(metrics_5.cluster_balance < metrics_4.cluster_balance);
+        assert!(metrics_6.cluster_balance < metrics_5.cluster_balance);
     }
 }

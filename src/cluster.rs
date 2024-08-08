@@ -640,11 +640,9 @@ fn save_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
             metrics.qc_fail_cluster_count += 1;
         }
     }
-    let mut all_filenames = HashSet::new();
     let mut cluster_filenames = HashMap::new();
     for seq in sequences {
         let failure_reasons = qc_results.get(&seq.cluster).unwrap();
-        all_filenames.insert(seq.filename.clone());
         cluster_filenames.entry(seq.cluster).or_insert_with(Vec::new).push(seq.filename.clone());
         if failure_reasons.is_empty() {
             metrics.qc_pass_contig_count += 1;
@@ -653,7 +651,7 @@ fn save_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
         }
     }
     metrics.calculate_fractions();
-    metrics.calculate_balance(all_filenames, cluster_filenames);
+    metrics.calculate_balance(cluster_filenames);
     save_yaml(&clustering_yaml, &metrics).unwrap();
 }
 
