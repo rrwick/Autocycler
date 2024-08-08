@@ -30,6 +30,11 @@ pub fn combine(in_gfas: Vec<PathBuf>, out_prefix: PathBuf) {
     }
     starting_message();
     print_settings(&in_gfas, &out_prefix);
+
+    // TODO: add an optional argument for reads, which will add depth values to the combined
+    //       assembly. Find unique k-mers in the combined assembly and then count the occurrences
+    //       of those k-mers in the reads.
+
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta);
     finished_message(&combined_gfa, &combined_fasta);
 }

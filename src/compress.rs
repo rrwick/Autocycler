@@ -20,12 +20,14 @@ use std::str;
 use std::time::Instant;
 
 use crate::log::{section_header, explanation};
+use crate::graph_simplification::simplify_structure;
+use crate::kmer_graph::KmerGraph;
 use crate::misc::{check_if_dir_exists, check_if_dir_is_not_dir, create_dir, find_all_assemblies,
                   load_fasta, format_duration, spinner, quit_with_error, reverse_complement};
-use crate::kmer_graph::KmerGraph;
+use crate::metrics::{InputAssemblyMetrics, save_yaml};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
-use crate::graph_simplification::simplify_structure;
+
 
 
 pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, threads: usize) {
@@ -38,9 +40,12 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
-    let out_gfa = autocycler_dir.join("1_input_assemblies.gfa");
+    let out_gfa = autocycler_dir.join("input_assemblies.gfa");
+    let out_yaml = autocycler_dir.join("input_assemblies.yaml");
     unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
-    finished_message(start_time, out_gfa);
+    let stats = gather_stats(assembly_count, &sequences, &unitig_graph);
+    save_yaml(&out_yaml, &stats).unwrap();
+    finished_message(start_time, out_gfa, out_yaml);
 }
 
 
@@ -153,10 +158,23 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 }
 
 
-fn finished_message(start_time: Instant, out_gfa: PathBuf) {
+fn gather_stats(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph)
+        -> InputAssemblyMetrics {
+    let mut stats = InputAssemblyMetrics::new();
+    stats.assembly_count = assembly_count as u32;
+    stats.total_contigs = sequences.len() as u32;
+    stats.total_length = sequences.iter().map(|s| s.length as u64).sum();
+    stats.compressed_unitig_count = graph.unitigs.len() as u32;
+    stats.compressed_unitig_total_length = graph.total_length();
+    stats
+}
+
+
+fn finished_message(start_time: Instant, out_gfa: PathBuf, out_yaml: PathBuf) {
     section_header("Finished!");
     explanation("You can now run autocycler cluster to group contigs based on their similarity.");
-    eprintln!("Final unitig graph: {}", out_gfa.display());
+    eprintln!("Compressed unitig graph: {}", out_gfa.display());
+    eprintln!("Input assembly stats:    {}", out_yaml.display());
     eprintln!("Time to run: {}", format_duration(start_time.elapsed()));
     eprintln!();
 }

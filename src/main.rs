@@ -23,6 +23,7 @@ mod dotplot;
 mod graph_simplification;
 mod kmer_graph;
 mod log;
+mod metrics;
 mod misc;
 mod position;
 mod resolve;
@@ -108,7 +109,7 @@ enum Commands {
 
     /// cluster contigs in the unitig graph based on similarity
     Cluster {
-        /// Autocycler directory containing 1_input_assemblies.gfa file (required)
+        /// Autocycler directory containing input_assemblies.gfa file (required)
         #[clap(short = 'a', long = "autocycler_dir", required = true)]
         autocycler_dir: PathBuf,
 

@@ -13,14 +13,14 @@ autocycler compress -i assemblies -o autocycler
 autocycler cluster -o autocycler
 
 # For each QC-pass cluster:
-for c in autocycler/02_clustering/qc_pass/cluster_*; do
+for c in autocycler/clustering/qc_pass/cluster_*; do
     autocycler trim -c "$c"
     autocycler resolve -c "$c"
     autocycler correct -c "$c"
 done
 
 # Reconstruct input assemblies from unitig graph:
-autocycler decompress -i autocycler/1_input_assemblies.gfa -o reconstructed
+autocycler decompress -i autocycler/input_assemblies.gfa -o reconstructed
 ```
 
 

@@ -470,8 +470,8 @@ impl UnitigGraph {
         unitig_path.iter().map(|(u, s)| if *s { *u as i32 } else { -(*u as i32)}).collect()
     }
 
-    pub fn total_length(&self) -> u32 {
-        self.unitigs.iter().map(|u| u.borrow().length()).sum()
+    pub fn total_length(&self) -> u64 {
+        self.unitigs.iter().map(|u| u.borrow().length() as u64).sum()
     }
 
     pub fn link_count(&self) -> (usize, usize) {

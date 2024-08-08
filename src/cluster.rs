@@ -28,8 +28,8 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>,
                manual_clusters: Option<String>) {
-    let gfa = autocycler_dir.join("1_input_assemblies.gfa");
-    let clustering_dir = autocycler_dir.join("2_clustering");
+    let gfa = autocycler_dir.join("input_assemblies.gfa");
+    let clustering_dir = autocycler_dir.join("clustering");
     delete_dir_if_exists(&clustering_dir);
     create_dir(&clustering_dir);
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
