@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
+use crate::metrics::{ClusteringMetrics, ClusterMetrics, save_yaml};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
                   quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
                   load_file_lines};
@@ -35,6 +36,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
     let clustering_newick = clustering_dir.join("clustering.newick");
     let clustering_tsv = clustering_dir.join("clustering.tsv");
+    let clustering_yaml = clustering_dir.join("clustering.yaml");
     check_settings(&autocycler_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
@@ -53,10 +55,11 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
         define_clusters_manually(&tree, &mut sequences, manual_clusters)
     };
     save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
-    save_metadata_to_tsv(&sequences, &cluster_qc_results, &clustering_tsv);
+    save_data_to_tsv(&sequences, &cluster_qc_results, &clustering_tsv);
 
     // TODO: create a PDF of the tree with clusters? printpdf?
 
+    save_metrics(&clustering_yaml, &sequences, &cluster_qc_results, &clustering_dir);
     finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
 
@@ -607,8 +610,8 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
 }
 
 
-fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
-                        file_path: &PathBuf) {
+fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+                    file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
     write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\tfile_name\tcontig_name\tlength\n").unwrap();
     for seq in sequences {
@@ -623,6 +626,35 @@ fn save_metadata_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec
         write!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
                pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(), seq.length).unwrap();
     }
+}
+
+
+fn save_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
+                qc_results: &HashMap<u16, Vec<String>>, clustering_dir: &PathBuf) {
+    let mut metrics = ClusteringMetrics::new();
+    for c in 1..=get_max_cluster(sequences) {
+        let failure_reasons = qc_results.get(&c).unwrap();
+        if failure_reasons.is_empty() {
+            metrics.qc_pass_cluster_count += 1;
+        } else {
+            metrics.qc_fail_cluster_count += 1;
+        }
+    }
+    let mut all_filenames = HashSet::new();
+    let mut cluster_filenames = HashMap::new();
+    for seq in sequences {
+        let failure_reasons = qc_results.get(&seq.cluster).unwrap();
+        all_filenames.insert(seq.filename.clone());
+        cluster_filenames.entry(seq.cluster).or_insert_with(Vec::new).push(seq.filename.clone());
+        if failure_reasons.is_empty() {
+            metrics.qc_pass_contig_count += 1;
+        } else {
+            metrics.qc_fail_contig_count += 1;
+        }
+    }
+    metrics.calculate_fractions();
+    metrics.calculate_balance(all_filenames, cluster_filenames);
+    save_yaml(&clustering_yaml, &metrics).unwrap();
 }
 
 
@@ -668,7 +700,8 @@ mod tests {
     use super::*;
 
     fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
-        assert!((a - b).abs() < epsilon, "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
+        assert!((a - b).abs() < epsilon,
+                "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
     }
 
     #[test]

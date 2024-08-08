@@ -43,8 +43,7 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
     let out_gfa = autocycler_dir.join("input_assemblies.gfa");
     let out_yaml = autocycler_dir.join("input_assemblies.yaml");
     unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
-    let stats = gather_stats(assembly_count, &sequences, &unitig_graph);
-    save_yaml(&out_yaml, &stats).unwrap();
+    save_metrics(assembly_count, &sequences, &unitig_graph, &out_yaml);
     finished_message(start_time, out_gfa, out_yaml);
 }
 
@@ -158,15 +157,15 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 }
 
 
-fn gather_stats(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph)
-        -> InputAssemblyMetrics {
-    let mut stats = InputAssemblyMetrics::new();
-    stats.assembly_count = assembly_count as u32;
-    stats.total_contigs = sequences.len() as u32;
-    stats.total_length = sequences.iter().map(|s| s.length as u64).sum();
-    stats.compressed_unitig_count = graph.unitigs.len() as u32;
-    stats.compressed_unitig_total_length = graph.total_length();
-    stats
+fn save_metrics(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph,
+    out_yaml: &PathBuf) {
+    let mut metrics = InputAssemblyMetrics::new();
+    metrics.assembly_count = assembly_count as u32;
+    metrics.total_contigs = sequences.len() as u32;
+    metrics.total_length = sequences.iter().map(|s| s.length as u64).sum();
+    metrics.compressed_unitig_count = graph.unitigs.len() as u32;
+    metrics.compressed_unitig_total_length = graph.total_length();
+    save_yaml(&out_yaml, &metrics).unwrap();
 }
 
 
