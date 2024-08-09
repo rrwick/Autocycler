@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
-                  median_isize, reverse_path};
+                  median_isize, median_absolute_deviation_isize, reverse_path};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -234,8 +234,7 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
     explanation("Sequences which vary too much in their length are now excluded from the cluster.");
     let lengths: Vec<_> = sequences.iter().map(|s| s.length as isize).collect();
     let median = median_isize(&lengths);
-    let absolute_deviations: Vec<_> = sequences.iter().map(|s| (s.length as isize - median).abs()).collect();
-    let median_absolute_deviation = median_isize(&absolute_deviations);
+    let median_absolute_deviation = median_absolute_deviation_isize(&lengths);
     let min_length = (median as f64 - (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     let max_length = (median as f64 + (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     eprintln!("Median sequence length:    {} bp", median);

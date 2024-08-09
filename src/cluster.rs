@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::metrics::{ClusteringMetrics, save_yaml};
+use crate::metrics::{ClusteringMetrics, UntrimmedClusterMetrics, save_yaml};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
                   quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
                   load_file_lines};
@@ -59,7 +59,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
 
     // TODO: create a PDF of the tree with clusters? printpdf?
 
-    save_metrics(&clustering_yaml, &sequences, &qc_results);
+    save_clustering_metrics(&clustering_yaml, &sequences, &qc_results);
     finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
 
@@ -600,18 +600,22 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
         if qc.pass() {
             eprintln!("Cluster {:03}:", c);
             let mut seq_count = 0;
+            let mut seq_lengths = Vec::new();
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s);
                 seq_count += 1;
+                seq_lengths.push(s.length);
             }
             if seq_count > 1 {
                 eprintln!("  cluster distance: {}", format_float(qc.cluster_dist));
             }
             eprintln!("{}", "  passed QC".green());
-            eprintln!();
             let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
             save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
+            save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
+                                           cluster_dir.join("1_untrimmed.yaml"));
+            eprintln!();
         }
     }
 }
@@ -624,9 +628,11 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
         if qc.fail() {
             eprintln!("Cluster {:03}:", c);
             let mut seq_count = 0;
+            let mut seq_lengths = Vec::new();
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s.to_string().dimmed());
                 seq_count += 1;
+                seq_lengths.push(s.length);
             }
             if seq_count > 1 {
                 let s = format!("cluster distance: {}", format_float(qc.cluster_dist));
@@ -638,6 +644,8 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
             save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
+            save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
+                                           cluster_dir.join("1_untrimmed.yaml"));
             eprintln!();
         }
     }
@@ -654,6 +662,13 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
     cluster_graph.remove_zero_depth_unitigs();
     merge_linear_paths(&mut cluster_graph, &cluster_seqs, None);
     cluster_graph.save_gfa(&out_gfa, &cluster_seqs).unwrap();
+}
+
+
+fn save_untrimmed_cluster_metrics(seq_lengths: Vec<usize>, cluster_dist: f64,
+                                  cluster_yaml: PathBuf) {
+    let metrics = UntrimmedClusterMetrics::new(seq_lengths, cluster_dist);
+    save_yaml(&cluster_yaml, &metrics).unwrap();
 }
 
 
@@ -676,27 +691,20 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
 }
 
 
-fn save_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
-                qc_results: &HashMap<u16, ClusterQC>) {
+fn save_clustering_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
+                           qc_results: &HashMap<u16, ClusterQC>) {
     let mut metrics = ClusteringMetrics::new();
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();
-        if qc.pass() {
-            metrics.pass_cluster_count += 1;
-            metrics.pass_cluster_distances.push(qc.cluster_dist);
-        } else {
-            metrics.fail_cluster_count += 1;
-        }
+        if qc.pass() { metrics.pass_cluster_count += 1; }
+                else { metrics.fail_cluster_count += 1; }
     }
     let mut cluster_filenames = HashMap::new();
     for seq in sequences {
         let qc = qc_results.get(&seq.cluster).unwrap();
         cluster_filenames.entry(seq.cluster).or_insert_with(Vec::new).push(seq.filename.clone());
-        if qc.pass() {
-            metrics.pass_contig_count += 1;
-        } else {
-            metrics.fail_contig_count += 1;
-        }
+        if qc.pass() { metrics.pass_contig_count += 1; }
+                else { metrics.fail_contig_count += 1; }
     }
     metrics.calculate_fractions();
     metrics.calculate_balance(cluster_filenames);

@@ -313,46 +313,47 @@ pub fn usize_division_rounded(dividend: usize, divisor: usize) -> usize {
 pub fn format_float(num: f64) -> String {
     // Formats a float with up to six decimal places but then drops trailing zeros.
     let mut formatted = format!("{:.6}", num);
-    if !formatted.contains('.') {
-        return formatted
-    }
-    while formatted.chars().last().unwrap() == '0' {
-        formatted.pop();
-    }
-    if formatted.chars().last().unwrap() == '.' {
-        formatted.pop();
-    }
+    if !formatted.contains('.') { return formatted }
+    while formatted.chars().last().unwrap() == '0' { formatted.pop(); }
+    if formatted.chars().last().unwrap() == '.' { formatted.pop(); }
     formatted
 }
 
 
 pub fn median_usize(values: &[usize]) -> usize {
-    if values.is_empty() {
-        return 0;
-    }
+    if values.is_empty() { return 0; }
     let mut sorted_values = values.to_vec();
     sorted_values.sort();
     let len = sorted_values.len();
-    if len % 2 == 0 {
-        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
-    } else {
-        sorted_values[len / 2]
-    }
+    if len % 2 == 0 { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
+               else { sorted_values[len / 2] }
 }
 
 
 pub fn median_isize(values: &[isize]) -> isize {
-    if values.is_empty() {
-        return 0;
-    }
+    if values.is_empty() { return 0; }
     let mut sorted_values = values.to_vec();
     sorted_values.sort();
     let len = sorted_values.len();
-    if len % 2 == 0 {
-        (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2
-    } else {
-        sorted_values[len / 2]
-    }
+    if len % 2 == 0 { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
+               else { sorted_values[len / 2] }
+}
+
+
+pub fn median_absolute_deviation_usize(values: &[usize]) -> usize {
+    if values.is_empty() { return 0; }
+    let median = median_usize(&values);
+    let absolute_deviations: Vec<_> = values.iter()
+        .map(|v| (*v as isize - median as isize).abs()).collect();
+    median_isize(&absolute_deviations) as usize
+}
+
+
+pub fn median_absolute_deviation_isize(values: &[isize]) -> isize {
+    if values.is_empty() { return 0; }
+    let median = median_isize(&values);
+    let absolute_deviations: Vec<_> = values.iter().map(|v| (*v - median).abs()).collect();
+    median_isize(&absolute_deviations)
 }
 
 
@@ -445,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn test_median_usize() {
+    fn test_median() {
         assert_eq!(median_usize(&mut vec![]), 0);
         assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4]), 2);
         assert_eq!(median_usize(&mut vec![4, 3, 2, 1, 0]), 2);
@@ -453,6 +454,25 @@ mod tests {
         assert_eq!(median_usize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
         assert_eq!(median_usize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
         assert_eq!(median_usize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+
+        assert_eq!(median_isize(&mut vec![]), 0);
+        assert_eq!(median_isize(&mut vec![0, 1, 2, 3, 4]), 2);
+        assert_eq!(median_isize(&mut vec![4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_isize(&mut vec![0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median_isize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_isize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median_isize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+    }
+
+    #[test]
+    fn test_median_absolute_deviation() {
+        assert_eq!(median_absolute_deviation_usize(&mut vec![]), 0);
+        assert_eq!(median_absolute_deviation_usize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(median_absolute_deviation_usize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
+
+        assert_eq!(median_absolute_deviation_isize(&mut vec![]), 0);
+        assert_eq!(median_absolute_deviation_isize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(median_absolute_deviation_isize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
     }
 
     #[test]

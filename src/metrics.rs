@@ -18,6 +18,8 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::misc::median_absolute_deviation_usize;
+
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct InputAssemblyMetrics {
@@ -27,6 +29,7 @@ pub struct InputAssemblyMetrics {
     pub compressed_unitig_count: u32,
     pub compressed_unitig_total_length: u64,
 }
+
 impl InputAssemblyMetrics {
     pub fn new() -> Self { Self::default() }
 }
@@ -34,15 +37,15 @@ impl InputAssemblyMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ClusteringMetrics {
-    pub cluster_balance: f64,
     pub pass_cluster_count: u32,
     pub fail_cluster_count: u32,
     pub pass_contig_count: u32,
     pub fail_contig_count: u32,
     pub pass_contig_fraction: f64,
     pub fail_contig_fraction: f64,
-    pub pass_cluster_distances: Vec<f64>,
+    pub cluster_balance: f64,
 }
+
 impl ClusteringMetrics {
     pub fn new() -> Self { Self::default() }
 
@@ -85,13 +88,23 @@ impl ClusteringMetrics {
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct ClusterMetrics {
-    pub cluster_tightness: f64,
-    pub cluster_mad: f64,
-    pub conflicting_bridges: u32,
-    pub resolved_unitigs: u32,
+pub struct UntrimmedClusterMetrics {
+    pub cluster_size: u32,
+    pub cluster_distance: f64,
+    pub sequence_lengths: Vec<usize>,
+    pub sequence_length_mad: u32,
 }
-impl ClusterMetrics { pub fn new() -> Self { Self::default() } }
+
+impl UntrimmedClusterMetrics {
+    pub fn new(sequence_lengths: Vec<usize>, cluster_distance: f64) -> Self {
+        UntrimmedClusterMetrics {
+            cluster_size: sequence_lengths.len() as u32,
+            cluster_distance,
+            sequence_length_mad: median_absolute_deviation_usize(&sequence_lengths) as u32,
+            sequence_lengths,
+        }
+    }
+}
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -104,6 +117,7 @@ pub struct ConsensusMetrics {
     pub dead_ends: u32,
     pub overall_score: f64,
 }
+
 impl ConsensusMetrics { pub fn new() -> Self { Self::default() } }
 
 
