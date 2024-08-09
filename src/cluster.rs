@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::metrics::{ClusteringMetrics, ClusterMetrics, save_yaml};
+use crate::metrics::{ClusteringMetrics, save_yaml};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
                   quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
                   load_file_lines};
@@ -49,17 +49,17 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
-    let cluster_qc_results = if manual_clusters.is_empty() {
+    let qc_results = if manual_clusters.is_empty() {
         define_clusters_automatically(&tree, &mut sequences, &asymmetrical_distances, min_assemblies, cutoff)
     } else {
         define_clusters_manually(&tree, &mut sequences, manual_clusters)
     };
-    save_clusters(&sequences, &cluster_qc_results, &clustering_dir, &gfa_lines);
-    save_data_to_tsv(&sequences, &cluster_qc_results, &clustering_tsv);
+    save_clusters(&sequences, &qc_results, &clustering_dir, &gfa_lines);
+    save_data_to_tsv(&sequences, &qc_results, &clustering_tsv);
 
     // TODO: create a PDF of the tree with clusters? printpdf?
 
-    save_metrics(&clustering_yaml, &sequences, &cluster_qc_results, &clustering_dir);
+    save_metrics(&clustering_yaml, &sequences, &qc_results);
     finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
 
@@ -368,14 +368,14 @@ fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
 
 
 fn define_clusters_manually(tree: &TreeNode, sequences: &mut Vec<Sequence>,
-                            cluster_nodes: Vec<u16>) -> HashMap<u16, Vec<String>> {
+                            cluster_nodes: Vec<u16>) -> HashMap<u16, ClusterQC> {
     let mut current_cluster = 0;
-    let mut failure_reasons = HashMap::new();
+    let mut qc_results = HashMap::new();
     for n in cluster_nodes {
         if let Some(node) = find_node_by_id(tree, n) {
             current_cluster += 1;
             assign_cluster_to_node(node, sequences, current_cluster);
-            failure_reasons.insert(current_cluster, Vec::new());
+            qc_results.insert(current_cluster, ClusterQC::new_pass(node.distance * 2.0));
         } else {
             quit_with_error(&format!("clustering tree does not contain a node with id {}", n));
         }
@@ -384,17 +384,19 @@ fn define_clusters_manually(tree: &TreeNode, sequences: &mut Vec<Sequence>,
         if s.cluster == 0 {  // wasn't assigned a cluster by the above loop
             current_cluster += 1;
             s.cluster = current_cluster;
-            failure_reasons.insert(current_cluster, vec!["not included in manual clusters".to_string()]);
+            let mut qc = ClusterQC::new();
+            qc.failure_reasons.push("not included in manual clusters".to_string());
+            qc_results.insert(current_cluster, qc);
         }
     }
     let old_to_new = reorder_clusters(sequences);
-    let mut reordered_failure_reasons = HashMap::new();
-    for (old_key, reasons) in failure_reasons {
+    let mut reordered_qc_results = HashMap::new();
+    for (old_key, qc) in qc_results {
         if let Some(&new_key) = old_to_new.get(&old_key) {
-            reordered_failure_reasons.insert(new_key, reasons);
+            reordered_qc_results.insert(new_key, qc);
         }
     }
-    reordered_failure_reasons
+    reordered_qc_results
 }
 
 
@@ -413,8 +415,9 @@ fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluste
 }
 
 
-fn define_clusters_automatically(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashMap<(u16, u16), f64>,
-                             min_assemblies: usize, cutoff: f64) -> HashMap<u16, Vec<String>> {
+fn define_clusters_automatically(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                                 distances: &HashMap<(u16, u16), f64>, min_assemblies: usize,
+                                 cutoff: f64) -> HashMap<u16, ClusterQC> {
     // TODO: It might be nice to rethink this function and cluster more intelligently. Currently,
     //       I'm just using a fixed distance threshold for the entire tree to define clusters. But
     //       one tree might contain clusters with a mix of different ideal thresholds. So instead,
@@ -426,25 +429,37 @@ fn define_clusters_automatically(tree: &TreeNode, sequences: &mut Vec<Sequence>,
     //       (good).
     let mut seq_id_to_cluster = HashMap::new();
     let mut current_cluster = 0;
-    define_clusters_from_node(tree, cutoff / 2.0, &mut seq_id_to_cluster, &mut current_cluster);
+    let mut cluster_distances = HashMap::new();
+    define_clusters_from_node(tree, cutoff / 2.0, &mut seq_id_to_cluster, &mut current_cluster,
+                              &mut cluster_distances);
     for s in sequences.iter_mut() {
         s.cluster = *seq_id_to_cluster.get(&s.id).unwrap();
     }
     eprintln!("{} cluster{}", current_cluster, match current_cluster { 1 => "", _ => "s" });
     eprintln!();
-    reorder_clusters(sequences);
-    cluster_qc(&sequences, &distances, cutoff, min_assemblies)
+    let old_to_new = reorder_clusters(sequences);
+    let mut reordered_cluster_distances = HashMap::new();
+    for (old_key, cluster_distance) in cluster_distances {
+        if let Some(&new_key) = old_to_new.get(&old_key) {
+            reordered_cluster_distances.insert(new_key, cluster_distance);
+        }
+    }
+    cluster_qc(&sequences, &distances, &reordered_cluster_distances, cutoff, min_assemblies)
 }
 
 
 fn define_clusters_from_node(node: &TreeNode, cutoff: f64,
-                             seq_id_to_cluster: &mut HashMap<u16, u16>, current_cluster: &mut u16) {
+                             seq_id_to_cluster: &mut HashMap<u16, u16>, current_cluster: &mut u16,
+                             cluster_distances: &mut HashMap<u16, f64>) {
     if node.is_tip() || node.distance < cutoff {
         *current_cluster += 1;
         define_clusters(node, seq_id_to_cluster, *current_cluster);
+        cluster_distances.insert(*current_cluster, node.distance * 2.0);
     } else {  // node is a loose group, so continue recursively
-        define_clusters_from_node(node.left.as_ref().unwrap(), cutoff, seq_id_to_cluster, current_cluster);
-        define_clusters_from_node(node.right.as_ref().unwrap(), cutoff, seq_id_to_cluster, current_cluster);
+        define_clusters_from_node(node.left.as_ref().unwrap(), cutoff, seq_id_to_cluster,
+                                  current_cluster, cluster_distances);
+        define_clusters_from_node(node.right.as_ref().unwrap(), cutoff, seq_id_to_cluster,
+                                  current_cluster, cluster_distances);
     }
 }
 
@@ -486,43 +501,64 @@ fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
 }
 
 
-fn cluster_qc(sequences: &Vec<Sequence>, distances: &HashMap<(u16, u16), f64>, cutoff: f64,
-              min_assemblies: usize) -> HashMap<u16, Vec<String>> {
+#[derive(Default)]
+struct ClusterQC {
+    pub failure_reasons: Vec<String>,
+    pub cluster_dist: f64,
+}
+
+impl ClusterQC {
+    pub fn new() -> Self { Self::default() }
+    pub fn new_pass(cluster_dist: f64) -> Self {
+        ClusterQC {
+            failure_reasons: Vec::new(),
+            cluster_dist,
+        }
+    }
+    pub fn pass(&self) -> bool { self.failure_reasons.is_empty() }
+    pub fn fail(&self) -> bool { !self.failure_reasons.is_empty() }
+}
+
+
+fn cluster_qc(sequences: &Vec<Sequence>, distances: &HashMap<(u16, u16), f64>,
+              cluster_distances: &HashMap<u16, f64>, cutoff: f64, min_assemblies: usize)
+        -> HashMap<u16, ClusterQC> {
     // This function chooses which clusters pass and which clusters fail. It returns the result as
     // a vector of failure reasons, with an empty vector meaning the cluster passed QC.
     section_header("Cluster QC");
     explanation("Clusters are rejected if they occur in too few assemblies (set by \
                  --min_assemblies) or if they appear to be contained within a larger better \
                  cluster.");
-    for s in sequences {
-        assert!(s.cluster != 0);
-    }
+    for s in sequences { assert!(s.cluster != 0); }
     let max_cluster = get_max_cluster(&sequences);
-    let mut failure_reasons: HashMap<u16, Vec<String>> = (1..=max_cluster).map(|c| (c, Vec::new())).collect();
+    let mut qc_results: HashMap<_, _> = (1..=max_cluster).map(|c| (c, ClusterQC::new())).collect();
     for c in 1..=max_cluster {
         let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
         if assemblies.len() < min_assemblies {
-            failure_reasons.get_mut(&c).unwrap().push("present in too few assemblies".to_string());
+            qc_results.get_mut(&c).unwrap().failure_reasons.push("present in too few assemblies".to_string());
         }
     }
     for c in 1..=max_cluster {
-        let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &failure_reasons);
+        let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &qc_results);
         if container > 0 {
-            failure_reasons.get_mut(&c).unwrap().push(format!("contained within cluster {}", container));
+            qc_results.get_mut(&c).unwrap().failure_reasons.push(format!("contained within cluster {}", container));
         }
     }
-    failure_reasons
+    for c in 1..=max_cluster {
+        qc_results.get_mut(&c).unwrap().cluster_dist = *cluster_distances.get(&c).unwrap();
+    }
+    qc_results
 }
 
 
 fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
                                    distances: &HashMap<(u16, u16), f64>, cutoff: f64,
-                                   failure_reasons: &HashMap<u16, Vec<String>>) -> u16 {
+                                   qc_results: &HashMap<u16, ClusterQC>) -> u16 {
     // Checks whether this cluster is contained within another cluster that has so-far passed QC.
     // If so, it returns the id of the containing cluster. If not, it returns 0.
     // A cluster counts as contained if the majority of the pairwise comparisons to another cluster
     // are asymmetrical and below the cutoff.
-    let passed_clusters: Vec<u16> = failure_reasons.iter().filter(|(_, v)| v.is_empty()).map(|(&k, _)| k).collect();
+    let passed_clusters: Vec<u16> = qc_results.iter().filter(|(_, q)| q.pass()).map(|(&k, _)| k).collect();
     for passed_cluster in passed_clusters {
         if passed_cluster == cluster_num {
             continue;
@@ -548,7 +584,7 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
 }
 
 
-fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                  clustering_dir: &PathBuf, gfa_lines: &Vec<String>) {
     let pass_dir = clustering_dir.join("qc_pass");
     let fail_dir = clustering_dir.join("qc_fail");
@@ -557,14 +593,19 @@ fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String
 }
 
 
-fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                          gfa_lines: &Vec<String>, pass_dir: &PathBuf) {
     for c in 1..=get_max_cluster(sequences) {
-        let failure_reasons = qc_results.get(&c).unwrap();
-        if failure_reasons.len() == 0 {
+        let qc = qc_results.get(&c).unwrap();
+        if qc.pass() {
             eprintln!("Cluster {:03}:", c);
+            let mut seq_count = 0;
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s);
+                seq_count += 1;
+            }
+            if seq_count > 1 {
+                eprintln!("  cluster distance: {}", format_float(qc.cluster_dist));
             }
             eprintln!("{}", "  passed QC".green());
             eprintln!();
@@ -576,16 +617,22 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Ve
 }
 
 
-fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                          gfa_lines: &Vec<String>, fail_dir: &PathBuf) {
     for c in 1..=get_max_cluster(sequences) {
-        let failure_reasons = qc_results.get(&c).unwrap();
-        if !failure_reasons.is_empty() {
+        let qc = qc_results.get(&c).unwrap();
+        if qc.fail() {
             eprintln!("Cluster {:03}:", c);
+            let mut seq_count = 0;
             for s in sequences.iter().filter(|s| s.cluster == c) {
                 eprintln!("  {}", s.to_string().dimmed());
+                seq_count += 1;
             }
-            for f in failure_reasons {
+            if seq_count > 1 {
+                let s = format!("cluster distance: {}", format_float(qc.cluster_dist));
+                eprintln!("  {}", s.to_string().dimmed());
+            }
+            for f in &qc.failure_reasons {
                 eprintln!("  {}", format!("failed QC: {}", f).red());
             }
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
@@ -610,15 +657,15 @@ fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec
 }
 
 
-fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<String>>,
+fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                     file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
     write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\tfile_name\tcontig_name\tlength\n").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
-        let failure_reasons = qc_results.get(&seq.cluster).unwrap();
+        let qc = qc_results.get(&seq.cluster).unwrap();
         let all_cluster = format!("{}", seq.cluster);
-        let pass_cluster = if !failure_reasons.is_empty() {
+        let pass_cluster = if qc.pass() {
             "none".to_string()
         } else {
             format!("{}", seq.cluster)
@@ -630,24 +677,25 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Vec<Str
 
 
 fn save_metrics(clustering_yaml: &PathBuf, sequences: &Vec<Sequence>,
-                qc_results: &HashMap<u16, Vec<String>>, clustering_dir: &PathBuf) {
+                qc_results: &HashMap<u16, ClusterQC>) {
     let mut metrics = ClusteringMetrics::new();
     for c in 1..=get_max_cluster(sequences) {
-        let failure_reasons = qc_results.get(&c).unwrap();
-        if failure_reasons.is_empty() {
-            metrics.qc_pass_cluster_count += 1;
+        let qc = qc_results.get(&c).unwrap();
+        if qc.pass() {
+            metrics.pass_cluster_count += 1;
+            metrics.pass_cluster_distances.push(qc.cluster_dist);
         } else {
-            metrics.qc_fail_cluster_count += 1;
+            metrics.fail_cluster_count += 1;
         }
     }
     let mut cluster_filenames = HashMap::new();
     for seq in sequences {
-        let failure_reasons = qc_results.get(&seq.cluster).unwrap();
+        let qc = qc_results.get(&seq.cluster).unwrap();
         cluster_filenames.entry(seq.cluster).or_insert_with(Vec::new).push(seq.filename.clone());
-        if failure_reasons.is_empty() {
-            metrics.qc_pass_contig_count += 1;
+        if qc.pass() {
+            metrics.pass_contig_count += 1;
         } else {
-            metrics.qc_fail_contig_count += 1;
+            metrics.fail_contig_count += 1;
         }
     }
     metrics.calculate_fractions();

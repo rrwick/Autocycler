@@ -34,22 +34,23 @@ impl InputAssemblyMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ClusteringMetrics {
-    pub qc_pass_cluster_count: u32,
-    pub qc_fail_cluster_count: u32,
-    pub qc_pass_contig_count: u32,
-    pub qc_fail_contig_count: u32,
-    pub qc_pass_contig_fraction: f64,
-    pub qc_fail_contig_fraction: f64,
     pub cluster_balance: f64,
+    pub pass_cluster_count: u32,
+    pub fail_cluster_count: u32,
+    pub pass_contig_count: u32,
+    pub fail_contig_count: u32,
+    pub pass_contig_fraction: f64,
+    pub fail_contig_fraction: f64,
+    pub pass_cluster_distances: Vec<f64>,
 }
 impl ClusteringMetrics {
     pub fn new() -> Self { Self::default() }
 
     pub fn calculate_fractions(&mut self) {
-        let total_contigs = self.qc_pass_contig_count + self.qc_fail_contig_count;
+        let total_contigs = self.pass_contig_count + self.fail_contig_count;
         if total_contigs > 0 {
-            self.qc_pass_contig_fraction = self.qc_pass_contig_count  as f64 / total_contigs as f64;
-            self.qc_fail_contig_fraction = self.qc_fail_contig_count  as f64 / total_contigs as f64;
+            self.pass_contig_fraction = self.pass_contig_count  as f64 / total_contigs as f64;
+            self.fail_contig_fraction = self.fail_contig_count  as f64 / total_contigs as f64;
         }
     }
 
