@@ -340,7 +340,7 @@ pub fn median_isize(values: &[isize]) -> isize {
 }
 
 
-pub fn median_absolute_deviation_usize(values: &[usize]) -> usize {
+pub fn mad_usize(values: &[usize]) -> usize {
     if values.is_empty() { return 0; }
     let median = median_usize(&values);
     let absolute_deviations: Vec<_> = values.iter()
@@ -349,7 +349,7 @@ pub fn median_absolute_deviation_usize(values: &[usize]) -> usize {
 }
 
 
-pub fn median_absolute_deviation_isize(values: &[isize]) -> isize {
+pub fn mad_isize(values: &[isize]) -> isize {
     if values.is_empty() { return 0; }
     let median = median_isize(&values);
     let absolute_deviations: Vec<_> = values.iter().map(|v| (*v - median).abs()).collect();
@@ -466,13 +466,13 @@ mod tests {
 
     #[test]
     fn test_median_absolute_deviation() {
-        assert_eq!(median_absolute_deviation_usize(&mut vec![]), 0);
-        assert_eq!(median_absolute_deviation_usize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
-        assert_eq!(median_absolute_deviation_usize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
+        assert_eq!(mad_usize(&mut vec![]), 0);
+        assert_eq!(mad_usize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(mad_usize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
 
-        assert_eq!(median_absolute_deviation_isize(&mut vec![]), 0);
-        assert_eq!(median_absolute_deviation_isize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
-        assert_eq!(median_absolute_deviation_isize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
+        assert_eq!(mad_isize(&mut vec![]), 0);
+        assert_eq!(mad_isize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(mad_isize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
     }
 
     #[test]

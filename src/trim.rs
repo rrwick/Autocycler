@@ -12,6 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
+use rand::seq;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::collections::{HashMap, VecDeque};
@@ -20,8 +21,9 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
+use crate::metrics::{TrimmedClusterMetrics, save_yaml};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
-                  median_isize, median_absolute_deviation_isize, reverse_path};
+                  median_isize, mad_isize, reverse_path};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -33,6 +35,7 @@ const NONE: usize = usize::MAX;
 pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f64, threads: usize) {
     let untrimmed_gfa = cluster_dir.join("1_untrimmed.gfa");
     let trimmed_gfa = cluster_dir.join("2_trimmed.gfa");
+    let trimmed_yaml = cluster_dir.join("2_trimmed.yaml");
     check_settings(&cluster_dir, &untrimmed_gfa, min_identity, mad, threads);
     starting_message();
     print_settings(&cluster_dir, min_identity, max_unitigs, mad, threads);
@@ -44,6 +47,7 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     let sequences = exclude_outliers_in_length(&mut graph, &sequences, mad);
     clean_up_graph(&mut graph, &sequences);
     graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
+    save_metrics(&trimmed_yaml, &sequences);
     finished_message(&trimmed_gfa);
 }
 
@@ -234,7 +238,7 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
     explanation("Sequences which vary too much in their length are now excluded from the cluster.");
     let lengths: Vec<_> = sequences.iter().map(|s| s.length as isize).collect();
     let median = median_isize(&lengths);
-    let median_absolute_deviation = median_absolute_deviation_isize(&lengths);
+    let median_absolute_deviation = mad_isize(&lengths);
     let min_length = (median as f64 - (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     let max_length = (median as f64 + (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     eprintln!("Median sequence length:    {} bp", median);
@@ -265,6 +269,13 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
     merge_linear_paths(graph, &sequences, None);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
+}
+
+
+fn save_metrics(trimmed_yaml: &PathBuf, sequences: &Vec<Sequence>) {
+    let seq_lengths = sequences.iter().map(|s| s.length).collect();
+    let metrics = TrimmedClusterMetrics::new(seq_lengths);
+    save_yaml(&trimmed_yaml, &metrics).unwrap();
 }
 
 

@@ -18,7 +18,7 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::misc::median_absolute_deviation_usize;
+use crate::misc::mad_usize;
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -90,17 +90,35 @@ impl ClusteringMetrics {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct UntrimmedClusterMetrics {
     pub cluster_size: u32,
-    pub cluster_distance: f64,
     pub sequence_lengths: Vec<usize>,
-    pub sequence_length_mad: u32,
+    pub sequence_length_median_absolute_deviation: u32,
+    pub cluster_distance: f64,
 }
 
 impl UntrimmedClusterMetrics {
     pub fn new(sequence_lengths: Vec<usize>, cluster_distance: f64) -> Self {
         UntrimmedClusterMetrics {
             cluster_size: sequence_lengths.len() as u32,
+            sequence_length_median_absolute_deviation: mad_usize(&sequence_lengths) as u32,
+            sequence_lengths,
             cluster_distance,
-            sequence_length_mad: median_absolute_deviation_usize(&sequence_lengths) as u32,
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct TrimmedClusterMetrics {
+    pub cluster_size: u32,
+    pub sequence_lengths: Vec<usize>,
+    pub sequence_length_median_absolute_deviation: u32,
+}
+
+impl TrimmedClusterMetrics {
+    pub fn new(sequence_lengths: Vec<usize>) -> Self {
+        TrimmedClusterMetrics {
+            cluster_size: sequence_lengths.len() as u32,
+            sequence_length_median_absolute_deviation: mad_usize(&sequence_lengths) as u32,
             sequence_lengths,
         }
     }
