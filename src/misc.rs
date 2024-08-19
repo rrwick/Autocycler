@@ -125,10 +125,17 @@ pub fn check_if_dir_is_not_dir(dir: &PathBuf) {
 }
 
 
+#[cfg(not(test))]
 pub fn quit_with_error(text: &str) -> ! {
+    // For friendly error messages, this function normally just prints the error and quits.
     eprintln!();
     eprintln!("Error: {}", text);
     std::process::exit(1);
+}
+#[cfg(test)]
+pub fn quit_with_error(text: &str) -> ! {
+    // But when running unit tests, this function instead panics so I can catch it for the test.
+    panic!("{}", text);
 }
 
 

@@ -45,23 +45,41 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let manual_clusters = parse_manual_clusters(manual_clusters);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option,
                    &manual_clusters);
-    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
+    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences,
+                                                           &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
-    let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
+    let mut tree = upgma(&symmetrical_distances, &mut sequences);
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
-    let qc_results = if manual_clusters.is_empty() {
-        define_clusters_automatically(&tree, &mut sequences, &asymmetrical_distances, min_assemblies, cutoff)
-    } else {
-        define_clusters_manually(&tree, &mut sequences, manual_clusters)
-    };
-    save_clusters(&sequences, &qc_results, &clustering_dir, &gfa_lines);
-    save_data_to_tsv(&sequences, &qc_results, &clustering_tsv);
+    let qc_results = generate_clusters(&tree, &mut sequences, &asymmetrical_distances, cutoff,
+                                       &manual_clusters);
 
-    // TODO: create a PDF of the tree with clusters? printpdf?
 
-    save_clustering_metrics(&clustering_yaml, &sequences, &qc_results);
-    finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
+
+
+    // define_clusters_from_node_numbers(&tree, &mut sequences, clusters);
+
+
+
+
+
+    // // let qc_results = if manual_clusters.is_empty() {
+    // //     define_clusters_automatically(&tree, &mut sequences, &asymmetrical_distances, min_assemblies, cutoff)
+    // // } else {
+    // //     define_clusters_manually(&tree, &mut sequences, manual_clusters)
+    // // };
+
+
+
+
+
+    // save_clusters(&sequences, &qc_results, &clustering_dir, &gfa_lines);
+    // save_data_to_tsv(&sequences, &qc_results, &clustering_tsv);
+    // save_clustering_metrics(&clustering_yaml, &sequences, &qc_results);
+
+    // // TODO: create a PDF of the tree with clusters? printpdf?
+
+    // finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
 
 
@@ -206,22 +224,84 @@ impl TreeNode {
     fn is_tip(&self) -> bool {
         self.left.is_none()
     }
+
+    fn max_pairwise_distance(&self, node_num: u16) -> f64 {
+        // This method is run on the root of the tree, and it returns the distance for the given
+        // node. The distance is doubled because this function returns the max pairwise distance
+        // within the clade, not the node-to-tip-distance.
+        if self.id == node_num { return self.distance * 2.0; }
+        if self.is_tip() { return -1.0; }  // -1 means the node_num wasn't found
+        let left_dist = self.left.as_ref().unwrap().max_pairwise_distance(node_num);
+        let right_dist = self.right.as_ref().unwrap().max_pairwise_distance(node_num);
+        left_dist.max(right_dist)
+    }
+
+    fn automatic_clustering(&self, cutoff: f64) -> Vec<u16> {
+        // This method is run on the root of the tree, and it divides the tree into clusters using
+        // only the cutoff distance. 
+        let mut clusters = Vec::new();
+        self.collect_clusters(cutoff / 2.0, &vec![], &mut clusters);
+        clusters.sort();
+        clusters
+    }
+
+    fn manual_clustering(&self, cutoff: f64, manual_clusters: &[u16]) -> Vec<u16> {
+        // This method is run on the root of the tree, and it divides the tree into clusters. Any
+        // manual clusters specified by the user are included in the final clusters, and the rest
+        // of the tree is clustered by distance.
+        let mut clusters = Vec::new();
+        self.check_consistency(manual_clusters);
+        self.collect_clusters(cutoff / 2.0, manual_clusters, &mut clusters);
+        clusters.sort();
+        clusters
+    }
+
+    fn collect_clusters(&self, cutoff: f64, manual_clusters: &[u16], clusters: &mut Vec<u16>) {
+        if manual_clusters.contains(&self.id) {
+            clusters.push(self.id);
+        } else if self.distance <= cutoff && !self.has_manual_child(manual_clusters) {
+            clusters.push(self.id);
+        } else {
+            if !self.is_tip() {
+                self.left.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
+                self.right.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
+            }
+        }
+    }
+
+    fn has_manual_child(&self, manual_clusters: &[u16]) -> bool {
+        // Returns true if this node is in the user-specified manual clusters or any of its
+        // children are.
+        if manual_clusters.contains(&self.id) { return true; }
+        if !self.is_tip() {
+            if self.left.as_ref().unwrap().has_manual_child(manual_clusters) { return true; }
+            if self.right.as_ref().unwrap().has_manual_child(manual_clusters) { return true; }
+        }
+        false
+    }
+
+    fn check_consistency(&self, manual_clusters: &[u16]) {
+        // Ensures that no manual cluster is contained within another manual cluster.
+        if !self.is_tip() {
+            if manual_clusters.contains(&self.id) &&
+                    (self.left.as_ref().unwrap().has_manual_child(manual_clusters) ||
+                     self.right.as_ref().unwrap().has_manual_child(manual_clusters)) {
+                quit_with_error("manual clusters cannot be nested");
+            }
+            self.left.as_ref().unwrap().check_consistency(manual_clusters);
+            self.right.as_ref().unwrap().check_consistency(manual_clusters);
+        }
+    }
 }
 
 
 fn find_node_by_id(node: &TreeNode, id: u16) -> Option<&TreeNode> {
-    if node.id == id {
-        return Some(node);
-    }
+    if node.id == id { return Some(node); }
     if let Some(ref left) = node.left {
-        if let Some(found) = find_node_by_id(left, id) {
-            return Some(found);
-        }
+        if let Some(found) = find_node_by_id(left, id) { return Some(found); }
     }
     if let Some(ref right) = node.right {
-        if let Some(found) = find_node_by_id(right, id) {
-            return Some(found);
-        }
+        if let Some(found) = find_node_by_id(right, id) { return Some(found); }
     }
     None
 }
@@ -259,7 +339,8 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
 }
 
 
-fn upgma_clustering(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
+fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>)
+        -> TreeNode {
     section_header("Clustering sequences");
     explanation("Contigs are organise into a tree using UPGMA. Then clusters are defined from the \
                  tree using the distance cutoff.");
@@ -363,17 +444,139 @@ fn normalise_tree(root: &mut TreeNode) {
 
 fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
     node.distance *= scaling_factor;
-    if let Some(left) = &mut node.left {
-        scale_node_distance(left, scaling_factor);
-    }
-    if let Some(right) = &mut node.right {
-        scale_node_distance(right, scaling_factor);
-    }
+    if let Some(left)  = &mut node.left  { scale_node_distance(left,  scaling_factor); }
+    if let Some(right) = &mut node.right { scale_node_distance(right, scaling_factor); }
 }
 
 
-fn define_clusters_manually(tree: &TreeNode, sequences: &mut Vec<Sequence>,
-                            cluster_nodes: Vec<u16>) -> HashMap<u16, ClusterQC> {
+
+
+
+
+
+
+
+fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                     distances: &HashMap<(u16, u16), f64>, cutoff: f64, manual_clusters: &Vec<u16>)
+        -> HashMap<u16, ClusterQC> {
+    let clusters = if manual_clusters.is_empty() {
+        let auto_clusters = tree.automatic_clustering(cutoff);
+        refine_auto_clusters(tree, sequences, distances, &auto_clusters)
+    } else {
+        tree.manual_clustering(cutoff, &manual_clusters)
+    };
+
+    // TODO: sanity check that the clusters cover all tips in the tree.
+
+    let mut qc_results = HashMap::new();
+    for c in &clusters {
+        let dist = tree.max_pairwise_distance(*c);
+
+        // If using manual clustering, then the only reason clusters fail QC is not being included in
+        // the user-supplied clusters.
+        if manual_clusters.is_empty() {
+            if manual_clusters.contains(&c) {
+                qc_results.insert(*c, ClusterQC::new_pass(dist));
+            } else {
+                qc_results.insert(*c, ClusterQC::new_manual_fail(dist));
+            }
+        }
+
+        // If using automatic clustering, then clusters can fail QC for being contained in other
+        // clusters or appearing in too few input assemblies.
+        else {
+            // TODO
+            // TODO
+            // TODO
+            // TODO
+        }
+    }
+
+
+    eprintln!("{:?}", clusters);  // TEMP
+
+
+
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    qc_results
+}
+
+
+
+
+
+
+
+
+
+
+fn score_clustering(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                    distances: &HashMap<(u16, u16), f64>, clusters: &Vec<u16>) -> f64 {
+    // Given a set of node numbers for the tree which define clusters, this function returns the
+    // overall score for that clustering (higher is better).
+
+
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    0.0  // TEMP
+}
+
+
+fn refine_auto_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                        distances: &HashMap<(u16, u16), f64>, clusters: &Vec<u16>) -> Vec<u16> {
+    // Given a set of node numbers for the tree which define clusters, this function tries to
+    // improve the clustering. It does this by trying to split each cluster and seeing if the score
+    // gets better, repeating until no improvements can be made.
+
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+    // TODO
+
+    clusters.clone()  // TEMP
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+fn define_clusters_from_node_numbers(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+                                     cluster_nodes: Vec<u16>) -> HashMap<u16, ClusterQC> {
     let mut current_cluster = 0;
     let mut qc_results = HashMap::new();
     for n in cluster_nodes {
@@ -406,17 +609,14 @@ fn define_clusters_manually(tree: &TreeNode, sequences: &mut Vec<Sequence>,
 
 
 fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluster: u16) {
+    // This function assigns all sequences under a given node to the given cluster.
     for s in sequences.iter_mut() {
         if s.id == node.id {
             s.cluster = cluster;
         }
     }
-    if let Some(ref left) = node.left {
-        assign_cluster_to_node(left, sequences, cluster);
-    }
-    if let Some(ref right) = node.right {
-        assign_cluster_to_node(right, sequences, cluster);
-    }
+    if let Some(ref left)  = node.left  { assign_cluster_to_node(left,  sequences, cluster); }
+    if let Some(ref right) = node.right { assign_cluster_to_node(right, sequences, cluster); }
 }
 
 
@@ -496,14 +696,14 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequ
 
 
 fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
-    if let Some(clusters) = manual_clusters {
-        clusters.split(',')
-            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
-                &format!("failed to parse '{}' as a node number", s))))
-            .collect()
-    } else {
-        Vec::new()
+    if manual_clusters.is_none() {
+        return Vec::new();
     }
+    let mut clusters: Vec<_> = manual_clusters.unwrap().split(',')
+            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
+                &format!("failed to parse '{}' as a node number", s)))).collect();
+    clusters.sort();
+    clusters
 }
 
 
@@ -518,6 +718,12 @@ impl ClusterQC {
     pub fn new_pass(cluster_dist: f64) -> Self {
         ClusterQC {
             failure_reasons: Vec::new(),
+            cluster_dist,
+        }
+    }
+    pub fn new_manual_fail(cluster_dist: f64) -> Self {
+        ClusterQC {
+            failure_reasons: vec!["not included in manual clusters".to_string()],
             cluster_dist,
         }
     }
@@ -758,6 +964,7 @@ fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic;
 
     fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
         assert!((a - b).abs() < epsilon,
@@ -794,7 +1001,7 @@ mod tests {
     }
 
     #[test]
-    fn test_upgma_clustering_1() {
+    fn test_upgma_1() {
         // Uses example from https://en.wikipedia.org/wiki/UPGMA
         let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
                                  Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
@@ -806,7 +1013,7 @@ mod tests {
                                                 ((3, 1), 21.0), ((3, 2), 30.0), ((3, 3), 00.0), ((3, 4), 28.0), ((3, 5), 39.0),
                                                 ((4, 1), 31.0), ((4, 2), 34.0), ((4, 3), 28.0), ((4, 4), 00.0), ((4, 5), 43.0),
                                                 ((5, 1), 23.0), ((5, 2), 21.0), ((5, 3), 39.0), ((5, 4), 43.0), ((5, 5), 00.0)]);
-        let mut root = upgma_clustering(&distances, &mut sequences);
+        let mut root = upgma(&distances, &mut sequences);
         assert_almost_eq(root.distance, 16.5, 1e-8);
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
@@ -818,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn test_upgma_clustering_2() {
+    fn test_upgma_2() {
         let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
                                  Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
                                  Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1, 1),
@@ -827,7 +1034,7 @@ mod tests {
                                                 ((2, 1), 0.1), ((2, 2), 0.0), ((2, 3), 0.5), ((2, 4), 0.5),
                                                 ((3, 1), 0.5), ((3, 2), 0.5), ((3, 3), 0.0), ((3, 4), 0.2),
                                                 ((4, 1), 0.5), ((4, 2), 0.5), ((4, 3), 0.2), ((4, 4), 0.0)]);
-        let mut root = upgma_clustering(&distances, &mut sequences);
+        let mut root = upgma(&distances, &mut sequences);
         normalise_tree(&mut root);
         assert_almost_eq(root.distance, 0.25, 1e-8);
 
@@ -894,5 +1101,106 @@ mod tests {
         assert_eq!(set_min_assemblies(None, &sequences), 1);  // 2 assemblies
         sequences.pop();
         assert_eq!(set_min_assemblies(None, &sequences), 1);  // 1 assembly
+    }
+
+    fn test_tree() -> TreeNode {
+        // Generates this tree: (1:0.5,(2:0.3,(3:0.2,(4:0.1,5:0.1):0.1):0.1):0.2);
+        let n1 = TreeNode { id: 1, left: None, right: None, distance: 0.0 };
+        let n2 = TreeNode { id: 2, left: None, right: None, distance: 0.0 };
+        let n3 = TreeNode { id: 3, left: None, right: None, distance: 0.0 };
+        let n4 = TreeNode { id: 4, left: None, right: None, distance: 0.0 };
+        let n5 = TreeNode { id: 5, left: None, right: None, distance: 0.0 };
+        let n6 = TreeNode { id: 6, left: Some(Box::new(n4)), right: Some(Box::new(n5)), distance: 0.1 };
+        let n7 = TreeNode { id: 7, left: Some(Box::new(n3)), right: Some(Box::new(n6)), distance: 0.2 };
+        let n8 = TreeNode { id: 8, left: Some(Box::new(n2)), right: Some(Box::new(n7)), distance: 0.3 };
+        let n9 = TreeNode { id: 9, left: Some(Box::new(n1)), right: Some(Box::new(n8)), distance: 0.5 };
+        n9
+    }
+
+    #[test]
+    fn test_automatic_clustering() {
+        let tree = test_tree();
+        assert_eq!(tree.automatic_clustering(0.8), vec![1, 8]);
+        assert_eq!(tree.automatic_clustering(0.5), vec![1, 2, 7]);
+        assert_eq!(tree.automatic_clustering(0.3), vec![1, 2, 3, 6]);
+        assert_eq!(tree.automatic_clustering(0.1), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_has_manual_child() {
+        let tree = test_tree();
+        assert!(!tree.has_manual_child(&vec![]));
+        for n in 1..=9   { assert!( tree.has_manual_child(&vec![n])); }
+        for n in 10..=19 { assert!(!tree.has_manual_child(&vec![n])); }
+    }
+
+    #[test]
+    fn test_manual_clustering() {
+        let tree = test_tree();
+        assert_eq!(tree.manual_clustering(0.5, &vec![]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![1]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2, 7]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![3]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![4]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2, 3, 4, 5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![]), vec![1, 8]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![1]), vec![1, 8]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![2]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![3]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![4]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![6]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![7]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.8, &vec![8]), vec![1, 8]);
+    }
+
+    #[test]
+    fn test_check_consistency() {
+        let tree = test_tree();
+        tree.check_consistency(&vec![1, 2, 3, 4, 5]);
+        tree.check_consistency(&vec![1, 2, 3, 6]);
+        tree.check_consistency(&vec![1, 2, 7]);
+        tree.check_consistency(&vec![1, 8]);
+        tree.check_consistency(&vec![9]);
+        assert!(panic::catch_unwind(|| {
+            tree.check_consistency(&vec![5, 6]);
+        }).is_err());
+        assert!(panic::catch_unwind(|| {
+            tree.check_consistency(&vec![6, 8]);
+        }).is_err());
+        assert!(panic::catch_unwind(|| {
+            tree.check_consistency(&vec![1, 9]);
+        }).is_err());
+    }
+
+    #[test]
+    fn test_max_pairwise_distance() {
+        let tree = test_tree();
+        assert_almost_eq(tree.max_pairwise_distance(1), 0.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(2), 0.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(3), 0.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(4), 0.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(5), 0.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(6), 0.2, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(7), 0.4, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(8), 0.6, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(9), 1.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(10), -1.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(11), -1.0, 1e-8);
+        assert_almost_eq(tree.max_pairwise_distance(12), -1.0, 1e-8);
+    }
+
+    #[test]
+    fn test_parse_manual_clusters() {
+        assert_eq!(parse_manual_clusters(Some("1,2,3".to_string())), vec![1, 2, 3]);
+        assert_eq!(parse_manual_clusters(None), vec![]);
+        assert!(panic::catch_unwind(|| {
+            parse_manual_clusters(Some("x,y,z".to_string()));
+        }).is_err());
+        assert!(panic::catch_unwind(|| {
+            parse_manual_clusters(Some("^&%^*".to_string()));
+        }).is_err());
     }
 }
