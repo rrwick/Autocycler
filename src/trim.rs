@@ -12,7 +12,6 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
-use rand::seq;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::collections::{HashMap, VecDeque};

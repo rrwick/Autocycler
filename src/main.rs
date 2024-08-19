@@ -113,8 +113,8 @@ enum Commands {
         #[clap(short = 'a', long = "autocycler_dir", required = true)]
         autocycler_dir: PathBuf,
 
-        /// cutoff distance threshold for hierarchical clustering
-        #[clap(long = "cutoff", default_value = "0.1")]
+        /// initial cutoff distance threshold for hierarchical clustering
+        #[clap(long = "cutoff", default_value = "0.2")]
         cutoff: f64,
 
         /// exclude clusters with fewer than this many assemblies

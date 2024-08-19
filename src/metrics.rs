@@ -126,7 +126,7 @@ impl TrimmedClusterMetrics {
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct ConsensusMetrics {
+pub struct CombineMetrics {
     pub total_length: u32,
     pub component_count: u32,
     pub sequence_count: u32,
@@ -136,7 +136,7 @@ pub struct ConsensusMetrics {
     pub overall_score: f64,
 }
 
-impl ConsensusMetrics { pub fn new() -> Self { Self::default() } }
+impl CombineMetrics { pub fn new() -> Self { Self::default() } }
 
 
 pub fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {

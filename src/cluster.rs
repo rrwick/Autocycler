@@ -43,7 +43,8 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     let manual_clusters = parse_manual_clusters(manual_clusters);
-    print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option);
+    print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option,
+                   &manual_clusters);
     let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma_clustering(&symmetrical_distances, &mut sequences);
@@ -96,7 +97,7 @@ fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clus
 
 
 fn print_settings(autocycler_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
-                  min_assemblies_option: Option<usize>) {
+                  min_assemblies_option: Option<usize>, manual_clusters: &Vec<u16>) {
     eprintln!("Settings:");
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
@@ -104,6 +105,10 @@ fn print_settings(autocycler_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
         eprintln!("  --min_assemblies {} (automatically set)", min_assemblies);
     } else {
         eprintln!("  --min_assemblies {}", min_assemblies);
+    }
+    if !manual_clusters.is_empty() {
+        eprintln!("  --manual {}", manual_clusters.iter().map(|c| c.to_string())
+                                                  .collect::<Vec<String>>() .join(","));
     }
     eprintln!();
 }
@@ -493,7 +498,8 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequ
 fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
     if let Some(clusters) = manual_clusters {
         clusters.split(',')
-            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(&format!("failed to parse '{}' as a node number", s))))
+            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
+                &format!("failed to parse '{}' as a node number", s))))
             .collect()
     } else {
         Vec::new()
