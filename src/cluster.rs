@@ -272,6 +272,44 @@ impl TreeNode {
             self.right.as_ref().unwrap().check_consistency(manual_clusters);
         }
     }
+
+    fn get_tips(&self, node_num: u16) -> Vec<u16> {
+        // This method is run on the root of the tree, and it returns the node IDs of the tips under
+        // the given node.
+        if self.id == node_num {
+            let mut tips = Vec::new();
+            self.collect_tips(&mut tips);
+            return tips;
+        }
+        if self.is_tip() { return vec![]; }
+        let mut left_tips =  self.left.as_ref().unwrap().get_tips(node_num);
+        let right_tips =  self.right.as_ref().unwrap().get_tips(node_num);
+        left_tips.extend(right_tips);
+        left_tips
+    }
+
+    fn collect_tips(&self, tips: &mut Vec<u16>) {
+        if self.is_tip() {
+            tips.push(self.id);
+        } else {
+            self.left.as_ref().unwrap().collect_tips(tips);
+            self.right.as_ref().unwrap().collect_tips(tips);
+        }
+    }
+
+    fn check_complete_coverage(&self, clusters: &[u16]) {
+        // This method is run on the root of the tree, and it ensures that the given clusters nicely
+        // cover the entire tree, i.e. every tip is in one and only one cluster.
+        let all_tips: HashSet<u16> = self.get_tips(self.id).into_iter().collect();
+        let mut covered_tips = HashSet::new();
+        for &c in clusters {
+            let cluster_tips = self.get_tips(c);
+            for tip in cluster_tips {
+                if !covered_tips.insert(tip) { panic!("overlap detected"); }
+            }
+        }
+        if covered_tips != all_tips { panic!("incomplete coverage");}
+    }
 }
 
 
@@ -438,9 +476,7 @@ fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
     } else {
         tree.manual_clustering(cutoff, &manual_clusters)
     };
-
-    // TODO: sanity check that the clusters cover all tips in the tree.
-
+    tree.check_complete_coverage(&clusters);
     qc_clusters(tree, sequences, distances, &clusters, manual_clusters, cutoff, min_assemblies)
 }
 
@@ -505,7 +541,6 @@ fn score_clustering(tree: &TreeNode, sequences: &mut Vec<Sequence>,
                     distances: &HashMap<(u16, u16), f64>, clusters: &Vec<u16>) -> f64 {
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // overall score for that clustering (higher is better).
-
 
     // TODO
     // TODO
@@ -1027,6 +1062,39 @@ mod tests {
         assert_almost_eq(tree.max_pairwise_distance(10), -1.0, 1e-8);
         assert_almost_eq(tree.max_pairwise_distance(11), -1.0, 1e-8);
         assert_almost_eq(tree.max_pairwise_distance(12), -1.0, 1e-8);
+    }
+
+    #[test]
+    fn test_get_tips() {
+        let tree = test_tree();
+        assert_eq!(tree.get_tips(1), vec![1]);
+        assert_eq!(tree.get_tips(2), vec![2]);
+        assert_eq!(tree.get_tips(3), vec![3]);
+        assert_eq!(tree.get_tips(4), vec![4]);
+        assert_eq!(tree.get_tips(5), vec![5]);
+        assert_eq!(tree.get_tips(6), vec![4, 5]);
+        assert_eq!(tree.get_tips(7), vec![3, 4, 5]);
+        assert_eq!(tree.get_tips(8), vec![2, 3, 4, 5]);
+        assert_eq!(tree.get_tips(9), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_check_complete_coverage() {
+        let tree = test_tree();
+        tree.check_complete_coverage(&vec![1, 2, 3, 4, 5]);
+        tree.check_complete_coverage(&vec![1, 2, 3, 6]);
+        tree.check_complete_coverage(&vec![1, 2, 7]);
+        tree.check_complete_coverage(&vec![1, 8]);
+        tree.check_complete_coverage(&vec![9]);
+        assert!(panic::catch_unwind(|| {
+            tree.check_complete_coverage(&vec![1, 2, 3, 4, 5, 6]);
+        }).is_err());
+        assert!(panic::catch_unwind(|| {
+            tree.check_complete_coverage(&vec![1, 2, 3, 4]);
+        }).is_err());
+        assert!(panic::catch_unwind(|| {
+            tree.check_complete_coverage(&vec![1, 6, 7]);
+        }).is_err());
     }
 
     #[test]
