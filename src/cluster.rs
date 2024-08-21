@@ -40,13 +40,12 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     check_settings(&autocycler_dir, &gfa, cutoff, &min_assemblies_option);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
-    let (unitig_graph, mut sequences) = load_graph(&gfa_lines, true);
+    let (graph, mut sequences) = load_graph(&gfa_lines, true);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     let manual_clusters = parse_manual_clusters(manual_clusters);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option,
                    &manual_clusters);
-    let asymmetrical_distances = pairwise_contig_distances(&unitig_graph, &sequences,
-                                                           &pairwise_phylip);
+    let asymmetrical_distances = pairwise_contig_distances(&graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma(&symmetrical_distances, &mut sequences);
     normalise_tree(&mut tree);
@@ -64,7 +63,8 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
 }
 
 
-fn check_settings(autocycler_dir: &PathBuf, gfa: &PathBuf, cutoff: f64, min_assemblies: &Option<usize>) {
+fn check_settings(autocycler_dir: &PathBuf, gfa: &PathBuf, cutoff: f64,
+                  min_assemblies: &Option<usize>) {
     check_if_dir_exists(&autocycler_dir);
     check_if_file_exists(&gfa);
     if cutoff <= 0.0 || cutoff >= 1.0 {
@@ -84,7 +84,8 @@ fn starting_message() {
 }
 
 
-fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf, clustering_tsv: &PathBuf) {
+fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf,
+                    clustering_tsv: &PathBuf) {
     section_header("Finished!");
     explanation("You can now run autocycler trim on each cluster. If you want to manually \
                  inspect the clustering, you can view the following files.");
@@ -118,23 +119,24 @@ fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Se
         section_header("Loading graph");
         explanation("The unitig graph is now loaded into memory.");
     }
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
+    let (graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     if print_info {
-        unitig_graph.print_basic_graph_info();
+        graph.print_basic_graph_info();
     }
-    (unitig_graph, sequences)
+    (graph, sequences)
 }
 
 
-fn pairwise_contig_distances(unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &PathBuf) -> HashMap<(u16, u16), f64> {
+fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &PathBuf)
+        -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
                  their paths through the graph.");
-    let unitig_lengths: HashMap<u32, u32> = unitig_graph.unitigs.iter()
+    let unitig_lengths: HashMap<u32, u32> = graph.unitigs.iter()
         .map(|rc| {let u = rc.borrow(); (u.number, u.length())}).collect();
     let sequence_unitigs: HashMap<u16, HashSet<u32>> = sequences.iter()
-        .map(|s| (s.id, unitig_graph.get_unitig_path_for_sequence(s).iter().map(|(number, _)| *number).collect::<HashSet<u32>>()))
-        .collect();
+        .map(|s| (s.id, graph.get_unitig_path_for_sequence(s).iter()
+        .map(|(number, _)| *number).collect::<HashSet<u32>>())).collect();
     let mut distances: HashMap<(u16, u16), f64> = HashMap::new();
     for seq_a in sequences {
         let a = sequence_unitigs.get(&seq_a.id).unwrap();
@@ -159,7 +161,8 @@ fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32
 }
 
 
-fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>, file_path: &PathBuf) {
+fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
+                        file_path: &PathBuf) {
     eprintln!("Saving distance matrix:");
     let mut f = File::create(&file_path).unwrap();
     write!(f, "{}\n", sequences.len()).unwrap();
@@ -560,15 +563,19 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
     if manual_clusters.is_empty() {
         let max_cluster = get_max_cluster(&sequences);
         for c in 1..=max_cluster {
-            let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.filename.clone()).collect();
+            let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c)
+                                                  .map(|s| s.filename.clone()).collect();
             if assemblies.len() < min_assemblies {
-                qc_results.get_mut(&c).unwrap().failure_reasons.push("present in too few assemblies".to_string());
+                let fail_reason = "present in too few assemblies".to_string();
+                qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
         }
         for c in 1..=max_cluster {
-            let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &qc_results);
+            let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
+                                                            &qc_results);
             if container > 0 {
-                qc_results.get_mut(&c).unwrap().failure_reasons.push(format!("contained within cluster {}", container));
+                let fail_reason = format!("contained within cluster {}", container);
+                qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
         }
     }
@@ -679,7 +686,8 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
     // If so, it returns the id of the containing cluster. If not, it returns 0.
     // A cluster counts as contained if the majority of the pairwise comparisons to another cluster
     // are asymmetrical and below the cutoff.
-    let passed_clusters: Vec<u16> = qc_results.iter().filter(|(_, q)| q.pass()).map(|(&k, _)| k).collect();
+    let passed_clusters: Vec<u16> = qc_results.iter().filter(|(_, q)| q.pass())
+                                              .map(|(&k, _)| k).collect();
     for passed_cluster in passed_clusters {
         if passed_cluster == cluster_num {
             continue;
@@ -773,10 +781,13 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
 }
 
 
-fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec<String>, out_gfa: PathBuf) {
-    let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num).cloned().collect();
+fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec<String>,
+                    out_gfa: PathBuf) {
+    let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num)
+                                               .cloned().collect();
     let (mut cluster_graph, _) = load_graph(&gfa_lines, false);
-    let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num).map(|s| s.id).collect();
+    let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num)
+                                            .map(|s| s.id).collect();
     for id in seq_ids_to_remove {
         cluster_graph.remove_sequence_from_graph(id);
     }
@@ -796,7 +807,8 @@ fn save_untrimmed_cluster_metrics(seq_lengths: Vec<usize>, cluster_dist: f64,
 fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                     file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
-    write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\tfile_name\tcontig_name\tlength\n").unwrap();
+    write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
+                  file_name\tcontig_name\tlength\n").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
         let qc = qc_results.get(&seq.cluster).unwrap();
@@ -807,7 +819,8 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
             format!("{}", seq.cluster)
         };
         write!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
-               pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(), seq.length).unwrap();
+               pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(),
+               seq.length).unwrap();
     }
 }
 
@@ -844,9 +857,6 @@ fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Clust
 fn reorder_clusters(sequences: &mut Vec<Sequence>) -> HashMap<u16, u16>{
     // Reorder clusters based on their median sequence length (large to small). Returns the mapping
     // of old cluster numbers to new cluster numbers.
-    // TODO: perhaps sort not based on sequence length but on UNIQUE sequence length (the sum of 
-    //       the lengths of all unitigs). This will prevent doubled plasmids from being longer than
-    //       they should be.
     let mut cluster_lengths = HashMap::new();
     for c in 1..=get_max_cluster(sequences) {
         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
