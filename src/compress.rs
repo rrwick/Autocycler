@@ -24,7 +24,7 @@ use crate::graph_simplification::simplify_structure;
 use crate::kmer_graph::KmerGraph;
 use crate::misc::{check_if_dir_exists, check_if_dir_is_not_dir, create_dir, find_all_assemblies,
                   load_fasta, format_duration, spinner, quit_with_error, reverse_complement};
-use crate::metrics::{InputAssemblyMetrics, save_yaml};
+use crate::metrics::InputAssemblyMetrics;
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -158,14 +158,14 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 
 
 fn save_metrics(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph,
-    out_yaml: &PathBuf) {
+                out_yaml: &PathBuf) {
     let mut metrics = InputAssemblyMetrics::new();
     metrics.assembly_count = assembly_count as u32;
     metrics.total_contigs = sequences.len() as u32;
     metrics.total_length = sequences.iter().map(|s| s.length as u64).sum();
     metrics.compressed_unitig_count = graph.unitigs.len() as u32;
     metrics.compressed_unitig_total_length = graph.total_length();
-    save_yaml(&out_yaml, &metrics).unwrap();
+    metrics.save_to_yaml(out_yaml);
 }
 
 

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::metrics::{TrimmedClusterMetrics, save_yaml};
+use crate::metrics::TrimmedClusterMetrics;
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
                   median_isize, mad_isize, reverse_path};
 use crate::sequence::Sequence;
@@ -274,7 +274,7 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
 fn save_metrics(trimmed_yaml: &PathBuf, sequences: &Vec<Sequence>) {
     let seq_lengths = sequences.iter().map(|s| s.length).collect();
     let metrics = TrimmedClusterMetrics::new(seq_lengths);
-    save_yaml(&trimmed_yaml, &metrics).unwrap();
+    metrics.save_to_yaml(trimmed_yaml);
 }
 
 

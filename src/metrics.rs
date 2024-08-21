@@ -32,6 +32,8 @@ pub struct InputAssemblyMetrics {
 
 impl InputAssemblyMetrics {
     pub fn new() -> Self { Self::default() }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -43,7 +45,9 @@ pub struct ClusteringMetrics {
     pub fail_contig_count: u32,
     pub pass_contig_fraction: f64,
     pub fail_contig_fraction: f64,
-    pub cluster_balance: f64,
+    pub cluster_balance_score: f64,
+    pub cluster_tightness_score: f64,
+    pub overall_score: f64,
 }
 
 impl ClusteringMetrics {
@@ -57,17 +61,26 @@ impl ClusteringMetrics {
         }
     }
 
+    pub fn calculate_scores(&mut self, cluster_filenames: HashMap<u16, Vec<String>>,
+                            pass_cluster_distances: Vec<f64>) {
+        self.calculate_balance(cluster_filenames);
+        self.calculate_tightness(pass_cluster_distances);
+        self.overall_score = (self.cluster_balance_score + self.cluster_tightness_score) / 2.0;
+    }
+
     pub fn calculate_balance(&mut self, cluster_filenames: HashMap<u16, Vec<String>>) {
         // Calculates the balance score for clustering, indicating how evenly filenames are
         // distributed.
         // * For each cluster:
         //   * Count the occurrences of each filename.
-        //   * Score each filename based on the count: 0 => 0.0, n => 1/n
+        //   * Score each filename based on the count: 0 => 0.0, 1 => 1.0, 2+ => 0.0
         //     (a count of 1 is the best number, i.e. the cluster contains one contig from the file)
         //   * Average (mean) the filename scores to get the cluster score.
         // * The overall balance score is a weighted mean of the cluster scores, weighted by the
         //   number of sequences in the cluster.
-        fn count_score(count: u32) -> f64 { if count == 0 { 0.0 } else { 1.0 / count as f64 } }
+        fn count_score(count: u32) -> f64 {
+            if count == 0 { 0.0 } else if count == 1 { 1.0 } else { 0.0 }
+        }
         let all_filenames: HashSet<String> = cluster_filenames.values()
             .flat_map(|cluster| cluster.iter().cloned()).collect();
         let mut cluster_scores = Vec::new();
@@ -81,9 +94,25 @@ impl ClusteringMetrics {
             cluster_scores.push((cluster_score, cluster.len() as f64));
             total_weight += cluster.len() as f64;
         }
-        self.cluster_balance = cluster_scores.iter().map(|(score, weight)| score * weight)
+        self.cluster_balance_score = cluster_scores.iter().map(|(score, weight)| score * weight)
             .sum::<f64>() / total_weight;
     }
+
+    pub fn calculate_tightness(&mut self, pass_cluster_distances: Vec<f64>) {
+        // Calculates the tightness score for clustering, indicating how tight the QC-pass clusters
+        // are. Each QC-pass cluster gets a score using this formula: 
+        // https://www.desmos.com/calculator/jfplrrjeyu
+        // And the overall tightness score is the mean of these scores.
+        if pass_cluster_distances.is_empty() {
+            self.cluster_tightness_score = 0.0;
+        } else {
+            let sum_scores: f64 = pass_cluster_distances.iter()
+                .map(|d| 1.0 - d.sqrt()).sum();
+            self.cluster_tightness_score = sum_scores / pass_cluster_distances.len() as f64;
+        }
+    }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -104,6 +133,8 @@ impl UntrimmedClusterMetrics {
             cluster_distance,
         }
     }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -122,6 +153,8 @@ impl TrimmedClusterMetrics {
             sequence_lengths,
         }
     }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -139,7 +172,7 @@ pub struct CombineMetrics {
 impl CombineMetrics { pub fn new() -> Self { Self::default() } }
 
 
-pub fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
+fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
     let yaml_string = serde_yaml::to_string(&data).unwrap();
     let mut file = File::create(yaml_filename)?;
     file.write_all(yaml_string.as_bytes())?;
@@ -198,11 +231,11 @@ mod tests {
         metrics_5.calculate_balance(filenames_5);
         metrics_6.calculate_balance(filenames_6);
 
-        assert_almost_eq(metrics_1.cluster_balance, 1.0, 1e-8);
-        assert!(metrics_2.cluster_balance < metrics_1.cluster_balance);
-        assert!(metrics_3.cluster_balance < metrics_2.cluster_balance);
-        assert!(metrics_4.cluster_balance < metrics_3.cluster_balance);
-        assert!(metrics_5.cluster_balance < metrics_4.cluster_balance);
-        assert!(metrics_6.cluster_balance < metrics_5.cluster_balance);
+        assert_almost_eq(metrics_1.cluster_balance_score, 1.0, 1e-8);
+        assert!(metrics_2.cluster_balance_score < metrics_1.cluster_balance_score);
+        assert!(metrics_3.cluster_balance_score < metrics_2.cluster_balance_score);
+        assert!(metrics_4.cluster_balance_score < metrics_3.cluster_balance_score);
+        assert!(metrics_5.cluster_balance_score < metrics_4.cluster_balance_score);
+        assert!(metrics_6.cluster_balance_score < metrics_5.cluster_balance_score);
     }
 }
