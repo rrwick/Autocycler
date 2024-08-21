@@ -173,10 +173,9 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathB
     }
     let mut set = HashSet::new();
     for (name, _, _) in fasta_seqs {
-        set.insert(name);
-    }
-    if set.len() < fasta_seqs.len() {
-        quit_with_error(&format!("{} has a duplicated name", filename.display()));
+        if !set.insert(name) {
+            quit_with_error(&format!("{} has a duplicate name: {}", filename.display(), name));
+        }
     }
 }
 

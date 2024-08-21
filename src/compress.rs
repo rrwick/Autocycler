@@ -88,9 +88,7 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
     for assembly in &assemblies {
         for (name, header, seq) in load_fasta(&assembly) {
             let seq_len = seq.len();
-            if seq_len < k_size as usize {
-                continue;
-            }
+            if seq_len < k_size as usize { continue; }
             seq_id += 1;
             eprintln!(" {:>3}: {} {} ({} bp)", seq_id, assembly.display(), name, seq_len);
             if seq_id > 32767 {
@@ -98,12 +96,11 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
             }
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-            sequences.push(Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header, seq_len, half_k));
+            let seq = Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header,
+                                             seq_len, half_k);
+            sequences.push(seq);
         }
     }
-    // TODO: I should make sure that all sequences have a unique string (assembly filename
-    // followed by contig name), because any duplicates could cause problems later.
-
     eprintln!();
     let pb = spinner("repairing sequence ends...");
     sequence_end_repair(&mut sequences, k_size);
@@ -253,6 +250,15 @@ fn find_best_match(matches: Vec<Vec<u8>>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::panic;
+    use tempfile::tempdir;
+
+    fn make_test_file(file_path: &PathBuf, contents: &str) {
+        let mut file = File::create(&file_path).unwrap();
+        write!(file, "{}", contents).unwrap();
+    }
 
     #[test]
     fn test_find_best_match_1() {
@@ -317,5 +323,28 @@ mod tests {
                                b"AGACGT.".to_vec(),
                                b"CGACGT.".to_vec()];
         assert_eq!(find_best_match(all_matches), b"AGACGT.");
+    }
+
+    #[test]
+    fn test_load_sequences_1() {
+        let assembly_dir = tempdir().unwrap();
+        make_test_file(&assembly_dir.path().join("a.fasta"), ">a1\nACGT\n");
+        make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
+        make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c2\nACGT\n>c3\nACGT\n");
+        let (sequences, assembly_count) = load_sequences(&assembly_dir.into_path(), 3);
+        assert_eq!(sequences.len(), 6);
+        assert_eq!(assembly_count, 3);
+    }
+
+    #[test]
+    fn test_load_sequences_2() {
+        // In this test, c.fasta has a duplicate sequence name which causes an error.
+        let assembly_dir = tempdir().unwrap();
+        make_test_file(&assembly_dir.path().join("a.fasta"), ">a1\nACGT\n");
+        make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
+        make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c1\nACGT\n>c3\nACGT\n");
+        assert!(panic::catch_unwind(|| {
+            load_sequences(&assembly_dir.into_path(), 3);
+        }).is_err());
     }
 }
