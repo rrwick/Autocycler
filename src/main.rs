@@ -58,6 +58,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+
+    /// cluster contigs in the unitig graph based on similarity
+    Cluster {
+        /// Autocycler directory containing input_assemblies.gfa file (required)
+        #[clap(short = 'a', long = "autocycler_dir", required = true)]
+        autocycler_dir: PathBuf,
+
+        /// cutoff distance threshold for hierarchical clustering
+        #[clap(long = "cutoff", default_value = "0.2")]
+        cutoff: f64,
+
+        /// exclude clusters with fewer than this many assemblies
+        #[clap(long = "min_assemblies", hide_default_value = true,
+               help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
+        min_assemblies: Option<usize>,
+
+        /// manually define clusters using tree node numbers
+        #[clap(long = "manual", hide_default_value = true,
+               help = "manually define clusters using tree node numbers [default: automatic]")]
+        manual: Option<String>,
+    },
+
+    /// combine Autocycler GFAs into one assembly
+    Combine {
+        /// Autocycler GFA files (one or more required)
+        #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
+        in_gfas: Vec<PathBuf>,
+
+        /// Output prefix (required)
+        #[clap(short = 'o', long = "out_prefix", required = true)]
+        out_prefix: PathBuf,
+    },
+
     /// compress input contigs into a unitig graph
     Compress {
         /// Directory containing input assemblies (required)
@@ -107,26 +140,18 @@ enum Commands {
         kmer: u32,
     },
 
-    /// cluster contigs in the unitig graph based on similarity
-    Cluster {
-        /// Autocycler directory containing input_assemblies.gfa file (required)
-        #[clap(short = 'a', long = "autocycler_dir", required = true)]
-        autocycler_dir: PathBuf,
+    /// resolve repeats in the the unitig graph
+    Resolve {
+        /// Autocycler directory (required)
+        #[clap(short = 'c', long = "cluster_dir", required = true)]
+        cluster_dir: PathBuf,
 
-        /// cutoff distance threshold for hierarchical clustering
-        #[clap(long = "cutoff", default_value = "0.2")]
-        cutoff: f64,
-
-        /// exclude clusters with fewer than this many assemblies
-        #[clap(long = "min_assemblies", hide_default_value = true,
-               help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
-        min_assemblies: Option<usize>,
-
-        /// manually define clusters using tree node numbers
-        #[clap(long = "manual", hide_default_value = true,
-               help = "manually define clusters using tree node numbers [default: automatic]")]
-        manual: Option<String>,
+        /// Enable verbose output
+        #[clap(long = "verbose")]
+        verbose: bool,
     },
+
+    // TODO: add subset command
 
     /// trim contigs in a cluster
     Trim {
@@ -149,28 +174,6 @@ enum Commands {
         /// Number of CPU threads
         #[clap(short = 't', long = "threads", default_value = "8")]
         threads: usize,
-    },
-
-    /// resolve repeats in the the unitig graph
-    Resolve {
-        /// Autocycler directory (required)
-        #[clap(short = 'c', long = "cluster_dir", required = true)]
-        cluster_dir: PathBuf,
-
-        /// Enable verbose output
-        #[clap(long = "verbose")]
-        verbose: bool,
-    },
-
-    /// combine Autocycler GFAs into one assembly
-    Combine {
-        /// Autocycler GFA files (one or more required)
-        #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
-        in_gfas: Vec<PathBuf>,
-
-        /// Output prefix (required)
-        #[clap(short = 'o', long = "out_prefix", required = true)]
-        out_prefix: PathBuf,
     },
 }
 

@@ -36,6 +36,9 @@ pub fn combine(in_gfas: Vec<PathBuf>, out_prefix: PathBuf) {
     //       of those k-mers in the reads.
 
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta);
+
+    // TODO: create a CombineMetrics object and save it to yaml
+
     finished_message(&combined_gfa, &combined_fasta);
 }
 
