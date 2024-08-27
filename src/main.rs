@@ -116,9 +116,13 @@ enum Commands {
         #[clap(short = 'i', long = "in_gfa", required = true)]
         in_gfa: PathBuf,
 
-        /// Directory where decompressed sequences will be saved (required)
-        #[clap(short = 'o', long = "out_dir", required = true)]
-        out_dir: PathBuf,
+        /// Directory where decompressed sequences will be saved (either -o or -f is required)
+        #[clap(short = 'o', long = "out_dir")]
+        out_dir: Option<PathBuf>,
+
+        /// FASTA file where decompressed sequences will be saved (either -o or -f is required)
+        #[clap(short = 'f', long = "out_file")]
+        out_file: Option<PathBuf>,
     },
 
     /// generate an all-vs-all dot plot from a unitig graph
@@ -185,8 +189,8 @@ fn main() {
         Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, threads }) => {
             compress::compress(assemblies_dir, autocycler_dir, kmer, threads);
         },
-        Some(Commands::Decompress { in_gfa, out_dir }) => {
-            decompress::decompress(in_gfa, out_dir);
+        Some(Commands::Decompress { in_gfa, out_dir, out_file }) => {
+            decompress::decompress(in_gfa, out_dir, out_file);
         },
         Some(Commands::Dotplot { in_gfa, out_png, res, kmer }) => {
             dotplot::dotplot(in_gfa, out_png, res, kmer);

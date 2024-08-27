@@ -13,7 +13,7 @@
 
 use std::fmt;
 
-use crate::misc::{quit_with_error, reverse_complement};
+use crate::misc::{quit_with_error, reverse_complement, up_to_first_space};
 
 
 #[derive(Clone)]
@@ -75,7 +75,7 @@ impl Sequence {
     }
 
     pub fn contig_name(&self) -> String {
-        self.contig_header.split_whitespace().next().unwrap_or("").to_string()
+        up_to_first_space(&self.contig_header)
     }
 
     pub fn string_for_newick(&self) -> String {

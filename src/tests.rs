@@ -25,7 +25,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::compress::load_sequences;
-    use crate::decompress::save_original_seqs;
+    use crate::decompress::save_original_seqs_to_dir;
     use crate::graph_simplification::simplify_structure;
     use crate::kmer_graph::KmerGraph;
     // use crate::cluster::remove_excluded_contigs_from_graph;
@@ -102,7 +102,7 @@ mod tests {
         assert_same_content(&gfa_1, &gfa_2);
 
         // Reconstruct the sequences from the unitig graph.
-        save_original_seqs(&reconstructed_dir.path().to_path_buf(), &unitig_graph, &sequences);
+        save_original_seqs_to_dir(&reconstructed_dir.path().to_path_buf(), &unitig_graph, &sequences);
         let reconstructed_a = reconstructed_dir.path().join("a.fasta");
         let reconstructed_b = reconstructed_dir.path().join("b.fna");
         let reconstructed_c = reconstructed_dir.path().join("c.fa");

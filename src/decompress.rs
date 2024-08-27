@@ -18,27 +18,35 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir};
+use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, quit_with_error,
+                  up_to_first_space};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn decompress(in_gfa: PathBuf, out_dir: PathBuf) {
-    check_settings(&in_gfa, &out_dir);
+pub fn decompress(in_gfa: PathBuf, out_dir: Option<PathBuf>, out_file: Option<PathBuf>) {
+    check_settings(&in_gfa, &out_dir, &out_file);
     starting_message();
-    print_settings(&in_gfa, &out_dir);
-    create_dir(&out_dir);
+    print_settings(&in_gfa, &out_dir, &out_file);
     let (unitig_graph, sequences) = load_graph(&in_gfa);
-    save_original_seqs(&out_dir, &unitig_graph, &sequences);
-
-    // TODO: add an option to decompress all sequences in the graph into a single file. Users can
-    //       then use either --out_dir or --out_file (at least one is required).
+    if let Some(out_dir) = out_dir {
+        create_dir(&out_dir);
+        save_original_seqs_to_dir(&out_dir, &unitig_graph, &sequences);
+    }
+    if let Some(out_file) = out_file {
+        save_original_seqs_to_file(&out_file, &unitig_graph, &sequences);
+    }
 }
 
 
-fn check_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
+fn check_settings(in_gfa: &PathBuf, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
     check_if_file_exists(&in_gfa);
-    check_if_dir_is_not_dir(&out_dir);
+    if out_dir.is_none() && out_file.is_none() {
+        quit_with_error("either --out_dir or --out_file is required")
+    }
+    if let Some(out_dir) = out_dir {
+        check_if_dir_is_not_dir(&out_dir);
+    }
 }
 
 
@@ -46,14 +54,20 @@ fn starting_message() {
     section_header("Starting autocycler decompress");
     explanation("This command will take a unitig graph (made by autocycler compress), reconstruct \
                  the assemblies used to build that graph and save them in the specified \
-                 directory.");
+                 directory and/or file.");
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &PathBuf) {
+fn print_settings(in_gfa: &PathBuf, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
-    eprintln!("  --out_dir {}", out_dir.display());
+    if let Some(out_dir) = out_dir {
+        eprintln!("  --out_dir {}", out_dir.display());
+    }
+    if let Some(out_file) = out_file {
+        eprintln!("  --out_file {}", out_file.display());
+    }
+    eprintln!();
 }
 
 
@@ -66,26 +80,58 @@ fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-pub fn save_original_seqs(out_dir: &PathBuf, unitig_graph: &UnitigGraph, sequences: &Vec<Sequence>) {
+pub fn save_original_seqs_to_dir(out_dir: &PathBuf, unitig_graph: &UnitigGraph,
+                                 sequences: &Vec<Sequence>) {
     section_header("Reconstructing assemblies from unitig graph");
-    explanation("Each contig is reconstructed by tracing its path through the unitig graph");
+    explanation("Each contig is reconstructed by tracing its path through the unitig graph, with \
+                 the results saved to a directory.");
     let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
-    for (filename, headers_seqs) in original_seqs {
-        let file_path = out_dir.join(filename);
+    let mut filenames: Vec<&String> = original_seqs.keys().collect();
+    filenames.sort();
+    for filename in filenames {
+        let headers_seqs = &original_seqs[filename];
+        let file_path = out_dir.join(filename.clone());
         let file = File::create(&file_path).unwrap();
+        eprintln!("{}:", file_path.display());
         if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            let writer = GzEncoder::new(file, Compression::default());
-            let mut buf_writer = BufWriter::new(writer);
-            for (header, seq) in headers_seqs {
-                writeln!(buf_writer, ">{}", header).unwrap();
-                writeln!(buf_writer, "{}", seq).unwrap();
-            }
+            let buf_writer = BufWriter::new(GzEncoder::new(file, Compression::default()));
+            write_sequences(buf_writer, headers_seqs);
         } else {
-            let mut buf_writer = BufWriter::new(file);
-            for (header, seq) in headers_seqs {
-                writeln!(buf_writer, ">{}", header).unwrap();
-                writeln!(buf_writer, "{}", seq).unwrap();
-            }
+            let buf_writer = BufWriter::new(file);
+            write_sequences(buf_writer, headers_seqs);
+        }
+        eprintln!();
+    }
+}
+
+
+fn write_sequences<W: Write>(mut writer: BufWriter<W>, headers_seqs: &Vec<(String, String)>) {
+    for (header, seq) in headers_seqs {
+        eprintln!("  {} ({} bp)", up_to_first_space(header), seq.len());
+        writeln!(writer, ">{}", header).unwrap();
+        writeln!(writer, "{}", seq).unwrap();
+    }
+}
+
+
+fn save_original_seqs_to_file(out_file: &PathBuf, unitig_graph: &UnitigGraph,
+                              sequences: &Vec<Sequence>) {
+    section_header("Reconstructing assemblies from unitig graph");
+    explanation("Each contig is reconstructed by tracing its path through the unitig graph, with \
+                 the results saved to a file.");
+    eprintln!("{}:", out_file.display());
+    let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
+    let file = File::create(&out_file).unwrap();
+    let mut buf_writer = BufWriter::new(file);
+    let mut filenames: Vec<&String> = original_seqs.keys().collect();
+    filenames.sort();
+    for filename in filenames {
+        let headers_seqs = &original_seqs[filename];
+        let clean_filename = filename.replace(" ", "_");
+        for (header, seq) in headers_seqs {
+            eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(&header), seq.len());
+            writeln!(buf_writer, ">{}__{}", clean_filename, header).unwrap();
+            writeln!(buf_writer, "{}", seq).unwrap();
         }
     }
     eprintln!();

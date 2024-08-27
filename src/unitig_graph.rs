@@ -364,7 +364,8 @@ impl UnitigGraph {
                 seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag)
     }
 
-    pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>) -> HashMap<String, Vec<(String, String)>> {
+    pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>)
+            -> HashMap<String, Vec<(String, String)>> {
         let mut original_seqs = HashMap::new();
         for seq in seqs {
             let (filename, header, sequence) = self.reconstruct_original_sequence(&seq);
@@ -373,7 +374,8 @@ impl UnitigGraph {
         original_seqs
     }
 
-    pub fn reconstruct_original_sequences_u8(&self, seqs: &Vec<Sequence>) -> Vec<((String, String), Vec<u8>)> {
+    pub fn reconstruct_original_sequences_u8(&self, seqs: &Vec<Sequence>)
+            -> Vec<((String, String), Vec<u8>)> {
         let mut original_seqs = Vec::new();
         for seq in seqs {
             let (filename, _header, sequence) = self.reconstruct_original_sequence(&seq);
@@ -384,7 +386,6 @@ impl UnitigGraph {
     }
 
     fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
-        eprintln!("  {}: {} ({} bp)", seq.filename, seq.contig_name(), seq.length);
         let path = self.get_unitig_path_for_sequence(&seq);
         let sequence = self.get_sequence_from_path(&path);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");

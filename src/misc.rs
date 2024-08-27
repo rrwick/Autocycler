@@ -399,6 +399,11 @@ pub fn sign_at_end_vec(nums: &Vec<i32>) -> String {
 }
 
 
+pub fn up_to_first_space(string: &String) -> String {
+    string.split_whitespace().next().unwrap_or("").to_string()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,5 +503,11 @@ mod tests {
         assert_eq!(sign_at_end_vec(&vec![8]), "8+".to_string());
         assert_eq!(sign_at_end_vec(&vec![123, -321]), "123+,321-".to_string());
         assert_eq!(sign_at_end_vec(&vec![-4, -5, 67, 34345, 1]), "4-,5-,67+,34345+,1+".to_string());
+    }
+
+    #[test]
+    fn test_up_to_first_space() {
+        assert_eq!(up_to_first_space(&"1 2 3 4".to_string()), "1".to_string());
+        assert_eq!(up_to_first_space(&"abc def".to_string()), "abc".to_string());
     }
 }
