@@ -47,7 +47,7 @@ pub struct ClusteringMetrics {
     pub fail_contig_fraction: f64,
     pub cluster_balance_score: f64,
     pub cluster_tightness_score: f64,
-    pub overall_score: f64,
+    pub overall_clustering_score: f64,
 }
 
 impl ClusteringMetrics {
@@ -65,7 +65,8 @@ impl ClusteringMetrics {
                             pass_cluster_distances: Vec<f64>) {
         self.calculate_balance(cluster_filenames);
         self.calculate_tightness(pass_cluster_distances);
-        self.overall_score = (self.cluster_balance_score + self.cluster_tightness_score) / 2.0;
+        self.overall_clustering_score = (self.cluster_balance_score +
+                                         self.cluster_tightness_score) / 2.0;
     }
 
     pub fn calculate_balance(&mut self, cluster_filenames: HashMap<u16, Vec<String>>) {

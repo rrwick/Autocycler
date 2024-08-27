@@ -7,20 +7,19 @@
 
 ```bash
 # Compress input sequences into a unitig graph:
-autocycler compress -i assemblies -o autocycler
+autocycler compress -i assemblies -a autocycler
 
 # Cluster input contigs:
-autocycler cluster -o autocycler
+autocycler cluster -a autocycler
 
 # For each QC-pass cluster:
 for c in autocycler/clustering/qc_pass/cluster_*; do
     autocycler trim -c "$c"
     autocycler resolve -c "$c"
-    autocycler correct -c "$c"
 done
 
-# Reconstruct input assemblies from unitig graph:
-autocycler decompress -i autocycler/input_assemblies.gfa -o reconstructed
+# Combine clusters into a final assembly:
+autocycler combine -i autocycler/clustering/qc_pass/cluster_*/5_final.gfa -o autocycler/final
 ```
 
 

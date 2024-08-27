@@ -591,7 +591,7 @@ fn score_clustering(tree: &TreeNode, sequences: &mut Vec<Sequence>,
     let qc_results = qc_clusters(tree, sequences, distances, &clusters, &vec![], cutoff,
                                  min_assemblies);
     let metrics = clustering_metrics(sequences, &qc_results);
-    metrics.overall_score
+    metrics.overall_clustering_score
 }
 
 

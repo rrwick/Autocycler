@@ -92,7 +92,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
             let unitig = unitig.borrow();
             let unitig_number = unitig.number + offset;
             let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
-            let circ = if unitig.is_isolated_and_circular() { "\tcircular=true".to_string() }
+            let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
                                                        else { "".to_string() };
             writeln!(gfa_file, "S\t{}\t{}", unitig_number, unitig_seq).unwrap();
             writeln!(fasta_file, ">{} length={}{}", unitig_number, unitig.length(), circ).unwrap();
