@@ -161,16 +161,19 @@ impl TrimmedClusterMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CombineMetrics {
-    pub total_length: u32,
+    pub total_length: u64,
     pub component_count: u32,
     pub sequence_count: u32,
-    pub component_lengths: Vec<u32>,
-    pub sequence_lengths: Vec<u32>,
-    pub dead_ends: u32,
+    pub component_lengths: Vec<u64>,
+    pub component_topologies: Vec<String>,
     pub overall_score: f64,
 }
 
-impl CombineMetrics { pub fn new() -> Self { Self::default() } }
+impl CombineMetrics {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
+}
 
 
 fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {

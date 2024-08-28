@@ -149,7 +149,7 @@ pub fn get_test_gfa_5() -> Vec<String> {
 
 #[cfg(test)]
 pub fn get_test_gfa_6() -> Vec<String> {
-    // One connected components
+    // One connected component
     // Two unitigs on opposite strands
     vec!["H\tVN:Z:1.0\tKM:i:3",
          "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
@@ -161,11 +161,74 @@ pub fn get_test_gfa_6() -> Vec<String> {
 
 #[cfg(test)]
 pub fn get_test_gfa_7() -> Vec<String> {
-    // One connected components
+    // One connected component
     // Two unitigs on opposite strands
     vec!["H\tVN:Z:1.0\tKM:i:3",
          "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
          "S\t2\tAGCATCAGCATCAGC\tDP:f:1",
          "L\t1\t-\t2\t+\t0M",
          "L\t2\t-\t1\t+\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_8() -> Vec<String> {
+    // One connected component
+    // Single circular unitig
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "L\t1\t+\t1\t+\t0M",
+         "L\t1\t-\t1\t-\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_9() -> Vec<String> {
+    // One connected component
+    // Single linear unitig, no links
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_10() -> Vec<String> {
+    // One connected component
+    // Single linear unitig, hairpin on both ends
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "L\t1\t+\t1\t-\t0M",
+         "L\t1\t-\t1\t+\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_11() -> Vec<String> {
+    // One connected component
+    // Single linear unitig, hairpin on one end
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "L\t1\t+\t1\t-\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_12() -> Vec<String> {
+    // One connected component
+    // Single linear unitig, hairpin on one end
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "L\t1\t-\t1\t+\t0M"].into_iter().map(String::from).collect()
+}
+
+
+#[cfg(test)]
+pub fn get_test_gfa_13() -> Vec<String> {
+    // One connected component
+    // Single linear unitig, circular connection and a hairpin (odd case)
+    vec!["H\tVN:Z:1.0\tKM:i:3",
+         "S\t1\tAGCATCGACATCGACTACG\tDP:f:1",
+         "L\t1\t+\t1\t+\t0M",
+         "L\t1\t-\t1\t-\t0M",
+         "L\t1\t-\t1\t+\t0M"].into_iter().map(String::from).collect()
 }

@@ -17,7 +17,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::kmer_graph::Kmer;
-use crate::misc::{reverse_complement, quit_with_error};
+use crate::misc::{quit_with_error, reverse_complement, strand};
 use crate::position::Position;
 
 
@@ -235,6 +235,26 @@ impl Unitig {
         } else {
             self.reverse_seq.clone()
         }
+    }
+
+    pub fn blunt_start(&self) -> bool {
+        self.reverse_next.is_empty()
+    }
+
+    pub fn blunt_end(&self) -> bool {
+        self.forward_next.is_empty()
+    }
+
+    pub fn hairpin_start(&self) -> bool {
+        self.reverse_next.len() == 1 &&
+        self.reverse_next[0].strand == strand::FORWARD &&
+        self.reverse_next[0].unitig.borrow().number == self.number
+    }
+
+    pub fn hairpin_end(&self) -> bool {
+        self.forward_next.len() == 1 &&
+        self.forward_next[0].strand == strand::REVERSE &&
+        self.forward_next[0].unitig.borrow().number == self.number
     }
 
     pub fn remove_seq_from_start(&mut self, amount: usize) {

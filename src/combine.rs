@@ -16,6 +16,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
+use crate::metrics::CombineMetrics;
 use crate::misc::{check_if_file_exists, create_dir};
 use crate::unitig_graph::UnitigGraph;
 
@@ -23,6 +24,7 @@ use crate::unitig_graph::UnitigGraph;
 pub fn combine(in_gfas: Vec<PathBuf>, out_prefix: PathBuf) {
     let combined_gfa = out_prefix.with_extension("gfa");
     let combined_fasta = out_prefix.with_extension("fasta");
+    let combined_yaml = out_prefix.with_extension("yaml");
 
     check_settings(&in_gfas);
     if let Some(parent) = combined_gfa.parent() {
@@ -35,10 +37,9 @@ pub fn combine(in_gfas: Vec<PathBuf>, out_prefix: PathBuf) {
     //       assembly. Find unique k-mers in the combined assembly and then count the occurrences
     //       of those k-mers in the reads.
 
-    combine_clusters(&in_gfas, &combined_gfa, &combined_fasta);
-
-    // TODO: create a CombineMetrics object and save it to yaml
-
+    let mut metrics = CombineMetrics::new();
+    combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
+    metrics.save_to_yaml(&combined_yaml);
     finished_message(&combined_gfa, &combined_fasta);
 }
 
@@ -75,7 +76,8 @@ fn finished_message(combined_gfa: &PathBuf, combined_fasta: &PathBuf) {
 }
 
 
-fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fasta: &PathBuf) {
+fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fasta: &PathBuf,
+                    metrics: &mut CombineMetrics) {
     section_header("Combining clusters");
     explanation("This command combines different clusters into a single assembly file.");
 
@@ -102,5 +104,13 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
             writeln!(gfa_file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand).unwrap();
         }
         offset += graph.max_unitig_number();
+        metrics.component_count += 1;
+        let component_length = graph.total_length();
+        metrics.total_length += component_length;
+        metrics.component_lengths.push(component_length);
+        metrics.sequence_count += graph.unitigs.len() as u32;
+        metrics.component_topologies.push(graph.topology());
+
+        // TODO: calculate the overall score for the assembly and store in metrics.overall_score
     }
 }

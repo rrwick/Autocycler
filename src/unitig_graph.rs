@@ -515,6 +515,26 @@ impl UnitigGraph {
         eprintln!();
     }
 
+    pub fn topology(&self) -> String {
+        // Returns one of the following:
+        // * circular: the graph contains one unitig with a simple circularising link
+        // * linear_blunt_blunt: the graph contains one unitig with no link (both ends are blunt)
+        // * linear_hairpin_hairpin: the graph contains one unitig with hairpin links on both ends
+        // * linear_blunt_hairpin: the graph contains one unitig with a hairpin link on one end
+        // * fragmented: the graph contains multiple unitigs
+        // * empty: the graph contains no unitigs
+        // * other: none of the above (e.g. circularising link and hairpin link, should be rare)
+        if self.unitigs.is_empty() { return "empty".to_string(); }
+        if self.unitigs.len() > 1 { return "fragmented".to_string(); }
+        let u = self.unitigs[0].borrow();  // the only unitig in the graph
+        if self.link_count().0 == 0 { return "linear_blunt_blunt".to_string(); }
+        if u.is_isolated_and_circular() { return "circular".to_string(); }
+        if u.hairpin_start() && u.hairpin_end() { return "linear_hairpin_hairpin".to_string(); }
+        if u.hairpin_start() && u.blunt_end() { return "linear_blunt_hairpin".to_string(); }
+        if u.blunt_start() && u.hairpin_end() { return "linear_blunt_hairpin".to_string(); }
+        "other".to_string()
+    }
+
     pub fn delete_dangling_links(&mut self) {
         // This method deletes any links to no-longer-existing unitigs. It should be run after any
         // code which deletes Unitigs from the graph.
@@ -1223,5 +1243,47 @@ mod tests {
         for unitig in &graph.unitigs {
             assert!(!unitig.borrow().is_isolated_and_circular());
         }
+    }
+
+    #[test]
+    fn test_topology() {
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_6());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_7());
+        assert_eq!(graph.topology(), "fragmented".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());
+        assert_eq!(graph.topology(), "circular".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        assert_eq!(graph.topology(), "linear_blunt_blunt".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_10());
+        assert_eq!(graph.topology(), "linear_hairpin_hairpin".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_11());
+        assert_eq!(graph.topology(), "linear_blunt_hairpin".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_12());
+        assert_eq!(graph.topology(), "linear_blunt_hairpin".to_string());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
+        assert_eq!(graph.topology(), "other".to_string());
     }
 }
