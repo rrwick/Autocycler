@@ -160,13 +160,19 @@ impl TrimmedClusterMetrics {
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
+pub struct ResolvedClusterMetrics {
+    pub length: u64,
+    pub unitigs: u32,
+    pub topology: String,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CombineMetrics {
     pub total_length: u64,
-    pub component_count: u32,
-    pub sequence_count: u32,
-    pub component_lengths: Vec<u64>,
-    pub component_topologies: Vec<String>,
-    pub overall_score: f64,
+    pub total_unitigs: u32,
+    pub fully_resolved: bool,
+    pub clusters: Vec<ResolvedClusterMetrics>,
 }
 
 impl CombineMetrics {

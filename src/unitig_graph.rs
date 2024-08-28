@@ -523,7 +523,7 @@ impl UnitigGraph {
         // * linear_blunt_hairpin: the graph contains one unitig with a hairpin link on one end
         // * fragmented: the graph contains multiple unitigs
         // * empty: the graph contains no unitigs
-        // * other: none of the above (e.g. circularising link and hairpin link, should be rare)
+        // * other: none of the above (e.g. a circularising link and a hairpin link, should be rare)
         if self.unitigs.is_empty() { return "empty".to_string(); }
         if self.unitigs.len() > 1 { return "fragmented".to_string(); }
         let u = self.unitigs[0].borrow();  // the only unitig in the graph

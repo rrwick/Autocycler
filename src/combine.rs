@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::metrics::CombineMetrics;
+use crate::metrics::{CombineMetrics, ResolvedClusterMetrics};
 use crate::misc::{check_if_file_exists, create_dir};
 use crate::unitig_graph::UnitigGraph;
 
@@ -59,9 +59,9 @@ fn starting_message() {
 
 fn print_settings(in_gfas: &Vec<PathBuf>, out_prefix: &PathBuf) {
     eprintln!("Settings:");
-    eprintln!("  --in_gfas");
-    for gfa in in_gfas {
-        eprintln!("    {}", gfa.display());
+    eprintln!("  --in_gfas {}", in_gfas[0].display());
+    for gfa in &in_gfas[1..] {
+        eprintln!("            {}", gfa.display());
     }
     eprintln!("  --out_prefix {}", out_prefix.display());
     eprintln!();
@@ -84,7 +84,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();
-
+    metrics.fully_resolved = true;
     let mut offset = 0;
     for gfa in in_gfas {
         eprintln!("{}", gfa.display());
@@ -104,13 +104,13 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
             writeln!(gfa_file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand).unwrap();
         }
         offset += graph.max_unitig_number();
-        metrics.component_count += 1;
         let component_length = graph.total_length();
+        let unitig_count = graph.unitigs.len() as u32;
         metrics.total_length += component_length;
-        metrics.component_lengths.push(component_length);
-        metrics.sequence_count += graph.unitigs.len() as u32;
-        metrics.component_topologies.push(graph.topology());
-
-        // TODO: calculate the overall score for the assembly and store in metrics.overall_score
+        metrics.total_unitigs += unitig_count;
+        metrics.clusters.push(ResolvedClusterMetrics { length: component_length,
+                                                       unitigs: unitig_count,
+                                                       topology: graph.topology() });
+        if unitig_count > 1 { metrics.fully_resolved = false; }
     }
 }

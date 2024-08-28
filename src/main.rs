@@ -82,7 +82,7 @@ enum Commands {
 
     /// combine Autocycler GFAs into one assembly
     Combine {
-        /// Autocycler GFA files (one or more required)
+        /// Autocycler cluster GFA files (one or more required)
         #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
         in_gfas: Vec<PathBuf>,
 
@@ -155,7 +155,9 @@ enum Commands {
         verbose: bool,
     },
 
-    // TODO: add subset command
+    // TODO: add subset command (essentially the same as trycycler subset)
+
+    // TODO: add table command (reads YAML files to make a TSV line with chosen fields)
 
     /// trim contigs in a cluster
     Trim {
