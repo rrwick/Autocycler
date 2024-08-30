@@ -13,16 +13,17 @@
 
 use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::GzDecoder;
+use seq_io::fastq::Reader;
 use std::collections::HashSet;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
-use std::io::{prelude::*, BufReader};
+use std::io::{prelude::*, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 
-// This module lets me use strand::FORWARD for true and strand::REVERSE for false.
 pub mod strand {
+    // This module lets me use strand::FORWARD for true and strand::REVERSE for false.
     pub const FORWARD: bool = true;
     pub const REVERSE: bool = false;
 }
@@ -139,9 +140,9 @@ pub fn quit_with_error(text: &str) -> ! {
 }
 
 
-/// This function loads a FASTA file and runs a few checks on the result. If everything looks good,
-/// it returns a vector of name+sequence tuples.
 pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
+    // This function loads a FASTA file and runs a few checks on the result. If everything looks
+    // good, it returns a vector of name+sequence tuples.
     let load_result = if is_file_gzipped(&filename) {
         load_fasta_gzipped(&filename)
     } else {
@@ -157,9 +158,9 @@ pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
 }
 
 
-/// This function looks at the result of the load_fasta function and does some checks to make sure
-/// everything looks okay. If any problems are found, it will quit with an error message.
 fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathBuf) {
+    // This function looks at the result of the load_fasta function and does some checks to make
+    // sure everything looks okay. If any problems are found, it will quit with an error message.
     if fasta_seqs.len() == 0 {
         quit_with_error(&format!("{} contains no sequences", filename.display()));
     }
@@ -180,10 +181,20 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathB
 }
 
 
-/// This function returns true if the file appears to be gzipped (based on the first two bytes) and
-/// false if not. If it can't open the file or read the first two bytes, it will quit with an error
-/// message.
+pub fn fastq_reader(fastq_file: &PathBuf)
+        -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
+    // Returns a reader for a FASTQ file that works on both unzipped and gzipped files.
+    let file = File::open(fastq_file).expect("Error opening file");
+    let reader: Box<dyn Read> = if is_file_gzipped(fastq_file) { Box::new(GzDecoder::new(file)) }
+                                                          else { Box::new(file) };
+    Reader::new(BufReader::new(reader))
+}
+
+
 fn is_file_gzipped(filename: &PathBuf) -> bool {
+    // This function returns true if the file appears to be gzipped (based on the first two bytes)
+    // and false if not. If it can't open the file or read the first two bytes, it will quit with
+    // an error message.
     let open_result = File::open(&filename);
     match open_result {
         Ok(_)  => (),

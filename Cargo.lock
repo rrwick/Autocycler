@@ -165,6 +165,7 @@ dependencies = [
  "rayon",
  "regex",
  "rusttype",
+ "seq_io",
  "serde",
  "serde_yaml",
  "tempfile",
@@ -218,6 +219,15 @@ name = "bitstream-io"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3dcde5f311c85b8ca30c2e4198d4326bc342c76541590106f5fa4a50946ea499"
+
+[[package]]
+name = "buffer-redux"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e8acf87c5b9f5897cd3ebb9a327f420e0cae9dd4e5c1d2e36f2c84c571a58f1"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "built"
@@ -1257,10 +1267,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped_threadpool"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d51f5df5af43ab3f1360b429fa5e0152ac5ce8c0bd6485cae490332e96846a8"
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "seq_io"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86b213fabdebb1c56d330d1dbf92cef0257f3873b718eb2202bb73c707197e9c"
+dependencies = [
+ "buffer-redux",
+ "crossbeam-utils",
+ "memchr",
+ "scoped_threadpool",
+ "serde",
+ "serde_derive",
+]
 
 [[package]]
 name = "serde"

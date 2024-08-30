@@ -183,17 +183,17 @@ impl CombineMetrics {
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct ReadSet {
+pub struct ReadSetMetrics {
     pub count: u64,
     pub bases: u64,
-    pub n50: u32,
+    pub n50: u64,
 }
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct SubsampleMetrics {
-    pub input_reads: ReadSet,
-    pub output_reads: Vec<ReadSet>,
+    pub input_reads: ReadSetMetrics,
+    pub output_reads: Vec<ReadSetMetrics>,
 }
 
 impl SubsampleMetrics {
