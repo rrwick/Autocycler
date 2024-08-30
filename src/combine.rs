@@ -21,17 +21,17 @@ use crate::misc::{check_if_file_exists, create_dir};
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn combine(in_gfas: Vec<PathBuf>, out_prefix: PathBuf) {
-    let combined_gfa = out_prefix.with_extension("gfa");
-    let combined_fasta = out_prefix.with_extension("fasta");
-    let combined_yaml = out_prefix.with_extension("yaml");
+pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
+    let combined_gfa = autocycler_dir.join("consensus_assembly.gfa");
+    let combined_fasta = autocycler_dir.join("consensus_assembly.fasta");
+    let combined_yaml = autocycler_dir.join("consensus_assembly.yaml");
 
     check_settings(&in_gfas);
     if let Some(parent) = combined_gfa.parent() {
         create_dir(&parent.to_path_buf());
     }
     starting_message();
-    print_settings(&in_gfas, &out_prefix);
+    print_settings(&autocycler_dir, &in_gfas);
 
     // TODO: add an optional argument for reads, which will add depth values to the combined
     //       assembly. Find unique k-mers in the combined assembly and then count the occurrences
@@ -57,13 +57,13 @@ fn starting_message() {
 }
 
 
-fn print_settings(in_gfas: &Vec<PathBuf>, out_prefix: &PathBuf) {
+fn print_settings(autocycler_dir: &PathBuf, in_gfas: &Vec<PathBuf>) {
     eprintln!("Settings:");
+    eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --in_gfas {}", in_gfas[0].display());
     for gfa in &in_gfas[1..] {
         eprintln!("            {}", gfa.display());
     }
-    eprintln!("  --out_prefix {}", out_prefix.display());
     eprintln!();
 }
 
@@ -80,7 +80,6 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
                     metrics: &mut CombineMetrics) {
     section_header("Combining clusters");
     explanation("This command combines different clusters into a single assembly file.");
-
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();

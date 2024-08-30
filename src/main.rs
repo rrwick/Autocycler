@@ -82,13 +82,13 @@ enum Commands {
 
     /// combine Autocycler GFAs into one assembly
     Combine {
+        /// Autocycler directory (required)
+        #[clap(short = 'a', long = "autocycler_dir", required = true)]
+        autocycler_dir: PathBuf,
+
         /// Autocycler cluster GFA files (one or more required)
         #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
         in_gfas: Vec<PathBuf>,
-
-        /// Output prefix (required)
-        #[clap(short = 'o', long = "out_prefix", required = true)]
-        out_prefix: PathBuf,
     },
 
     /// compress input contigs into a unitig graph
@@ -206,8 +206,8 @@ fn main() {
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
         },
-        Some(Commands::Combine { in_gfas, out_prefix }) => {
-            combine::combine(in_gfas, out_prefix);
+        Some(Commands::Combine { autocycler_dir, in_gfas }) => {
+            combine::combine(autocycler_dir, in_gfas);
         },
         None => {}
     }

@@ -19,7 +19,7 @@ for c in autocycler/clustering/qc_pass/cluster_*; do
 done
 
 # Combine clusters into a final assembly:
-autocycler combine -i autocycler/clustering/qc_pass/cluster_*/5_final.gfa -o autocycler/final
+autocycler combine -a autocycler -i autocycler/clustering/qc_pass/cluster_*/5_final.gfa
 ```
 
 
