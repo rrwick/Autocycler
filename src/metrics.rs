@@ -182,6 +182,27 @@ impl CombineMetrics {
 }
 
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct ReadSet {
+    pub count: u64,
+    pub bases: u64,
+    pub n50: u32,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct SubsampleMetrics {
+    pub input_reads: ReadSet,
+    pub output_reads: Vec<ReadSet>,
+}
+
+impl SubsampleMetrics {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
+}
+
+
 fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
     let yaml_string = serde_yaml::to_string(&data).unwrap();
     let mut file = File::create(yaml_filename)?;

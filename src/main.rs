@@ -28,6 +28,7 @@ mod misc;
 mod position;
 mod resolve;
 mod sequence;
+mod subsample;
 mod tests;
 mod test_gfa;
 mod trim;
@@ -155,7 +156,32 @@ enum Commands {
         verbose: bool,
     },
 
-    // TODO: add subset command (essentially the same as trycycler subset)
+    /// subsample a long-read set
+    Subsample {
+        /// Input long reads in FASTQ format (required)
+        #[clap(short = 'r', long = "reads", required = true)]
+        reads: PathBuf,
+
+        /// Output directory (required)
+        #[clap(short = 'o', long = "out_dir")]
+        out_dir: PathBuf,
+
+        /// Estimated genome size (required)
+        #[clap(short = 'g', long = "genome_size")]
+        genome_size: u64,
+
+        /// Number of subsampled read sets to output
+        #[clap(short = 'c', long = "count", default_value = "24")]
+        count: u32,
+
+        /// Minimum allowed read depth
+        #[clap(short = 'd', long = "min_read_depth", default_value = "25.0")]
+        min_read_depth: f64,
+
+        /// Seed for random number generator
+        #[clap(short = 's', long = "seed", default_value = "0")]
+        seed: u64,
+    },
 
     // TODO: add table command (reads YAML files to make a TSV line with chosen fields)
 
@@ -188,6 +214,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
+            cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
+        },
+        Some(Commands::Combine { autocycler_dir, in_gfas }) => {
+            combine::combine(autocycler_dir, in_gfas);
+        },
         Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, threads }) => {
             compress::compress(assemblies_dir, autocycler_dir, kmer, threads);
         },
@@ -197,17 +229,14 @@ fn main() {
         Some(Commands::Dotplot { in_gfa, out_png, res, kmer }) => {
             dotplot::dotplot(in_gfa, out_png, res, kmer);
         },
-        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
-            cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
-        },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
-        },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
         },
-        Some(Commands::Combine { autocycler_dir, in_gfas }) => {
-            combine::combine(autocycler_dir, in_gfas);
+        Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed }) => {
+            subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed);
+        },
+        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
         },
         None => {}
     }
