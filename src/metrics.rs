@@ -177,14 +177,13 @@ pub struct CombineMetrics {
 
 impl CombineMetrics {
     pub fn new() -> Self { Self::default() }
-
     pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ReadSetMetrics {
-    pub count: u64,
+    pub count: usize,
     pub bases: u64,
     pub n50: u64,
 }
@@ -198,7 +197,6 @@ pub struct SubsampleMetrics {
 
 impl SubsampleMetrics {
     pub fn new() -> Self { Self::default() }
-
     pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
