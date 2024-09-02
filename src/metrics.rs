@@ -188,6 +188,29 @@ pub struct ReadSetMetrics {
     pub n50: u64,
 }
 
+impl ReadSetMetrics {
+    pub fn new(sorted_read_lengths: &Vec<u64>) -> Self {
+        let bases: u64 = sorted_read_lengths.iter().sum();
+        let n50_target_bases = bases / 2;
+        let mut running_total = 0;
+        let mut n50 = 0;
+        for read_length in sorted_read_lengths {
+            running_total += read_length;
+            if running_total >= n50_target_bases {
+                n50 = *read_length;
+                break;
+            }
+        }
+        ReadSetMetrics {
+            count: sorted_read_lengths.len(),
+            bases,
+            n50,
+        }
+    }
+
+    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct SubsampleMetrics {

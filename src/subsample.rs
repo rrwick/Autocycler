@@ -96,25 +96,13 @@ fn input_fastq_stats(fastq_file: &PathBuf, metrics: &mut SubsampleMetrics) -> (u
     let mut read_lengths: Vec<u64> = fastq_reader(fastq_file).records()
         .map(|record| record.expect("Error reading FASTQ file").seq().len() as u64).collect();
     read_lengths.sort_unstable();
-    let total_bases = read_lengths.iter().sum();
-    let n50_target_bases = total_bases / 2;
-    let mut running_total = 0;
-    let mut n50 = 0;
-    for read_length in &read_lengths {
-        running_total += read_length;
-        if running_total >= n50_target_bases {
-            n50 = *read_length;
-            break;
-        }
-    }
-    let total_count = read_lengths.len();
+    metrics.input_reads = ReadSetMetrics::new(&read_lengths);
     eprintln!("Input FASTQ:");
-    eprintln!("  Read count: {}", total_count);
-    eprintln!("  Read bases: {}", total_bases);
-    eprintln!("  Read N50 length: {} bp", n50);
+    eprintln!("  Read count: {}", metrics.input_reads.count);
+    eprintln!("  Read bases: {}", metrics.input_reads.bases);
+    eprintln!("  Read N50 length: {} bp", metrics.input_reads.n50);
     eprintln!();
-    metrics.input_reads = ReadSetMetrics { count: total_count, bases: total_bases, n50: n50 };
-    (total_count, total_bases)
+    (metrics.input_reads.count, metrics.input_reads.bases)
 }
 
 
@@ -155,22 +143,26 @@ fn save_subsets(input_fastq: &PathBuf, subset_count: usize, input_count: usize,
     let mut subset_files = Vec::new();
     for i in 0..subset_count {
         eprintln!("subset {}:", i+1);
-        subset_indices.push(get_subsample_indices(subset_count, input_count, reads_per_subset,
-                                                  &read_order, i));
+        subset_indices.push(subsample_indices(subset_count, reads_per_subset, &read_order, i));
         let subset_filename = out_dir.join(format!("sample_{:02}.fastq", i + 1));
         eprintln!("  {}", subset_filename.display());
         let subset_file = File::create(subset_filename).expect("Failed to create subset file");
         subset_files.push(subset_file);
         eprintln!();
     }
-    write_subsampled_reads(input_fastq, subset_count, &subset_indices, &mut subset_files)
+    let sample_read_lengths = write_subsampled_reads(input_fastq, subset_count, &subset_indices,
+                                                     &mut subset_files);
+    for i in 0..subset_count {
+        metrics.output_reads.push(ReadSetMetrics::new(&sample_read_lengths[i]));
+    }
 }
 
 
-fn get_subsample_indices(subset_count: usize, input_count: usize, reads_per_subset: usize,
-                         read_order: &Vec<usize>, i: usize) -> HashSet<usize> {
+fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &Vec<usize>,
+                     i: usize) -> HashSet<usize> {
     // For a given subsample (index i), this function returns a HashSet of the read indices which
     // will go in that subsample.
+    let input_count = read_order.len();
     let mut subsample_indices = HashSet::new();
     let start_1 = ((i * input_count) as f64 / subset_count as f64).round() as usize;
     let mut end_1 = start_1 + reads_per_subset;
@@ -194,7 +186,11 @@ fn get_subsample_indices(subset_count: usize, input_count: usize, reads_per_subs
 
 
 fn write_subsampled_reads(input_fastq: &PathBuf, subset_count: usize,
-                          subset_indices: &Vec<HashSet<usize>>, subset_files: &mut Vec<File>) {
+                          subset_indices: &Vec<HashSet<usize>>, subset_files: &mut Vec<File>)
+        -> Vec<Vec<u64>> {
+    // This function loops through the input reads, and saves each read to the appropriate output
+    // file. It also gathers up and returns the sorted read lengths for each subsampled read set.
+    let mut sample_read_lengths: Vec<Vec<u64>> = vec![Vec::new(); subset_count];
     let pb = spinner("writing subsampled reads to files...");
     let mut read_i = 0;
     let mut reader = fastq_reader(input_fastq);
@@ -203,11 +199,16 @@ fn write_subsampled_reads(input_fastq: &PathBuf, subset_count: usize,
         for subset_i in 0..subset_count {
             if subset_indices[subset_i].contains(&read_i) {
                 record.write(&subset_files[subset_i]).unwrap();
+                sample_read_lengths[subset_i].push(record.seq().len() as u64);
             }
         }
         read_i += 1;
     }
+    for i in 0..subset_count {
+        sample_read_lengths[i].sort_unstable();
+    }
     pb.finish_and_clear();
+    sample_read_lengths
 }
 
 
@@ -249,5 +250,24 @@ mod tests {
         assert!(panic::catch_unwind(|| {
             parse_genome_size("15kg");
         }).is_err());
+    }
+
+    #[test]
+    fn test_subsample_indices() {
+        let read_order = vec![4, 2, 3, 1, 0, 5];
+
+        assert_eq!(subsample_indices(6, 2, &read_order, 0), HashSet::from([4, 2]));
+        assert_eq!(subsample_indices(6, 2, &read_order, 1), HashSet::from([2, 3]));
+        assert_eq!(subsample_indices(6, 2, &read_order, 2), HashSet::from([3, 1]));
+        assert_eq!(subsample_indices(6, 2, &read_order, 3), HashSet::from([1, 0]));
+        assert_eq!(subsample_indices(6, 2, &read_order, 4), HashSet::from([0, 5]));
+        assert_eq!(subsample_indices(6, 2, &read_order, 5), HashSet::from([5, 4]));
+
+        assert_eq!(subsample_indices(3, 5, &read_order, 0), HashSet::from([4, 2, 3, 1, 0]));
+        assert_eq!(subsample_indices(3, 5, &read_order, 1), HashSet::from([3, 1, 0, 5, 4]));
+        assert_eq!(subsample_indices(3, 5, &read_order, 2), HashSet::from([0, 5, 4, 2, 3]));
+
+        assert_eq!(subsample_indices(2, 5, &read_order, 0), HashSet::from([4, 2, 3, 1, 0]));
+        assert_eq!(subsample_indices(2, 5, &read_order, 1), HashSet::from([1, 0, 5, 4, 2]));
     }
 }
