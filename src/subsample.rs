@@ -20,15 +20,15 @@ use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
 use crate::metrics::{ReadSetMetrics, SubsampleMetrics};
-use crate::misc::{check_if_dir_is_not_dir, create_dir, fastq_reader, format_float, quit_with_error,
-                  spinner};
+use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, fastq_reader,
+                  format_float, quit_with_error, spinner};
 
 
 pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
                  subset_count: usize, min_read_depth: f64, seed: u64) {
     let subsample_yaml = out_dir.join("subsample.yaml");
     let genome_size = parse_genome_size(&genome_size_str);
-    check_settings(&out_dir, genome_size, subset_count, min_read_depth);
+    check_settings(&fastq_file, &out_dir, genome_size, subset_count, min_read_depth);
     create_dir(&out_dir);
     starting_message();
     print_settings(&fastq_file, &out_dir, genome_size, subset_count, min_read_depth, seed);
@@ -45,7 +45,9 @@ pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
 }
 
 
-fn check_settings(out_dir: &PathBuf, genome_size: u64, subset_count: usize, min_read_depth: f64) {
+fn check_settings(fastq_file: &PathBuf, out_dir: &PathBuf, genome_size: u64, subset_count: usize,
+                  min_read_depth: f64) {
+    check_if_file_exists(fastq_file);
     check_if_dir_is_not_dir(out_dir);
     if genome_size < 1 {       quit_with_error("--genome_size must be at least 1"); }
     if subset_count < 1 {      quit_with_error("--count must be at least 2"); }

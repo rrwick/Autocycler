@@ -207,8 +207,6 @@ impl ReadSetMetrics {
             n50,
         }
     }
-
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
