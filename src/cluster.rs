@@ -529,6 +529,11 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // QC-results HashMap.
 
+    // TODO: I could add some additional logic input assembly preferences. For example, I could use
+    //       Plassembler as one of the input assemblies, and any cluster which contains a
+    //       Plassembler contig should not fail QC due to low contig count. Could do this via
+    //       string matching on assembly names, e.g. 'plassembler'.
+
     // Create the ClusterQC object for each cluster. If using manual clustering, the clusters will
     // fail if they aren't included in the user-supplied clusters. If using automatic clustering,
     // all clusters will initially pass.
