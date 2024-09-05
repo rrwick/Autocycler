@@ -1,0 +1,16 @@
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - any2fasta>=0.4.2             # https://github.com/tseemann/any2fasta
+  - canu>=2.2                    # https://github.com/marbl/canu
+  - flye>=2.9.5                  # https://github.com/fenderglass/Flye
+  - miniasm>=0.3                 # https://github.com/lh3/miniasm
+  - minimap2>=2.28               # https://github.com/lh3/minimap2
+  - minipolish>=0.1.3            # https://github.com/rrwick/Minipolish
+  - necat>=0.0.1_update20200803  # https://github.com/xiaochuanle/NECAT
+  - nextdenovo>=2.5.2            # https://github.com/Nextomics/NextDenovo
+  - nextpolish>=1.4.1            # https://github.com/Nextomics/NextPolish
+  - racon>=1.5.0                 # https://github.com/lbcb-sci/racon
+  - raven-assembler>=1.8.3       # https://github.com/lbcb-sci/raven
