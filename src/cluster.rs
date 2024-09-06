@@ -641,14 +641,17 @@ fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluste
 fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
     // This function automatically sets the --min_assemblies parameter, if the user didn't
     // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
-    // but no less than 1.
+    // but no less than 2, unless there is only one input assembly, in which case it will be 1.
     if min_assemblies_option.is_some() {
         return min_assemblies_option.unwrap();
     }
     let assembly_count = get_assembly_count(&sequences);
+    if assembly_count == 1 {
+        return 1;
+    }
     let mut min_assemblies = usize_division_rounded(assembly_count, 4);
-    if min_assemblies < 1 {
-        min_assemblies = 1;
+    if min_assemblies < 2 {
+        min_assemblies = 2;
     }
     min_assemblies
 }
@@ -1024,13 +1027,13 @@ mod tests {
         sequences.pop();
         assert_eq!(set_min_assemblies(None, &sequences), 2);  // 7 assemblies
         sequences.truncate(5);
-        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 5 assemblies
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 5 assemblies
         sequences.pop();
-        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 4 assemblies
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 4 assemblies
         sequences.pop();
-        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 3 assemblies
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 3 assemblies
         sequences.pop();
-        assert_eq!(set_min_assemblies(None, &sequences), 1);  // 2 assemblies
+        assert_eq!(set_min_assemblies(None, &sequences), 2);  // 2 assemblies
         sequences.pop();
         assert_eq!(set_min_assemblies(None, &sequences), 1);  // 1 assembly
     }
