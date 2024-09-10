@@ -205,6 +205,26 @@ fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
         if *last_strand { fixed_ends.insert(*last_unitig); }
                    else { fixed_starts.insert(*last_unitig); }
     }
+
+    let fixed_starts_copy = fixed_starts.clone();
+    let fixed_ends_copy = fixed_ends.clone();
+
+    // Any unitig which is upstream of a fixed start has a fixed end.
+    for u in &fixed_starts_copy {
+        for upstream in &graph.unitig_index.get(u).unwrap().borrow().forward_prev {
+            if upstream.strand { fixed_ends.insert(upstream.number()); }
+                          else { fixed_starts.insert(upstream.number()); }
+        }
+    }
+
+    // Any unitig which is downstream of a fixed end has a fixed start.
+    for u in &fixed_ends_copy {
+        for downstream in &graph.unitig_index.get(u).unwrap().borrow().forward_next {
+            if downstream.strand { fixed_starts.insert(downstream.number()); }
+                            else { fixed_ends.insert(downstream.number()); }
+        }
+    }
+
     (fixed_starts, fixed_ends)
 }
 
@@ -643,6 +663,47 @@ mod tests {
     }
 
     #[test]
+    fn test_can_merge() {
+        let (graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_14());
+        let (mut fixed_starts, fixed_ends) = get_fixed_unitig_starts_and_ends(&graph, &seqs);
+        fix_circular_loops(&graph, &mut fixed_starts);
+        assert_eq!(fixed_starts, HashSet::from([5, 8, 12, 19, 22]));
+        assert_eq!(fixed_ends, HashSet::from([8, 17, 19, 22, 37]));
+
+        assert!(cannot_merge_start(5, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(8, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(8, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(12, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(17, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(19, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(19, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(22, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(22, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_start(37, strand::REVERSE, &fixed_starts, &fixed_ends));
+
+        assert!(cannot_merge_end(5, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(8, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(8, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(12, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(17, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(19, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(19, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(22, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(22, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(cannot_merge_end(37, strand::FORWARD, &fixed_starts, &fixed_ends));
+
+        assert!(!cannot_merge_start(12, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_start(21, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_start(21, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_start(37, strand::FORWARD, &fixed_starts, &fixed_ends));
+
+        assert!(!cannot_merge_end(12, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_end(21, strand::FORWARD, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_end(21, strand::REVERSE, &fixed_starts, &fixed_ends));
+        assert!(!cannot_merge_end(37, strand::REVERSE, &fixed_starts, &fixed_ends));
+    }
+
+    #[test]
     fn test_merge_linear_paths_1() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.unitigs.len(), 7);
@@ -693,5 +754,13 @@ mod tests {
         assert_eq!(graph.unitigs.len(), 5);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
                    "AAATGCGACTGTG");
+    }
+
+    #[test]
+    fn test_merge_linear_paths_4() {
+        let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_14());
+        assert_eq!(graph.unitigs.len(), 13);
+        merge_linear_paths(&mut graph, &seqs, None);
+        assert_eq!(graph.unitigs.len(), 11);
     }
 }

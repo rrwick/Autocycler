@@ -31,13 +31,13 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
                manual_clusters: Option<String>) {
     let gfa = autocycler_dir.join("input_assemblies.gfa");
     let clustering_dir = autocycler_dir.join("clustering");
-    delete_dir_if_exists(&clustering_dir);
-    create_dir(&clustering_dir);
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
     let clustering_newick = clustering_dir.join("clustering.newick");
     let clustering_tsv = clustering_dir.join("clustering.tsv");
     let clustering_yaml = clustering_dir.join("clustering.yaml");
     check_settings(&autocycler_dir, &gfa, cutoff, &min_assemblies_option);
+    delete_dir_if_exists(&clustering_dir);
+    create_dir(&clustering_dir);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
     let (graph, mut sequences) = load_graph(&gfa_lines, true);
