@@ -80,7 +80,7 @@ workdir = nextdenovo
 [correct_option]
 read_cutoff = 1k
 genome_size = $genome_size
-sort_options = -m 20g -t 15
+sort_options = -m 20g -t $threads
 minimap2_options_raw = -t $threads
 pa_correction = 1
 correction_options = -p $threads
