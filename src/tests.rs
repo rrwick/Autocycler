@@ -11,16 +11,36 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+
+
+#[cfg(test)]
+pub fn make_test_file(file_path: &PathBuf, contents: &str) {
+    let mut file = File::create(&file_path).unwrap();
+    write!(file, "{}", contents).unwrap();
+}
+
+
+#[cfg(test)]
+pub fn make_gzipped_test_file(file_path: &PathBuf, contents: &str) {
+    let mut file = File::create(&file_path).unwrap();
+    let mut e = GzEncoder::new(Vec::new(), Compression::default());
+    e.write_all(contents.as_bytes()).unwrap();
+    let _ = file.write_all(&e.finish().unwrap());
+}
+
 
 #[cfg(test)]
 mod tests {
-    use flate2::Compression;
     use flate2::read::GzDecoder;
-    use flate2::write::GzEncoder;
     use rand::{rngs::StdRng, SeedableRng};
     use rand::seq::SliceRandom;
     use std::fs::{File, read_to_string};
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -28,20 +48,8 @@ mod tests {
     use crate::decompress::save_original_seqs_to_dir;
     use crate::graph_simplification::simplify_structure;
     use crate::kmer_graph::KmerGraph;
-    // use crate::cluster::remove_excluded_contigs_from_graph;
+    use crate::tests::{make_test_file, make_gzipped_test_file};
     use crate::unitig_graph::UnitigGraph;
-
-    fn make_test_file(file_path: &PathBuf, contents: &str) {
-        let mut file = File::create(&file_path).unwrap();
-        write!(file, "{}", contents).unwrap();
-    }
-
-    fn make_gzipped_test_file(file_path: &PathBuf, contents: &str) {
-        let mut file = File::create(&file_path).unwrap();
-        let mut e = GzEncoder::new(Vec::new(), Compression::default());
-        e.write_all(contents.as_bytes()).unwrap();
-        let _ = file.write_all(&e.finish().unwrap());
-    }
 
     fn random_seq(length: usize, seed: u64) -> String {
         let bases = ['A', 'C', 'G', 'T'];

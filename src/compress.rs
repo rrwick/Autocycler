@@ -250,15 +250,10 @@ fn find_best_match(matches: Vec<Vec<u8>>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Write;
     use std::panic;
     use tempfile::tempdir;
 
-    fn make_test_file(file_path: &PathBuf, contents: &str) {
-        let mut file = File::create(&file_path).unwrap();
-        write!(file, "{}", contents).unwrap();
-    }
+    use crate::tests::make_test_file;
 
     #[test]
     fn test_find_best_match_1() {

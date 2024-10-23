@@ -146,7 +146,11 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
         }
     }
 
-    // TODO: add additional logic to better handle blunt ends of linear replicons?
+    // TODO: add additional logic to better handle linear replicons?
+    //       Specifically, I think it could be good to extend the set of anchor unitigs by adding
+    //       unitigs which are definitely in the same path as an anchor. E.g. if unitig A in an
+    //       anchor, and all of unitig A's paths lead to unitig B and vice versa, then unitig B
+    //       should also be an anchor. Do this iteratively until no more anchors are added.
 
     // TODO: I should also allow users to manually specify anchor unitigs via their ID.
 

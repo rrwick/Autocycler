@@ -415,9 +415,47 @@ pub fn up_to_first_space(string: &String) -> String {
 }
 
 
+pub fn first_char_in_file(filename: &PathBuf) -> io::Result<char> {
+    if is_file_gzipped(filename) {
+        first_char_in_file_gzipped(filename)
+    } else {
+        first_char_in_file_not_gzipped(filename)
+    }
+}
+
+
+fn first_char_in_file_not_gzipped(filename: &PathBuf) -> io::Result<char> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+    first_non_empty_char(reader)
+}
+
+
+fn first_char_in_file_gzipped(filename: &PathBuf) -> io::Result<char> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(GzDecoder::new(file));
+    first_non_empty_char(reader)
+}
+
+
+fn first_non_empty_char<R: BufRead>(reader: R) -> io::Result<char> {
+    for line in reader.lines() {
+        let text = line?;
+        if !text.is_empty() {
+            return text.chars().next()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Empty line"));
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::UnexpectedEof, "No non-empty lines found"))
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    use crate::tests::{make_test_file, make_gzipped_test_file};
 
     #[test]
     fn test_format_duration() {
@@ -520,5 +558,29 @@ mod tests {
     fn test_up_to_first_space() {
         assert_eq!(up_to_first_space(&"1 2 3 4".to_string()), "1".to_string());
         assert_eq!(up_to_first_space(&"abc def".to_string()), "abc".to_string());
+    }
+
+    #[test]
+    fn test_first_char_in_file() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_test_file(&filename, ">a\nACGT\n");
+        assert_eq!(first_char_in_file(&filename).unwrap(), '>');
+
+        make_test_file(&filename, "XYZ");
+        assert_eq!(first_char_in_file(&filename).unwrap(), 'X');
+    }
+
+    #[test]
+    fn test_first_char_in_file_gzipped() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_gzipped_test_file(&filename, ">a\nACGT\n");
+        assert_eq!(first_char_in_file(&filename).unwrap(), '>');
+
+        make_gzipped_test_file(&filename, "XYZ");
+        assert_eq!(first_char_in_file(&filename).unwrap(), 'X');
     }
 }

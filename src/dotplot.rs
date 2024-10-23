@@ -19,7 +19,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_file_exists, quit_with_error, reverse_complement, spinner};
+use crate::misc::{first_char_in_file, quit_with_error, reverse_complement, spinner,
+                  find_all_assemblies, load_fasta};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -39,26 +40,42 @@ static FORWARD_DOT_COLOUR: image::Rgb<u8> = Rgb([0, 0, 205]);        // mediumbl
 static REVERSE_DOT_COLOUR: image::Rgb<u8> = Rgb([178, 34, 34]);      // firebrick
 
 
-pub fn dotplot(in_gfa: PathBuf, out_png: PathBuf, res: u32, kmer: u32) {
-    check_settings(&in_gfa, res, kmer);
+pub fn dotplot(input: PathBuf, out_png: PathBuf, res: u32, kmer: u32) {
+    check_settings(res, kmer);
+    let input_type = determine_input_type(&input);
     starting_message();
-    print_settings(&in_gfa, res, kmer);
-    let (graph, sequences) = load_graph(&in_gfa);
-    let seqs = graph.reconstruct_original_sequences_u8(&sequences);
-
-    // TODO: create alternative input options: a FASTA file or a directory of FASTA files.
-
+    print_settings(&input, res, kmer);
+    let seqs = load_sequences(&input, input_type);
     create_dotplot(&seqs, &out_png, res, kmer);
     finished_message(&out_png);
 }
 
 
-fn check_settings(in_gfa: &PathBuf, res: u32, kmer: u32) {
-    check_if_file_exists(&in_gfa);
+fn check_settings(res: u32, kmer: u32) {
     if res < 500     { quit_with_error("--res cannot be less than 500"); }
     if res > 10000   { quit_with_error("--res cannot be greater than 10000"); }
     if kmer < 10     { quit_with_error("--kmer cannot be less than 10"); }
     if kmer > 100    { quit_with_error("--kmer cannot be greater than 100"); }
+}
+
+
+enum InputType { GFA, FASTA, Directory }
+
+fn determine_input_type(input: &PathBuf) -> InputType {
+    if input.is_dir() {
+        return InputType::Directory;
+    }
+    if !input.is_file() {
+        quit_with_error("--input is neither a file nor a directory");
+    }
+    let first_char = first_char_in_file(input).unwrap();
+    match first_char {
+        '>' => InputType::FASTA,
+        'H' | 'S' => InputType::GFA,
+        _ => {
+            quit_with_error("--input is neither GFA or FASTA");
+        }
+    }
 }
 
 
@@ -69,9 +86,9 @@ fn starting_message() {
 }
 
 
-fn print_settings(in_gfa: &PathBuf, res: u32, kmer: u32) {
+fn print_settings(input: &PathBuf, res: u32, kmer: u32) {
     eprintln!("Settings:");
-    eprintln!("  --in_gfa {}", in_gfa.display());
+    eprintln!("  --input {}", input.display());
     eprintln!("  --res {}", res);
     eprintln!("  --kmer {}", kmer);
     eprintln!();
@@ -85,18 +102,72 @@ fn finished_message(out_png: &PathBuf) {
 }
 
 
-fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
-    section_header("Loading graph");
-    explanation("The unitig graph is now loaded into memory.");
+fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<((String, String), Vec<u8>)> {
+    let seqs = match input_type {
+        InputType::GFA => {
+            let (graph, sequences) = load_from_graph(&input);
+            graph.reconstruct_original_sequences_u8(&sequences)
+        },
+        InputType::FASTA => {
+            load_from_fasta(&input)
+        }
+        InputType::Directory => {
+            load_from_directory(&input)
+        }
+    };
+    if seqs.len() == 0 {
+        quit_with_error("no sequences were loaded")
+    }
+    seqs
+}
+
+
+fn load_from_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+    section_header("Loading sequences");
+    explanation("Sequences are now loaded from the provided unitig graph.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
-    unitig_graph.print_basic_graph_info();
+    for s in &sequences {
+        eprintln!("{}", s);
+    }
+    eprintln!();
     (unitig_graph, sequences)
+}
+
+
+fn load_from_fasta(filename: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
+    section_header("Loading sequences");
+    explanation("Sequences are now loaded from the provided FASTA file.");
+    let mut seqs = Vec::new();
+    for (name, _, seq) in load_fasta(&filename) {
+        eprintln!("{} ({} bp)", name, seq.len());
+        seqs.push(((String::new(), name), seq.as_bytes().to_owned()));
+    }
+    eprintln!();
+    seqs
+}
+
+
+fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
+    section_header("Loading sequences");
+    explanation("Sequences are now loaded from FASTA files in the provided directory.");
+    let mut seqs = Vec::new();
+    let assemblies = find_all_assemblies(dir);
+    for assembly in &assemblies {
+        let filename = assembly.file_name().and_then(|name| name.to_str()).map(|s| s.to_string()).unwrap();
+        for (name, _, seq) in load_fasta(&assembly) {
+            eprintln!("{} {} ({} bp)", filename, name, seq.len());
+            seqs.push(((filename.clone(), name), seq.as_bytes().to_owned()));
+        }
+    }
+    eprintln!();
+    seqs
 }
 
 
 fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBuf, res: u32,
                   kmer: u32) {
-    eprintln!();
+    section_header("Creating dot plot");
+    explanation("K-mers common between sequences are now used to build the dot plot image.");
     let pb = spinner("creating dot plot...");
 
     // We create an initial image to test the label sizes.
@@ -117,6 +188,7 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
     draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
                 false);
 
+    let mut count = 0;
     for (name_a, seq_a) in seqs {
         let rev_comp_seq_a = reverse_complement(seq_a);
         let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a,
@@ -124,6 +196,7 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
         for (name_b, seq_b) in seqs {
             draw_dots(&mut img, name_a, name_b, seq_a, seq_b, &start_positions,
                       &forward_kmers, &reverse_kmers, bp_per_pixel, kmer as usize);
+            count += 1;
         }
     }
 
@@ -133,6 +206,8 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
 
     img.save(png_filename).unwrap();
     pb.finish_and_clear();
+    eprintln!("{} pairwise dot plot{} drawn to image", count, match count { 1 => "", _ => "s" });
+    eprintln!();
 }
 
 

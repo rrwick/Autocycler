@@ -29,11 +29,13 @@ mod position;
 mod resolve;
 mod sequence;
 mod subsample;
-mod tests;
 mod test_gfa;
 mod trim;
 mod unitig;
 mod unitig_graph;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser)]
 #[clap(name = "Autocycler",
@@ -128,9 +130,9 @@ enum Commands {
 
     /// generate an all-vs-all dot plot from a unitig graph
     Dotplot {
-        /// Autocycler GFA file (required)
-        #[clap(short = 'i', long = "in_gfa", required = true)]
-        in_gfa: PathBuf,
+        /// Input Autocycler GFA file, FASTA file or directory (required)
+        #[clap(short = 'i', long = "input", required = true)]
+        input: PathBuf,
 
         /// File path where dot plot PNG will be saved (required)
         #[clap(short = 'o', long = "out_png", required = true)]
@@ -226,8 +228,8 @@ fn main() {
         Some(Commands::Decompress { in_gfa, out_dir, out_file }) => {
             decompress::decompress(in_gfa, out_dir, out_file);
         },
-        Some(Commands::Dotplot { in_gfa, out_png, res, kmer }) => {
-            dotplot::dotplot(in_gfa, out_png, res, kmer);
+        Some(Commands::Dotplot { input, out_png, res, kmer }) => {
+            dotplot::dotplot(input, out_png, res, kmer);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
