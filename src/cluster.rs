@@ -900,11 +900,7 @@ fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
 mod tests {
     use super::*;
     use std::panic;
-
-    fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
-        assert!((a - b).abs() < epsilon,
-                "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
-    }
+    use crate::tests::assert_almost_eq;
 
     #[test]
     fn test_get_assembly_count() {

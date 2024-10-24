@@ -234,11 +234,7 @@ fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
 mod tests {
     use maplit::hashmap;
     use super::*;
-
-    fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
-        assert!((a - b).abs() < epsilon,
-                "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
-    }
+    use crate::tests::assert_almost_eq;
 
     #[test]
     fn test_calculate_balance() {

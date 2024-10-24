@@ -19,6 +19,13 @@ use std::path::PathBuf;
 
 
 #[cfg(test)]
+pub fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
+    assert!((a - b).abs() < epsilon,
+            "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
+}
+
+
+#[cfg(test)]
 pub fn make_test_file(file_path: &PathBuf, contents: &str) {
     let mut file = File::create(&file_path).unwrap();
     write!(file, "{}", contents).unwrap();

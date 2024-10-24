@@ -29,6 +29,7 @@ use crate::unitig_graph::UnitigGraph;
 static INITIAL_TOP_LEFT_GAP: f64 = 0.1;
 static BORDER_GAP: f64 = 0.015;
 static BETWEEN_SEQ_GAP: f64 = 0.01;
+static TOTAL_BETWEEN_SEQ_GAP: f64 = 0.1;
 static TEXT_GAP: f64 = 0.0025;
 static MAX_FONT_SIZE: f64 = 0.025;
 static BACKGROUND_COLOUR: image::Rgb<u8> = Rgb([255, 255, 255]);     // white
@@ -171,7 +172,8 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
     let pb = spinner("creating dot plot...");
 
     // We create an initial image to test the label sizes.
-    let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) = get_sizes(res);
+    let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) =
+        get_sizes(res, seqs.len());
     let (start_positions, end_positions, _) =
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     let mut img = ImageBuffer::from_pixel(res, res, BACKGROUND_COLOUR);
@@ -211,14 +213,28 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
 }
 
 
-fn get_sizes(res: u32) -> (u32, u32, u32, u32, u32) {
+fn get_sizes(res: u32, seq_count: usize) -> (u32, u32, u32, u32, u32) {
     let res = res as f64;
     let top_left_gap = (INITIAL_TOP_LEFT_GAP * res).round() as u32;
     let border_gap = ((BORDER_GAP * res).round() as u32).max(2);
-    let between_seq_gap = ((BETWEEN_SEQ_GAP * res).round() as u32).max(2);
+    let between_seq_gap = ((between_seq_gap(BETWEEN_SEQ_GAP, TOTAL_BETWEEN_SEQ_GAP,
+                                            seq_count) * res).round() as u32).max(2);
     let text_gap = ((TEXT_GAP * res).round() as u32).max(1);
     let max_font_size = ((MAX_FONT_SIZE * res).round() as u32).max(1);
     (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size)
+}
+
+
+fn between_seq_gap(gap: f64, max_total_gap: f64, seq_count: usize) -> f64 {
+    // The amount of space to use for gaps between sequences is set by BETWEEN_SEQ_GAP, unless
+    // there are so many sequences that these gaps would exceed TOTAL_BETWEEN_SEQ_GAP, in which
+    // case the gap size is scaled down.
+    if seq_count <= 1 { return gap; }
+    if (seq_count - 1) as f64 * gap > max_total_gap{
+        max_total_gap / (seq_count - 1) as f64
+    } else {
+        gap
+    }
 }
 
 
@@ -422,6 +438,7 @@ fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::assert_almost_eq;
 
     #[test]
     fn test_get_all_kmer_positions() {
@@ -471,5 +488,16 @@ mod tests {
         let (forward_kmers, reverse_kmers) = get_all_kmer_positions(4, &seq, &rev_seq);
         assert_eq!(forward_kmers, expected_forward);
         assert_eq!(reverse_kmers, expected_reverse);
+    }
+
+    #[test]
+    fn test_between_seq_gap() {
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 0), 0.01, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 1), 0.01, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 2), 0.01, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 5), 0.01, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 10), 0.01, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 21), 0.005, 1e-8);
+        assert_almost_eq(between_seq_gap(0.01, 0.1, 51), 0.002, 1e-8);
     }
 }
