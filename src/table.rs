@@ -16,7 +16,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
-
 use crate::metrics::{InputAssemblyMetrics, ClusteringMetrics, CombineMetrics};
 use crate::misc::quit_with_error;
 
@@ -78,20 +77,6 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>) {
 }
 
 
-fn format_value(value: &Value) -> String {
-    match value {
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() { i.to_string() }
-            else if let Some(f) = n.as_f64() { f.to_string() }
-            else { n.to_string() }
-        }
-        Value::String(s) => s.clone(),
-        Value::Bool(b) => b.to_string(),
-        _ => "N/A".to_string(),  // Fallback for any other data types, like sequences or maps
-    }
-}
-
-
 fn load_yaml_to_map(yaml_path: &PathBuf) -> HashMap<String, Value> {
     let content = fs::read_to_string(yaml_path)
         .unwrap_or_else(|_| quit_with_error("Could not read YAML file"));
@@ -133,6 +118,25 @@ fn get_one_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Option<PathBu
 }
 
 
+fn format_value(value: &Value) -> String {
+    // This function formats serde_yaml::Value types. Sequences are formatted with square brackets
+    // and commas (no spaces). Mappings are formatted with curly brackets, colons and commas (no
+    // spaces).
+    match value {
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Bool(b) => b.to_string(),
+        Value::Sequence(s) =>
+            format!("[{}]", s.iter().map(format_value).collect::<Vec<_>>().join(",")),
+        Value::Mapping(m) =>
+            format!("{{{}}}",
+                    m.iter().map(|(k, v)| format!("{}:{}", format_value(k),
+                                                  format_value(v))).collect::<Vec<_>>().join(",")),
+        _ => String::new(),
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,9 +159,40 @@ mod tests {
         assert_eq!(parse_fields("input_assemblies_count,fail_contig_count".to_string()),
                    vec!["input_assemblies_count", "fail_contig_count"]);
         assert_eq!(parse_fields("pass_contig_count,consensus_assembly_fully_resolved".to_string()),
-                    vec!["pass_contig_count", "consensus_assembly_fully_resolved"]);
+                   vec!["pass_contig_count", "consensus_assembly_fully_resolved"]);
         assert!(panic::catch_unwind(|| {
             parse_fields("input_assemblies_count,abc".to_string());
         }).is_err());
+    }
+
+    #[test]
+    fn test_format_value_simple() {
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(12))), "12");
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(1.2))), "1.2");
+        assert_eq!(format_value(&Value::String("abc".to_string())), "abc");
+        assert_eq!(format_value(&Value::Bool(true)), "true");
+        assert_eq!(format_value(&Value::Bool(false)), "false");
+    }
+
+    #[test]
+    fn test_format_value_sequence() {
+        let v1 = Value::Number(serde_yaml::Number::from(12));
+        let v2 = Value::Number(serde_yaml::Number::from(1.2));
+        let v3 = Value::String("abc".to_string());
+        let v4 = Value::Bool(true);
+        let seq = Value::Sequence(vec![v1, v2, v3, v4]);
+        assert_eq!(format_value(&seq), "[12,1.2,abc,true]");
+    }
+
+    #[test]
+    fn test_format_value_mapping() {
+        let v1 = Value::Number(serde_yaml::Number::from(12));
+        let v2 = Value::Number(serde_yaml::Number::from(1.2));
+        let v3 = Value::String("abc".to_string());
+        let v4 = Value::Bool(true);
+        let mut map = serde_yaml::Mapping::new();
+        map.insert(v1, v2);
+        map.insert(v3, v4);
+        assert_eq!(format_value(&Value::Mapping(map)), "{12:1.2,abc:true}");
     }
 }
