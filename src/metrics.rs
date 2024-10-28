@@ -230,6 +230,31 @@ fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
 }
 
 
+// This macro adds get_val_by_name and get_field_names methods to some of the metric structs.
+macro_rules! impl_metrics_helpers {
+    ($struct_name:ty) => {
+        impl $struct_name {
+            pub fn get_val_by_name(&self, name: &str) -> Option<String> {
+                serde_json::to_value(self).ok()?.get(name).map(|v| v.to_string())
+            }
+            pub fn get_field_names() -> Vec<String> {
+                let mut field_names: Vec<String> = match serde_json::to_value(Self::default())
+                    .expect("serialisation failed").as_object()
+                {
+                    Some(map) => map.keys().cloned().collect(),
+                    None => Vec::new(),
+                };
+                field_names.sort();
+                field_names
+            }
+        }
+    };
+}
+impl_metrics_helpers!(InputAssemblyMetrics);
+impl_metrics_helpers!(ClusteringMetrics);
+impl_metrics_helpers!(CombineMetrics);
+
+
 #[cfg(test)]
 mod tests {
     use maplit::hashmap;
@@ -283,5 +308,40 @@ mod tests {
         assert!(metrics_4.cluster_balance_score < metrics_3.cluster_balance_score);
         assert!(metrics_5.cluster_balance_score < metrics_4.cluster_balance_score);
         assert!(metrics_6.cluster_balance_score < metrics_5.cluster_balance_score);
+    }
+
+    #[test]
+    fn test_get_val_by_name() {
+        let mut metrics = InputAssemblyMetrics::new();
+        metrics.input_assemblies_count = 12;
+        assert_eq!(metrics.get_val_by_name("input_assemblies_count"), Some("12".to_string()));
+        assert_eq!(metrics.get_val_by_name("abc"), None);
+    }
+
+    #[test]
+    fn test_get_field_names() {
+        assert_eq!(InputAssemblyMetrics::get_field_names(),
+                   vec!["input_assemblies_compressed_unitig_count",
+                        "input_assemblies_compressed_unitig_total_length",
+                        "input_assemblies_count",
+                        "input_assemblies_total_contigs",
+                        "input_assemblies_total_length"]);
+
+        assert_eq!(ClusteringMetrics::get_field_names(),
+                   vec!["cluster_balance_score",
+                        "cluster_tightness_score",
+                        "fail_cluster_count",
+                        "fail_contig_count",
+                        "fail_contig_fraction",
+                        "overall_clustering_score",
+                        "pass_cluster_count",
+                        "pass_contig_count",
+                        "pass_contig_fraction"]);
+
+        assert_eq!(CombineMetrics::get_field_names(),
+                   vec!["consensus_assembly_clusters",
+                        "consensus_assembly_fully_resolved",
+                        "consensus_assembly_total_length",
+                        "consensus_assembly_total_unitigs"]);
     }
 }

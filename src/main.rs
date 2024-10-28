@@ -193,11 +193,15 @@ enum Commands {
         autocycler_dir: Option<PathBuf>,
 
         /// Sample name
-        #[clap(short = 'n', long = "name", default_value = "")]
+        #[clap(short = 'n', long = "name", default_value = "", hide_default_value = true,
+               help = "Sample name [default: blank]")]
         name: String,
 
         /// Comma-delimited list of YAML fields to include
-        #[clap(short = 'f', long = "fields", default_value = "overall_clustering_score,consensus_assembly_fully_resolved")]
+        #[clap(short = 'f', long = "fields",
+               default_value = "pass_cluster_count, fail_cluster_count, overall_clustering_score, \
+                                consensus_assembly_total_length, consensus_assembly_total_unitigs, \
+                                consensus_assembly_fully_resolved")]
         fields: String,
     },
 

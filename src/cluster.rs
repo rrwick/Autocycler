@@ -1206,7 +1206,7 @@ mod tests {
     #[test]
     fn test_parse_manual_clusters() {
         assert_eq!(parse_manual_clusters(Some("1,2,3".to_string())), vec![1, 2, 3]);
-        assert_eq!(parse_manual_clusters(None), vec![]);
+        assert_eq!(parse_manual_clusters(None), Vec::<u16>::new());
         assert!(panic::catch_unwind(|| {
             parse_manual_clusters(Some("x,y,z".to_string()));
         }).is_err());
