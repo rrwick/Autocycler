@@ -23,11 +23,11 @@ use crate::misc::mad_usize;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct InputAssemblyMetrics {
-    pub assembly_count: u32,
-    pub total_contigs: u32,
-    pub total_length: u64,
-    pub compressed_unitig_count: u32,
-    pub compressed_unitig_total_length: u64,
+    pub input_assemblies_count: u32,
+    pub input_assemblies_total_contigs: u32,
+    pub input_assemblies_total_length: u64,
+    pub input_assemblies_compressed_unitig_count: u32,
+    pub input_assemblies_compressed_unitig_total_length: u64,
 }
 
 impl InputAssemblyMetrics {
@@ -119,19 +119,19 @@ impl ClusteringMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct UntrimmedClusterMetrics {
-    pub cluster_size: u32,
-    pub sequence_lengths: Vec<usize>,
-    pub sequence_length_median_absolute_deviation: u32,
-    pub cluster_distance: f64,
+    pub untrimmed_cluster_size: u32,
+    pub untrimmed_sequence_lengths: Vec<usize>,
+    pub untrimmed_sequence_length_mad: u32,
+    pub untrimmed_cluster_distance: f64,
 }
 
 impl UntrimmedClusterMetrics {
-    pub fn new(sequence_lengths: Vec<usize>, cluster_distance: f64) -> Self {
+    pub fn new(untrimmed_sequence_lengths: Vec<usize>, untrimmed_cluster_distance: f64) -> Self {
         UntrimmedClusterMetrics {
-            cluster_size: sequence_lengths.len() as u32,
-            sequence_length_median_absolute_deviation: mad_usize(&sequence_lengths) as u32,
-            sequence_lengths,
-            cluster_distance,
+            untrimmed_cluster_size: untrimmed_sequence_lengths.len() as u32,
+            untrimmed_sequence_length_mad: mad_usize(&untrimmed_sequence_lengths) as u32,
+            untrimmed_sequence_lengths,
+            untrimmed_cluster_distance,
         }
     }
 
@@ -141,17 +141,17 @@ impl UntrimmedClusterMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct TrimmedClusterMetrics {
-    pub cluster_size: u32,
-    pub sequence_lengths: Vec<usize>,
-    pub sequence_length_median_absolute_deviation: u32,
+    pub trimmed_cluster_size: u32,
+    pub trimmed_sequence_lengths: Vec<usize>,
+    pub trimmed_sequence_length_mad: u32,
 }
 
 impl TrimmedClusterMetrics {
-    pub fn new(sequence_lengths: Vec<usize>) -> Self {
+    pub fn new(trimmed_sequence_lengths: Vec<usize>) -> Self {
         TrimmedClusterMetrics {
-            cluster_size: sequence_lengths.len() as u32,
-            sequence_length_median_absolute_deviation: mad_usize(&sequence_lengths) as u32,
-            sequence_lengths,
+            trimmed_cluster_size: trimmed_sequence_lengths.len() as u32,
+            trimmed_sequence_length_mad: mad_usize(&trimmed_sequence_lengths) as u32,
+            trimmed_sequence_lengths,
         }
     }
 
@@ -169,10 +169,10 @@ pub struct ResolvedClusterMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CombineMetrics {
-    pub total_length: u64,
-    pub total_unitigs: u32,
-    pub fully_resolved: bool,
-    pub clusters: Vec<ResolvedClusterMetrics>,
+    pub consensus_assembly_total_length: u64,
+    pub consensus_assembly_total_unitigs: u32,
+    pub consensus_assembly_fully_resolved: bool,
+    pub consensus_assembly_clusters: Vec<ResolvedClusterMetrics>,
 }
 
 impl CombineMetrics {

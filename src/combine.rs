@@ -37,6 +37,10 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
     //       assembly. Find unique k-mers in the combined assembly and then count the occurrences
     //       of those k-mers in the reads.
 
+    // TODO: sort the input GFA files in order of decreasing size. They may already be in this
+    //       order (from the clustering step), but not necessarily (e.g. due to small plasmid
+    //       duplication).
+
     let mut metrics = CombineMetrics::new();
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
     metrics.save_to_yaml(&combined_yaml);
@@ -83,7 +87,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();
-    metrics.fully_resolved = true;
+    metrics.consensus_assembly_fully_resolved = true;
     let mut offset = 0;
     for gfa in in_gfas {
         eprintln!("{}", gfa.display());
@@ -105,11 +109,12 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
         offset += graph.max_unitig_number();
         let component_length = graph.total_length();
         let unitig_count = graph.unitigs.len() as u32;
-        metrics.total_length += component_length;
-        metrics.total_unitigs += unitig_count;
-        metrics.clusters.push(ResolvedClusterMetrics { length: component_length,
+        metrics.consensus_assembly_total_length += component_length;
+        metrics.consensus_assembly_total_unitigs += unitig_count;
+        let cluster_metrics = ResolvedClusterMetrics { length: component_length,
                                                        unitigs: unitig_count,
-                                                       topology: graph.topology() });
-        if unitig_count > 1 { metrics.fully_resolved = false; }
+                                                       topology: graph.topology() };
+        metrics.consensus_assembly_clusters.push(cluster_metrics);
+        if unitig_count > 1 { metrics.consensus_assembly_fully_resolved = false; }
     }
 }

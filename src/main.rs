@@ -29,6 +29,7 @@ mod position;
 mod resolve;
 mod sequence;
 mod subsample;
+mod table;
 mod test_gfa;
 mod trim;
 mod unitig;
@@ -185,7 +186,20 @@ enum Commands {
         seed: u64,
     },
 
-    // TODO: add table command (reads YAML files to make a TSV line with chosen fields)
+    /// create TSV line from YAML files
+    Table {
+        /// Autocycler directory (if absent, a header line will be output)
+        #[clap(short = 'a', long = "autocycler_dir")]
+        autocycler_dir: Option<PathBuf>,
+
+        /// Sample name
+        #[clap(short = 'n', long = "name", default_value = "")]
+        name: String,
+
+        /// Comma-delimited list of YAML fields to include
+        #[clap(short = 'f', long = "fields", default_value = "overall_clustering_score,consensus_assembly_fully_resolved")]
+        fields: String,
+    },
 
     /// trim contigs in a cluster
     Trim {
@@ -236,6 +250,9 @@ fn main() {
         },
         Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed }) => {
             subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed);
+        },
+        Some(Commands::Table { autocycler_dir, name, fields }) => {
+            table::table(autocycler_dir, name, fields);
         },
         Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
             trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
