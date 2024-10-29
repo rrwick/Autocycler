@@ -1,6 +1,6 @@
 # Autocycler
 
-Autocycler is a tool for generating consensus long-read assemblies for bacterial genomes.
+Autocycler is a tool for generating consensus long-read assemblies for bacterial genomes. It is the successor to [Trycycler](https://github.com/rrwick/Trycycler), and for most users, I recommend Autocycler over Trycycler.
 
 For installation instructions, usage, deeper explanations and more, head over to the [Autocycler wiki](https://github.com/rrwick/Autocycler/wiki)!
 
