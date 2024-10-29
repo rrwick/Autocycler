@@ -16,8 +16,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::metrics::{InputAssemblyMetrics, ClusteringMetrics, CombineMetrics,
-                     UntrimmedClusterMetrics, TrimmedClusterMetrics};
+use crate::metrics::{ClusteringMetrics, CombineMetrics, InputAssemblyMetrics, SubsampleMetrics,
+                     TrimmedClusterMetrics, UntrimmedClusterMetrics};
 use crate::misc::{check_if_dir_exists, quit_with_error, format_float_sigfigs};
 
 
@@ -46,6 +46,7 @@ fn parse_fields(comma_delimited_fields: String) -> Vec<String> {
     let fields = comma_delimited_fields.replace(" ", "").split(',')
                                        .map(|s| s.to_string()).collect();
     let mut valid_fields = HashSet::new();
+    valid_fields.extend(SubsampleMetrics::get_field_names());
     valid_fields.extend(InputAssemblyMetrics::get_field_names());
     valid_fields.extend(ClusteringMetrics::get_field_names());
     valid_fields.extend(CombineMetrics::get_field_names());
@@ -72,6 +73,7 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigf
     print!("{}", name);
 
     let yaml_files = find_all_yaml_files(&autocycler_dir);
+    let subsample_yaml = get_one_copy_yaml(&yaml_files, "subsample.yaml");
     let input_assemblies_yaml = get_one_copy_yaml(&yaml_files, "input_assemblies.yaml");
     let clustering_yaml = get_one_copy_yaml(&yaml_files, "clustering.yaml");
     let consensus_assembly_yaml = get_one_copy_yaml(&yaml_files, "consensus_assembly.yaml");
@@ -79,6 +81,7 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigf
     let trimmed_yamls = get_multi_copy_yaml(&yaml_files, "2_trimmed.yaml");
 
     let mut map: HashMap<String, Value> = HashMap::new();
+    if let Some(path) = subsample_yaml          { map.extend(load_single_yaml_to_map(&path)); }
     if let Some(path) = input_assemblies_yaml   { map.extend(load_single_yaml_to_map(&path)); }
     if let Some(path) = clustering_yaml         { map.extend(load_single_yaml_to_map(&path)); }
     if let Some(path) = consensus_assembly_yaml { map.extend(load_single_yaml_to_map(&path)); }
