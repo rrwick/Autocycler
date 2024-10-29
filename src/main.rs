@@ -205,6 +205,10 @@ enum Commands {
                                 consensus_assembly_total_length, consensus_assembly_total_unitigs, \
                                 consensus_assembly_fully_resolved")]
         fields: String,
+
+        /// Significant figures to use for floating point numbers
+        #[clap(short = 's', long = "sigfigs", default_value = "3")]
+        sigfigs: usize,
     },
 
     /// trim contigs in a cluster
@@ -257,8 +261,8 @@ fn main() {
         Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed }) => {
             subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed);
         },
-        Some(Commands::Table { autocycler_dir, name, fields }) => {
-            table::table(autocycler_dir, name, fields);
+        Some(Commands::Table { autocycler_dir, name, fields, sigfigs }) => {
+            table::table(autocycler_dir, name, fields, sigfigs);
         },
         Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
             trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);

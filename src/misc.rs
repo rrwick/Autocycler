@@ -337,6 +337,22 @@ pub fn format_float(num: f64) -> String {
 }
 
 
+pub fn format_float_sigfigs(value: f64, sigfigs: usize) -> String {
+    // Formats a float with the specified significant figures.
+    if value == 0.0 {
+        return format!("{:.*}", sigfigs - 1, 0.0);
+    }
+    let decimals = sigfigs as i32 - value.abs().log10().floor() as i32 - 1;
+    let factor = 10f64.powi(decimals);
+    let rounded_value = (value * factor).round() / factor;
+    if decimals > 0 {
+        format!("{:.*}", decimals as usize, rounded_value)
+    } else {
+        format!("{}", rounded_value)
+    }
+}
+
+
 pub fn median_usize(values: &[usize]) -> usize {
     if values.is_empty() { return 0; }
     let mut sorted_values = values.to_vec();
@@ -503,6 +519,72 @@ mod tests {
         assert_eq!(format_float(0.1111111), "0.111111");
         assert_eq!(format_float(0.11111111), "0.111111");
         assert_eq!(format_float(10.0), "10");
+    }
+
+    #[test]
+    fn test_format_float_sigfigs() {
+        assert_eq!(format_float_sigfigs(0.0, 1), "0");
+        assert_eq!(format_float_sigfigs(0.0, 2), "0.0");
+        assert_eq!(format_float_sigfigs(0.0, 5), "0.0000");
+
+        assert_eq!(format_float_sigfigs(0.1, 1), "0.1");
+        assert_eq!(format_float_sigfigs(0.1, 3), "0.100");
+
+        assert_eq!(format_float_sigfigs(0.12345678, 1), "0.1");
+        assert_eq!(format_float_sigfigs(0.12345678, 2), "0.12");
+        assert_eq!(format_float_sigfigs(0.12345678, 3), "0.123");
+        assert_eq!(format_float_sigfigs(0.12345678, 4), "0.1235");
+        assert_eq!(format_float_sigfigs(0.12345678, 5), "0.12346");
+        assert_eq!(format_float_sigfigs(0.12345678, 6), "0.123457");
+        assert_eq!(format_float_sigfigs(0.12345678, 7), "0.1234568");
+        assert_eq!(format_float_sigfigs(0.12345678, 8), "0.12345678");
+        assert_eq!(format_float_sigfigs(0.12345678, 9), "0.123456780");
+
+        assert_eq!(format_float_sigfigs(87.654321, 1), "90");
+        assert_eq!(format_float_sigfigs(87.654321, 2), "88");
+        assert_eq!(format_float_sigfigs(87.654321, 3), "87.7");
+        assert_eq!(format_float_sigfigs(87.654321, 4), "87.65");
+        assert_eq!(format_float_sigfigs(87.654321, 5), "87.654");
+        assert_eq!(format_float_sigfigs(87.654321, 6), "87.6543");
+        assert_eq!(format_float_sigfigs(87.654321, 7), "87.65432");
+        assert_eq!(format_float_sigfigs(87.654321, 8), "87.654321");
+        assert_eq!(format_float_sigfigs(87.654321, 9), "87.6543210");
+
+        assert_eq!(format_float_sigfigs(-0.12345678, 1), "-0.1");
+        assert_eq!(format_float_sigfigs(-0.12345678, 2), "-0.12");
+        assert_eq!(format_float_sigfigs(-0.12345678, 3), "-0.123");
+        assert_eq!(format_float_sigfigs(-0.12345678, 4), "-0.1235");
+        assert_eq!(format_float_sigfigs(-0.12345678, 5), "-0.12346");
+        assert_eq!(format_float_sigfigs(-0.12345678, 6), "-0.123457");
+        assert_eq!(format_float_sigfigs(-0.12345678, 7), "-0.1234568");
+        assert_eq!(format_float_sigfigs(-0.12345678, 8), "-0.12345678");
+        assert_eq!(format_float_sigfigs(-0.12345678, 9), "-0.123456780");
+
+        assert_eq!(format_float_sigfigs(-87.654321, 1), "-90");
+        assert_eq!(format_float_sigfigs(-87.654321, 2), "-88");
+        assert_eq!(format_float_sigfigs(-87.654321, 3), "-87.7");
+        assert_eq!(format_float_sigfigs(-87.654321, 4), "-87.65");
+        assert_eq!(format_float_sigfigs(-87.654321, 5), "-87.654");
+        assert_eq!(format_float_sigfigs(-87.654321, 6), "-87.6543");
+        assert_eq!(format_float_sigfigs(-87.654321, 7), "-87.65432");
+        assert_eq!(format_float_sigfigs(-87.654321, 8), "-87.654321");
+        assert_eq!(format_float_sigfigs(-87.654321, 9), "-87.6543210");
+
+        assert_eq!(format_float_sigfigs(0.0005182, 1), "0.0005");
+        assert_eq!(format_float_sigfigs(0.0005182, 2), "0.00052");
+        assert_eq!(format_float_sigfigs(0.0005182, 3), "0.000518");
+        assert_eq!(format_float_sigfigs(0.0005182, 4), "0.0005182");
+        assert_eq!(format_float_sigfigs(0.0005182, 5), "0.00051820");
+        assert_eq!(format_float_sigfigs(0.0005182, 6), "0.000518200");
+
+        assert_eq!(format_float_sigfigs(907.001, 1), "900");
+        assert_eq!(format_float_sigfigs(907.001, 2), "910");
+        assert_eq!(format_float_sigfigs(907.001, 3), "907");
+        assert_eq!(format_float_sigfigs(907.001, 4), "907.0");
+        assert_eq!(format_float_sigfigs(907.001, 5), "907.00");
+        assert_eq!(format_float_sigfigs(907.001, 6), "907.001");
+        assert_eq!(format_float_sigfigs(907.001, 7), "907.0010");
+        assert_eq!(format_float_sigfigs(907.001, 8), "907.00100");
     }
 
     #[test]

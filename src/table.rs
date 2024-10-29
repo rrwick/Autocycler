@@ -18,15 +18,26 @@ use std::path::PathBuf;
 
 use crate::metrics::{InputAssemblyMetrics, ClusteringMetrics, CombineMetrics,
                      UntrimmedClusterMetrics, TrimmedClusterMetrics};
-use crate::misc::quit_with_error;
+use crate::misc::{check_if_dir_exists, quit_with_error, format_float_sigfigs};
 
 
-pub fn table(autocycler_dir: Option<PathBuf>, name: String, fields: String) {
+pub fn table(autocycler_dir: Option<PathBuf>, name: String, fields: String, sigfigs: usize) {
+    check_settings(&autocycler_dir, sigfigs);
     let fields = parse_fields(fields);
     if autocycler_dir.is_none() {
         print_header(fields);
     } else {
-        print_values(autocycler_dir.unwrap(), name, fields);
+        print_values(autocycler_dir.unwrap(), name, fields, sigfigs);
+    }
+}
+
+
+fn check_settings(autocycler_dir: &Option<PathBuf>, sigfigs: usize) {
+    if let Some(dir) = autocycler_dir.as_ref() {
+        check_if_dir_exists(dir);
+    }
+    if sigfigs == 0 {
+        quit_with_error("--sigfigs must be 1 or greater");
     }
 }
 
@@ -54,7 +65,7 @@ fn print_header(fields: Vec<String>) {
 }
 
 
-fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>) {
+fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigfigs: usize) {
     if name.contains('\t') {
         quit_with_error("--name cannot contain tab characters")
     }
@@ -74,12 +85,10 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>) {
     if untrimmed_yamls.len() > 0 { map.extend(load_multi_yaml_to_map(&untrimmed_yamls)); }
     if trimmed_yamls.len() > 0   { map.extend(load_multi_yaml_to_map(&trimmed_yamls)); }
 
-    eprintln!("{:?}", map); // TEMP
-
     for field in fields {
         print!("\t");
         if let Some(value) = map.get(&field) {
-            print!("{}", format_value(value));
+            print!("{}", format_value(value, sigfigs));
         }
     }
     println!();
@@ -153,20 +162,26 @@ fn get_multi_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Vec<PathBuf
 }
 
 
-fn format_value(value: &Value) -> String {
+fn format_value(value: &Value, sigfigs: usize) -> String {
     // This function formats serde_yaml::Value types. Sequences are formatted with square brackets
     // and commas (no spaces). Mappings are formatted with curly brackets, colons and commas (no
     // spaces).
     match value {
-        Value::Number(n) => n.to_string(),
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64()      { n.to_string() }
+            else if let Some(f) = n.as_f64() { format_float_sigfigs(f, sigfigs) }
+            else                             { n.to_string() }
+        }
         Value::String(s) => s.clone(),
         Value::Bool(b) => b.to_string(),
         Value::Sequence(s) =>
-            format!("[{}]", s.iter().map(format_value).collect::<Vec<_>>().join(",")),
-        Value::Mapping(m) =>
+            format!("[{}]", s.iter().map(|v|
+                                         format_value(v, sigfigs)).collect::<Vec<_>>().join(",")),
+            Value::Mapping(m) =>
             format!("{{{}}}",
-                    m.iter().map(|(k, v)| format!("{}:{}", format_value(k),
-                                                  format_value(v))).collect::<Vec<_>>().join(",")),
+                    m.iter().map(|(k, v)|
+                                 format!("{}:{}", format_value(k, sigfigs),
+                                         format_value(v, sigfigs))).collect::<Vec<_>>().join(",")),
         _ => String::new(),
     }
 }
@@ -214,11 +229,13 @@ mod tests {
 
     #[test]
     fn test_format_value_simple() {
-        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(12))), "12");
-        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(1.2))), "1.2");
-        assert_eq!(format_value(&Value::String("abc".to_string())), "abc");
-        assert_eq!(format_value(&Value::Bool(true)), "true");
-        assert_eq!(format_value(&Value::Bool(false)), "false");
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(12)), 2), "12");
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(1.2)), 1), "1");
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(1.2)), 2), "1.2");
+        assert_eq!(format_value(&Value::Number(serde_yaml::Number::from(1.2)), 4), "1.200");
+        assert_eq!(format_value(&Value::String("abc".to_string()), 2), "abc");
+        assert_eq!(format_value(&Value::Bool(true), 2), "true");
+        assert_eq!(format_value(&Value::Bool(false), 2), "false");
     }
 
     #[test]
@@ -228,7 +245,7 @@ mod tests {
         let v3 = Value::String("abc".to_string());
         let v4 = Value::Bool(true);
         let seq = Value::Sequence(vec![v1, v2, v3, v4]);
-        assert_eq!(format_value(&seq), "[12,1.2,abc,true]");
+        assert_eq!(format_value(&seq, 2), "[12,1.2,abc,true]");
     }
 
     #[test]
@@ -240,6 +257,6 @@ mod tests {
         let mut map = serde_yaml::Mapping::new();
         map.insert(v1, v2);
         map.insert(v3, v4);
-        assert_eq!(format_value(&Value::Mapping(map)), "{12:1.2,abc:true}");
+        assert_eq!(format_value(&Value::Mapping(map), 2), "{12:1.2,abc:true}");
     }
 }
