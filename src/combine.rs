@@ -41,7 +41,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
     //       order (from the clustering step), but not necessarily (e.g. due to small plasmid
     //       duplication).
 
-    let mut metrics = CombineMetrics::new();
+    let mut metrics = CombineMetrics::default();
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
     metrics.save_to_yaml(&combined_yaml);
     finished_message(&combined_gfa, &combined_fasta);

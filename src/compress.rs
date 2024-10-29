@@ -156,7 +156,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 
 fn save_metrics(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph,
                 out_yaml: &PathBuf) {
-    let mut metrics = InputAssemblyMetrics::new();
+    let mut metrics = InputAssemblyMetrics::default();
     metrics.input_assemblies_count = assembly_count as u32;
     metrics.input_assemblies_total_contigs = sequences.len() as u32;
     metrics.input_assemblies_total_length = sequences.iter().map(|s| s.length as u64).sum();

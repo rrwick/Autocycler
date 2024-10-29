@@ -835,7 +835,7 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
 
 fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>)
         -> ClusteringMetrics {
-    let mut metrics = ClusteringMetrics::new();
+    let mut metrics = ClusteringMetrics::default();
     let mut pass_cluster_distances = Vec::new();
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();

@@ -35,7 +35,7 @@ pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
 
     // TODO: add automatic genome size estimation
 
-    let mut metrics = SubsampleMetrics::new();
+    let mut metrics = SubsampleMetrics::default();
     let (input_count, input_bases) = input_fastq_stats(&fastq_file, &mut metrics);
     let reads_per_subset = calculate_subsets(input_count, input_bases, genome_size, min_read_depth);
     save_subsets(&fastq_file, subset_count, input_count, reads_per_subset, &out_dir, seed,

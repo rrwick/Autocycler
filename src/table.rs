@@ -141,8 +141,7 @@ fn get_one_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Option<PathBu
     // Returns the YAML file in the given path with a matching filename. No match is okay and one
     // match is okay, but multiple matches will result in an error.
     let found_files = yaml_files.iter()
-        .filter(|path| path.file_name().map_or(false, |name| name == filename))
-        .collect::<Vec<_>>();
+        .filter(|path| path.file_name().map_or(false, |name| name == filename)).collect::<Vec<_>>();
     match found_files.len() {
         0 => None,
         1 => Some(found_files[0].clone()),
@@ -154,11 +153,10 @@ fn get_one_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Option<PathBu
 fn get_multi_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Vec<PathBuf> {
     // Returns all YAML files in the given path with a matching filename, excluding those that are
     // in a qc_fail directory.
-    yaml_files.iter()
-        .filter(|path| {
-            path.file_name().map_or(false, |name| name == filename) &&
-            !path.to_string_lossy().contains("/qc_fail/")
-        }).cloned().collect()
+    yaml_files.iter().filter(|path| {
+                         path.file_name().map_or(false, |name| name == filename) &&
+                         !path.to_string_lossy().contains("/qc_fail/")
+                     }).cloned().collect()
 }
 
 
@@ -167,23 +165,33 @@ fn format_value(value: &Value, sigfigs: usize) -> String {
     // and commas (no spaces). Mappings are formatted with curly brackets, colons and commas (no
     // spaces).
     match value {
-        Value::Number(n) => {
-            if n.is_i64() || n.is_u64()      { n.to_string() }
-            else if let Some(f) = n.as_f64() { format_float_sigfigs(f, sigfigs) }
-            else                             { n.to_string() }
-        }
+        Value::Number(n) => format_number(n, sigfigs),
         Value::String(s) => s.clone(),
         Value::Bool(b) => b.to_string(),
-        Value::Sequence(s) =>
-            format!("[{}]", s.iter().map(|v|
-                                         format_value(v, sigfigs)).collect::<Vec<_>>().join(",")),
-            Value::Mapping(m) =>
-            format!("{{{}}}",
-                    m.iter().map(|(k, v)|
-                                 format!("{}:{}", format_value(k, sigfigs),
-                                         format_value(v, sigfigs))).collect::<Vec<_>>().join(",")),
+        Value::Sequence(s) => format_sequence(s, sigfigs),
+        Value::Mapping(m) => format_mapping(m, sigfigs),
         _ => String::new(),
     }
+}
+
+
+fn format_number(n: &serde_yaml::Number, sigfigs: usize) -> String {
+    if n.is_i64() || n.is_u64()      { n.to_string() }
+    else if let Some(f) = n.as_f64() { format_float_sigfigs(f, sigfigs) }
+    else                             { n.to_string() }
+}
+
+
+fn format_sequence(s: &[Value], sigfigs: usize) -> String {
+    format!("[{}]", s.iter().map(|v| format_value(v, sigfigs)).collect::<Vec<_>>().join(","))
+}
+
+
+fn format_mapping(m: &serde_yaml::Mapping, sigfigs: usize) -> String {
+    format!("{{{}}}",
+            m.iter().map(|(k, v)| format!("{}:{}",
+                                          format_value(k, sigfigs),
+                                          format_value(v, sigfigs))).collect::<Vec<_>>().join(","))
 }
 
 

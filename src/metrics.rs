@@ -30,12 +30,6 @@ pub struct InputAssemblyMetrics {
     pub input_assemblies_compressed_unitig_total_length: u64,
 }
 
-impl InputAssemblyMetrics {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
-}
-
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ClusteringMetrics {
@@ -51,8 +45,6 @@ pub struct ClusteringMetrics {
 }
 
 impl ClusteringMetrics {
-    pub fn new() -> Self { Self::default() }
-
     pub fn calculate_fractions(&mut self) {
         let total_contigs = self.pass_contig_count + self.fail_contig_count;
         if total_contigs > 0 {
@@ -112,8 +104,6 @@ impl ClusteringMetrics {
             self.cluster_tightness_score = sum_scores / pass_cluster_distances.len() as f64;
         }
     }
-
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -134,8 +124,6 @@ impl UntrimmedClusterMetrics {
             untrimmed_cluster_distance,
         }
     }
-
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -154,8 +142,6 @@ impl TrimmedClusterMetrics {
             trimmed_sequence_lengths,
         }
     }
-
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -173,11 +159,6 @@ pub struct CombineMetrics {
     pub consensus_assembly_total_unitigs: u32,
     pub consensus_assembly_fully_resolved: bool,
     pub consensus_assembly_clusters: Vec<ResolvedClusterMetrics>,
-}
-
-impl CombineMetrics {
-    pub fn new() -> Self { Self::default() }
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
 }
 
 
@@ -216,11 +197,6 @@ pub struct SubsampleMetrics {
     pub output_reads: Vec<ReadSetMetrics>,
 }
 
-impl SubsampleMetrics {
-    pub fn new() -> Self { Self::default() }
-    pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
-}
-
 
 fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
     let yaml_string = serde_yaml::to_string(&data).unwrap();
@@ -230,13 +206,16 @@ fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
 }
 
 
-// This macro adds get_val_by_name and get_field_names methods to some of the metric structs.
+// This macro adds some common methods to the metrics that can be used with Autocycler table.
 macro_rules! impl_metrics_helpers {
     ($struct_name:ty) => {
         impl $struct_name {
+            pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
+
             pub fn get_val_by_name(&self, name: &str) -> Option<String> {
                 serde_json::to_value(self).ok()?.get(name).map(|v| v.to_string())
             }
+
             pub fn get_field_names() -> Vec<String> {
                 let mut field_names: Vec<String> = match serde_json::to_value(Self::default())
                     .expect("serialisation failed").as_object()
@@ -255,6 +234,7 @@ impl_metrics_helpers!(ClusteringMetrics);
 impl_metrics_helpers!(CombineMetrics);
 impl_metrics_helpers!(UntrimmedClusterMetrics);
 impl_metrics_helpers!(TrimmedClusterMetrics);
+impl_metrics_helpers!(SubsampleMetrics);
 
 
 #[cfg(test)]
@@ -290,12 +270,12 @@ mod tests {
                                    2 => vec!["d".to_string(), "e".to_string()],
                                    3 => vec!["f".to_string()]};
 
-        let mut metrics_1 = ClusteringMetrics::new();
-        let mut metrics_2 = ClusteringMetrics::new();
-        let mut metrics_3 = ClusteringMetrics::new();
-        let mut metrics_4 = ClusteringMetrics::new();
-        let mut metrics_5 = ClusteringMetrics::new();
-        let mut metrics_6 = ClusteringMetrics::new();
+        let mut metrics_1 = ClusteringMetrics::default();
+        let mut metrics_2 = ClusteringMetrics::default();
+        let mut metrics_3 = ClusteringMetrics::default();
+        let mut metrics_4 = ClusteringMetrics::default();
+        let mut metrics_5 = ClusteringMetrics::default();
+        let mut metrics_6 = ClusteringMetrics::default();
 
         metrics_1.calculate_balance(filenames_1);
         metrics_2.calculate_balance(filenames_2);
@@ -314,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_get_val_by_name() {
-        let mut metrics = InputAssemblyMetrics::new();
+        let mut metrics = InputAssemblyMetrics::default();
         metrics.input_assemblies_count = 12;
         assert_eq!(metrics.get_val_by_name("input_assemblies_count"), Some("12".to_string()));
         assert_eq!(metrics.get_val_by_name("abc"), None);
