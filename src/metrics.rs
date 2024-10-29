@@ -253,6 +253,8 @@ macro_rules! impl_metrics_helpers {
 impl_metrics_helpers!(InputAssemblyMetrics);
 impl_metrics_helpers!(ClusteringMetrics);
 impl_metrics_helpers!(CombineMetrics);
+impl_metrics_helpers!(UntrimmedClusterMetrics);
+impl_metrics_helpers!(TrimmedClusterMetrics);
 
 
 #[cfg(test)]
