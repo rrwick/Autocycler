@@ -24,7 +24,7 @@ use crate::graph_simplification::simplify_structure;
 use crate::kmer_graph::KmerGraph;
 use crate::misc::{check_if_dir_exists, check_if_dir_is_not_dir, create_dir, find_all_assemblies,
                   load_fasta, format_duration, spinner, quit_with_error, reverse_complement};
-use crate::metrics::InputAssemblyMetrics;
+use crate::metrics::{InputAssemblyMetrics, InputAssemblyDetails, InputContigDetails};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -36,14 +36,15 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
     starting_message();
     print_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     create_dir(&autocycler_dir);
-    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size);
+    let mut metrics = InputAssemblyMetrics::default();
+    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size, &mut metrics);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
     let out_gfa = autocycler_dir.join("input_assemblies.gfa");
     let out_yaml = autocycler_dir.join("input_assemblies.yaml");
     unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
-    save_metrics(assembly_count, &sequences, &unitig_graph, &out_yaml);
+    save_metrics(&mut metrics, assembly_count, &sequences, &unitig_graph, &out_yaml);
     finished_message(start_time, out_gfa, out_yaml);
 }
 
@@ -78,7 +79,8 @@ fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u3
 }
 
 
-pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, usize) {
+pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, metrics: &mut InputAssemblyMetrics)
+        -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
@@ -86,6 +88,8 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
     let mut seq_id = 0usize;
     let mut sequences = Vec::new();
     for assembly in &assemblies {
+        let mut assembly_details = InputAssemblyDetails::default();
+        assembly_details.filename = assembly.to_string_lossy().to_string();
         for (name, header, seq) in load_fasta(&assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize { continue; }
@@ -98,8 +102,14 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32) -> (Vec<Sequence>, 
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
             let seq = Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header,
                                              seq_len, half_k);
+            let mut contig_details = InputContigDetails::default();
+            contig_details.name = seq.contig_name();
+            contig_details.description = seq.contig_description();
+            contig_details.length = seq.length as u64;
+            assembly_details.contigs.push(contig_details);
             sequences.push(seq);
         }
+        metrics.input_assembly_details.push(assembly_details);
     }
     eprintln!();
     let pb = spinner("repairing sequence ends...");
@@ -154,14 +164,13 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 }
 
 
-fn save_metrics(assembly_count: usize, sequences: &Vec<Sequence>, graph: &UnitigGraph,
-                out_yaml: &PathBuf) {
-    let mut metrics = InputAssemblyMetrics::default();
+fn save_metrics(metrics: &mut InputAssemblyMetrics, assembly_count: usize,
+                sequences: &Vec<Sequence>, graph: &UnitigGraph, out_yaml: &PathBuf) {
     metrics.input_assemblies_count = assembly_count as u32;
     metrics.input_assemblies_total_contigs = sequences.len() as u32;
     metrics.input_assemblies_total_length = sequences.iter().map(|s| s.length as u64).sum();
-    metrics.input_assemblies_compressed_unitig_count = graph.unitigs.len() as u32;
-    metrics.input_assemblies_compressed_unitig_total_length = graph.total_length();
+    metrics.compressed_unitig_count = graph.unitigs.len() as u32;
+    metrics.compressed_unitig_total_length = graph.total_length();
     metrics.save_to_yaml(out_yaml);
 }
 
@@ -326,9 +335,10 @@ mod tests {
         make_test_file(&assembly_dir.path().join("a.fasta"), ">a1\nACGT\n");
         make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c2\nACGT\n>c3\nACGT\n");
-        let (sequences, assembly_count) = load_sequences(&assembly_dir.into_path(), 3);
+        let mut metrics = InputAssemblyMetrics::default();
+        let (sequences, count) = load_sequences(&assembly_dir.into_path(), 3, &mut metrics);
         assert_eq!(sequences.len(), 6);
-        assert_eq!(assembly_count, 3);
+        assert_eq!(count, 3);
     }
 
     #[test]
@@ -339,7 +349,8 @@ mod tests {
         make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c1\nACGT\n>c3\nACGT\n");
         assert!(panic::catch_unwind(|| {
-            load_sequences(&assembly_dir.into_path(), 3);
+            let mut metrics = InputAssemblyMetrics::default();
+            load_sequences(&assembly_dir.into_path(), 3, &mut metrics);
         }).is_err());
     }
 }

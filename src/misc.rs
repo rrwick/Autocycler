@@ -431,6 +431,13 @@ pub fn up_to_first_space(string: &String) -> String {
 }
 
 
+pub fn after_first_space(string: &String) -> String {
+    let mut parts = string.splitn(2, char::is_whitespace);
+    parts.next();
+    parts.next().unwrap_or("").to_string()
+}
+
+
 pub fn first_char_in_file(filename: &PathBuf) -> io::Result<char> {
     if is_file_gzipped(filename) {
         first_char_in_file_gzipped(filename)
@@ -638,8 +645,16 @@ mod tests {
 
     #[test]
     fn test_up_to_first_space() {
+        assert_eq!(up_to_first_space(&"xyz".to_string()), "xyz".to_string());
         assert_eq!(up_to_first_space(&"1 2 3 4".to_string()), "1".to_string());
         assert_eq!(up_to_first_space(&"abc def".to_string()), "abc".to_string());
+    }
+
+    #[test]
+    fn test_after_first_space() {
+        assert_eq!(after_first_space(&"xyz".to_string()), "".to_string());
+        assert_eq!(after_first_space(&"1 2 3 4".to_string()), "2 3 4".to_string());
+        assert_eq!(after_first_space(&"abc def".to_string()), "def".to_string());
     }
 
     #[test]

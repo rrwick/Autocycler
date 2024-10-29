@@ -14,7 +14,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -22,12 +21,64 @@ use crate::misc::mad_usize;
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
+pub struct SubsampleMetrics {
+    pub input_reads: ReadSetDetails,
+    pub output_reads: Vec<ReadSetDetails>,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct ReadSetDetails {
+    pub count: usize,
+    pub bases: u64,
+    pub n50: u64,
+}
+
+impl ReadSetDetails {
+    pub fn new(sorted_read_lengths: &Vec<u64>) -> Self {
+        let bases: u64 = sorted_read_lengths.iter().sum();
+        let n50_target_bases = bases / 2;
+        let mut running_total = 0;
+        let mut n50 = 0;
+        for read_length in sorted_read_lengths {
+            running_total += read_length;
+            if running_total >= n50_target_bases {
+                n50 = *read_length;
+                break;
+            }
+        }
+        ReadSetDetails {
+            count: sorted_read_lengths.len(),
+            bases,
+            n50,
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct InputAssemblyMetrics {
     pub input_assemblies_count: u32,
     pub input_assemblies_total_contigs: u32,
     pub input_assemblies_total_length: u64,
-    pub input_assemblies_compressed_unitig_count: u32,
-    pub input_assemblies_compressed_unitig_total_length: u64,
+    pub compressed_unitig_count: u32,
+    pub compressed_unitig_total_length: u64,
+    pub input_assembly_details: Vec<InputAssemblyDetails>,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct InputAssemblyDetails {
+    pub filename: String,
+    pub contigs: Vec<InputContigDetails>
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct InputContigDetails {
+    pub name: String,
+    pub description: String,
+    pub length: u64,
 }
 
 
@@ -146,71 +197,32 @@ impl TrimmedClusterMetrics {
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct ResolvedClusterMetrics {
+pub struct CombineMetrics {
+    pub consensus_assembly_total_length: u64,
+    pub consensus_assembly_total_unitigs: u32,
+    pub consensus_assembly_fully_resolved: bool,
+    pub consensus_assembly_clusters: Vec<ResolvedClusterDetails>,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct ResolvedClusterDetails {
     pub length: u64,
     pub unitigs: u32,
     pub topology: String,
 }
 
 
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct CombineMetrics {
-    pub consensus_assembly_total_length: u64,
-    pub consensus_assembly_total_unitigs: u32,
-    pub consensus_assembly_fully_resolved: bool,
-    pub consensus_assembly_clusters: Vec<ResolvedClusterMetrics>,
-}
-
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct ReadSetMetrics {
-    pub count: usize,
-    pub bases: u64,
-    pub n50: u64,
-}
-
-impl ReadSetMetrics {
-    pub fn new(sorted_read_lengths: &Vec<u64>) -> Self {
-        let bases: u64 = sorted_read_lengths.iter().sum();
-        let n50_target_bases = bases / 2;
-        let mut running_total = 0;
-        let mut n50 = 0;
-        for read_length in sorted_read_lengths {
-            running_total += read_length;
-            if running_total >= n50_target_bases {
-                n50 = *read_length;
-                break;
-            }
-        }
-        ReadSetMetrics {
-            count: sorted_read_lengths.len(),
-            bases,
-            n50,
-        }
-    }
-}
-
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct SubsampleMetrics {
-    pub input_reads: ReadSetMetrics,
-    pub output_reads: Vec<ReadSetMetrics>,
-}
-
-
-fn save_yaml<T: Serialize>(yaml_filename: &PathBuf, data: T) -> io::Result<()> {
-    let yaml_string = serde_yaml::to_string(&data).unwrap();
-    let mut file = File::create(yaml_filename)?;
-    file.write_all(yaml_string.as_bytes())?;
-    Ok(())
-}
-
-
-// This macro adds some common methods to the metrics that can be used with Autocycler table.
+// This macro adds some common methods to the metric structs allowing them to be used with
+// Autocycler table.
 macro_rules! impl_metrics_helpers {
     ($struct_name:ty) => {
         impl $struct_name {
-            pub fn save_to_yaml(&self, filename: &PathBuf) { save_yaml(filename, self).unwrap(); }
+            pub fn save_to_yaml(&self, filename: &PathBuf) {
+                let yaml_string = serde_yaml::to_string(&self).unwrap();
+                let mut file = File::create(filename).unwrap();
+                file.write_all(yaml_string.as_bytes()).unwrap();
+            }
 
             pub fn get_val_by_name(&self, name: &str) -> Option<String> {
                 serde_json::to_value(self).ok()?.get(name).map(|v| v.to_string())
@@ -229,12 +241,12 @@ macro_rules! impl_metrics_helpers {
         }
     };
 }
+impl_metrics_helpers!(SubsampleMetrics);
 impl_metrics_helpers!(InputAssemblyMetrics);
 impl_metrics_helpers!(ClusteringMetrics);
-impl_metrics_helpers!(CombineMetrics);
 impl_metrics_helpers!(UntrimmedClusterMetrics);
 impl_metrics_helpers!(TrimmedClusterMetrics);
-impl_metrics_helpers!(SubsampleMetrics);
+impl_metrics_helpers!(CombineMetrics);
 
 
 #[cfg(test)]
@@ -303,11 +315,12 @@ mod tests {
     #[test]
     fn test_get_field_names() {
         assert_eq!(InputAssemblyMetrics::get_field_names(),
-                   vec!["input_assemblies_compressed_unitig_count",
-                        "input_assemblies_compressed_unitig_total_length",
+                   vec!["compressed_unitig_count",
+                        "compressed_unitig_total_length",
                         "input_assemblies_count",
                         "input_assemblies_total_contigs",
-                        "input_assemblies_total_length"]);
+                        "input_assemblies_total_length",
+                        "input_assembly_details"]);
 
         assert_eq!(ClusteringMetrics::get_field_names(),
                    vec!["cluster_balance_score",

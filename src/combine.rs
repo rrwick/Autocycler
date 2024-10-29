@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::metrics::{CombineMetrics, ResolvedClusterMetrics};
+use crate::metrics::{CombineMetrics, ResolvedClusterDetails};
 use crate::misc::{check_if_file_exists, create_dir};
 use crate::unitig_graph::UnitigGraph;
 
@@ -111,7 +111,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
         let unitig_count = graph.unitigs.len() as u32;
         metrics.consensus_assembly_total_length += component_length;
         metrics.consensus_assembly_total_unitigs += unitig_count;
-        let cluster_metrics = ResolvedClusterMetrics { length: component_length,
+        let cluster_metrics = ResolvedClusterDetails { length: component_length,
                                                        unitigs: unitig_count,
                                                        topology: graph.topology() };
         metrics.consensus_assembly_clusters.push(cluster_metrics);

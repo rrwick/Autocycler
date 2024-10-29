@@ -19,7 +19,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use crate::log::{section_header, explanation};
-use crate::metrics::{ReadSetMetrics, SubsampleMetrics};
+use crate::metrics::{ReadSetDetails, SubsampleMetrics};
 use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, fastq_reader,
                   format_float, quit_with_error, spinner};
 
@@ -98,7 +98,7 @@ fn input_fastq_stats(fastq_file: &PathBuf, metrics: &mut SubsampleMetrics) -> (u
     let mut read_lengths: Vec<u64> = fastq_reader(fastq_file).records()
         .map(|record| record.expect("Error reading FASTQ file").seq().len() as u64).collect();
     read_lengths.sort_unstable();
-    metrics.input_reads = ReadSetMetrics::new(&read_lengths);
+    metrics.input_reads = ReadSetDetails::new(&read_lengths);
     eprintln!("Input FASTQ:");
     eprintln!("  Read count: {}", metrics.input_reads.count);
     eprintln!("  Read bases: {}", metrics.input_reads.bases);
@@ -155,7 +155,7 @@ fn save_subsets(input_fastq: &PathBuf, subset_count: usize, input_count: usize,
     let sample_read_lengths = write_subsampled_reads(input_fastq, subset_count, &subset_indices,
                                                      &mut subset_files);
     for i in 0..subset_count {
-        metrics.output_reads.push(ReadSetMetrics::new(&sample_read_lengths[i]));
+        metrics.output_reads.push(ReadSetDetails::new(&sample_read_lengths[i]));
     }
 }
 
