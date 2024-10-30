@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::misc::mad_usize;
+use crate::misc::{median_usize, mad_usize};
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -161,17 +161,19 @@ impl ClusteringMetrics {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct UntrimmedClusterMetrics {
     pub untrimmed_cluster_size: u32,
-    pub untrimmed_sequence_lengths: Vec<usize>,
-    pub untrimmed_sequence_length_mad: u32,
+    pub untrimmed_cluster_lengths: Vec<usize>,
+    pub untrimmed_cluster_median: u32,
+    pub untrimmed_cluster_mad: u32,
     pub untrimmed_cluster_distance: f64,
 }
 
 impl UntrimmedClusterMetrics {
-    pub fn new(untrimmed_sequence_lengths: Vec<usize>, untrimmed_cluster_distance: f64) -> Self {
+    pub fn new(sequence_lengths: Vec<usize>, untrimmed_cluster_distance: f64) -> Self {
         UntrimmedClusterMetrics {
-            untrimmed_cluster_size: untrimmed_sequence_lengths.len() as u32,
-            untrimmed_sequence_length_mad: mad_usize(&untrimmed_sequence_lengths) as u32,
-            untrimmed_sequence_lengths,
+            untrimmed_cluster_size: sequence_lengths.len() as u32,
+            untrimmed_cluster_median: median_usize(&sequence_lengths) as u32,
+            untrimmed_cluster_mad: mad_usize(&sequence_lengths) as u32,
+            untrimmed_cluster_lengths: sequence_lengths,
             untrimmed_cluster_distance,
         }
     }
@@ -181,16 +183,18 @@ impl UntrimmedClusterMetrics {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct TrimmedClusterMetrics {
     pub trimmed_cluster_size: u32,
-    pub trimmed_sequence_lengths: Vec<usize>,
-    pub trimmed_sequence_length_mad: u32,
+    pub trimmed_cluster_lengths: Vec<usize>,
+    pub trimmed_cluster_median: u32,
+    pub trimmed_cluster_mad: u32,
 }
 
 impl TrimmedClusterMetrics {
-    pub fn new(trimmed_sequence_lengths: Vec<usize>) -> Self {
+    pub fn new(sequence_lengths: Vec<usize>) -> Self {
         TrimmedClusterMetrics {
-            trimmed_cluster_size: trimmed_sequence_lengths.len() as u32,
-            trimmed_sequence_length_mad: mad_usize(&trimmed_sequence_lengths) as u32,
-            trimmed_sequence_lengths,
+            trimmed_cluster_size: sequence_lengths.len() as u32,
+            trimmed_cluster_median: median_usize(&sequence_lengths) as u32,
+            trimmed_cluster_mad: mad_usize(&sequence_lengths) as u32,
+            trimmed_cluster_lengths: sequence_lengths,
         }
     }
 }
@@ -314,6 +318,10 @@ mod tests {
 
     #[test]
     fn test_get_field_names() {
+        assert_eq!(SubsampleMetrics::get_field_names(),
+                   vec!["input_reads",
+                        "output_reads"]);
+
         assert_eq!(InputAssemblyMetrics::get_field_names(),
                    vec!["compressed_unitig_count",
                         "compressed_unitig_total_length",
@@ -332,6 +340,19 @@ mod tests {
                         "pass_cluster_count",
                         "pass_contig_count",
                         "pass_contig_fraction"]);
+
+        assert_eq!(UntrimmedClusterMetrics::get_field_names(),
+                   vec!["untrimmed_cluster_distance",
+                        "untrimmed_cluster_lengths",
+                        "untrimmed_cluster_mad",
+                        "untrimmed_cluster_median",
+                        "untrimmed_cluster_size"]);
+
+        assert_eq!(TrimmedClusterMetrics::get_field_names(),
+                   vec!["trimmed_cluster_lengths",
+                        "trimmed_cluster_mad",
+                        "trimmed_cluster_median",
+                        "trimmed_cluster_size"]);
 
         assert_eq!(CombineMetrics::get_field_names(),
                    vec!["consensus_assembly_clusters",

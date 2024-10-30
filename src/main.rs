@@ -202,8 +202,8 @@ enum Commands {
                default_value = "input_reads, pass_cluster_count, fail_cluster_count, \
                                 overall_clustering_score, untrimmed_cluster_size, \
                                 untrimmed_cluster_distance, trimmed_cluster_size, \
-                                trimmed_sequence_length_mad, consensus_assembly_total_length, \
-                                consensus_assembly_total_unitigs, \
+                                trimmed_cluster_median, trimmed_cluster_mad, \
+                                consensus_assembly_total_length, consensus_assembly_total_unitigs, \
                                 consensus_assembly_fully_resolved")]
         fields: String,
 
