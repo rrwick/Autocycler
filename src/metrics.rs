@@ -22,7 +22,9 @@ use crate::misc::{median_usize, mad_usize};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct SubsampleMetrics {
-    pub input_reads: ReadSetDetails,
+    pub input_read_count: usize,
+    pub input_read_bases: u64,
+    pub input_read_n50: u64,
     pub output_reads: Vec<ReadSetDetails>,
 }
 
@@ -319,45 +321,29 @@ mod tests {
     #[test]
     fn test_get_field_names() {
         assert_eq!(SubsampleMetrics::get_field_names(),
-                   vec!["input_reads",
-                        "output_reads"]);
+                   vec!["input_read_bases", "input_read_count", "input_read_n50", "output_reads"]);
 
         assert_eq!(InputAssemblyMetrics::get_field_names(),
-                   vec!["compressed_unitig_count",
-                        "compressed_unitig_total_length",
-                        "input_assemblies_count",
-                        "input_assemblies_total_contigs",
-                        "input_assemblies_total_length",
-                        "input_assembly_details"]);
+                   vec!["compressed_unitig_count", "compressed_unitig_total_length",
+                        "input_assemblies_count", "input_assemblies_total_contigs",
+                        "input_assemblies_total_length", "input_assembly_details"]);
 
         assert_eq!(ClusteringMetrics::get_field_names(),
-                   vec!["cluster_balance_score",
-                        "cluster_tightness_score",
-                        "fail_cluster_count",
-                        "fail_contig_count",
-                        "fail_contig_fraction",
-                        "overall_clustering_score",
-                        "pass_cluster_count",
-                        "pass_contig_count",
-                        "pass_contig_fraction"]);
+                   vec!["cluster_balance_score", "cluster_tightness_score", "fail_cluster_count",
+                        "fail_contig_count", "fail_contig_fraction", "overall_clustering_score",
+                        "pass_cluster_count", "pass_contig_count", "pass_contig_fraction"]);
 
         assert_eq!(UntrimmedClusterMetrics::get_field_names(),
-                   vec!["untrimmed_cluster_distance",
-                        "untrimmed_cluster_lengths",
-                        "untrimmed_cluster_mad",
-                        "untrimmed_cluster_median",
+                   vec!["untrimmed_cluster_distance", "untrimmed_cluster_lengths",
+                        "untrimmed_cluster_mad", "untrimmed_cluster_median",
                         "untrimmed_cluster_size"]);
 
         assert_eq!(TrimmedClusterMetrics::get_field_names(),
-                   vec!["trimmed_cluster_lengths",
-                        "trimmed_cluster_mad",
-                        "trimmed_cluster_median",
+                   vec!["trimmed_cluster_lengths", "trimmed_cluster_mad", "trimmed_cluster_median",
                         "trimmed_cluster_size"]);
 
         assert_eq!(CombineMetrics::get_field_names(),
-                   vec!["consensus_assembly_clusters",
-                        "consensus_assembly_fully_resolved",
-                        "consensus_assembly_total_length",
-                        "consensus_assembly_total_unitigs"]);
+                   vec!["consensus_assembly_clusters", "consensus_assembly_fully_resolved",
+                        "consensus_assembly_total_length", "consensus_assembly_total_unitigs"]);
     }
 }

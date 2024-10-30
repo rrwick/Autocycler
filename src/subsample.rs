@@ -98,13 +98,16 @@ fn input_fastq_stats(fastq_file: &PathBuf, metrics: &mut SubsampleMetrics) -> (u
     let mut read_lengths: Vec<u64> = fastq_reader(fastq_file).records()
         .map(|record| record.expect("Error reading FASTQ file").seq().len() as u64).collect();
     read_lengths.sort_unstable();
-    metrics.input_reads = ReadSetDetails::new(&read_lengths);
+    let details = ReadSetDetails::new(&read_lengths);
+    metrics.input_read_count = details.count;
+    metrics.input_read_bases = details.bases;
+    metrics.input_read_n50 = details.n50;
     eprintln!("Input FASTQ:");
-    eprintln!("  Read count: {}", metrics.input_reads.count);
-    eprintln!("  Read bases: {}", metrics.input_reads.bases);
-    eprintln!("  Read N50 length: {} bp", metrics.input_reads.n50);
+    eprintln!("  Read count: {}", details.count);
+    eprintln!("  Read bases: {}", details.bases);
+    eprintln!("  Read N50 length: {} bp", details.n50);
     eprintln!();
-    (metrics.input_reads.count, metrics.input_reads.bases)
+    (details.count, details.bases)
 }
 
 
