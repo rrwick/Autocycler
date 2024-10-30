@@ -109,8 +109,8 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
         offset += graph.max_unitig_number();
         let component_length = graph.total_length();
         let unitig_count = graph.unitigs.len() as u32;
-        metrics.consensus_assembly_total_length += component_length;
-        metrics.consensus_assembly_total_unitigs += unitig_count;
+        metrics.consensus_assembly_bases += component_length;
+        metrics.consensus_assembly_unitigs += unitig_count;
         let cluster_metrics = ResolvedClusterDetails { length: component_length,
                                                        unitigs: unitig_count,
                                                        topology: graph.topology() };

@@ -204,8 +204,8 @@ impl TrimmedClusterMetrics {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CombineMetrics {
-    pub consensus_assembly_total_length: u64,
-    pub consensus_assembly_total_unitigs: u32,
+    pub consensus_assembly_bases: u64,
+    pub consensus_assembly_unitigs: u32,
     pub consensus_assembly_fully_resolved: bool,
     pub consensus_assembly_clusters: Vec<ResolvedClusterDetails>,
 }
@@ -343,7 +343,7 @@ mod tests {
                         "trimmed_cluster_size"]);
 
         assert_eq!(CombineMetrics::get_field_names(),
-                   vec!["consensus_assembly_clusters", "consensus_assembly_fully_resolved",
-                        "consensus_assembly_total_length", "consensus_assembly_total_unitigs"]);
+                   vec!["consensus_assembly_bases", "consensus_assembly_clusters",
+                        "consensus_assembly_fully_resolved", "consensus_assembly_unitigs"]);
     }
 }
