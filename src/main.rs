@@ -129,21 +129,21 @@ enum Commands {
         out_file: Option<PathBuf>,
     },
 
-    /// generate an all-vs-all dot plot from a unitig graph
+    /// generate an all-vs-all dotplot from a unitig graph
     Dotplot {
         /// Input Autocycler GFA file, FASTA file or directory (required)
         #[clap(short = 'i', long = "input", required = true)]
         input: PathBuf,
 
-        /// File path where dot plot PNG will be saved (required)
+        /// File path where dotplot PNG will be saved (required)
         #[clap(short = 'o', long = "out_png", required = true)]
         out_png: PathBuf,
 
-        /// Size (in pixels) of dot plot image
+        /// Size (in pixels) of dotplot image
         #[clap(long = "res", default_value = "2000")]
         res: u32,
 
-        /// K-mer size to use in dot plot
+        /// K-mer size to use in dotplot
         #[clap(long = "kmer", default_value = "32")]
         kmer: u32,
     },

@@ -83,7 +83,7 @@ fn determine_input_type(input: &PathBuf) -> InputType {
 fn starting_message() {
     section_header("Starting autocycler dotplot");
     explanation("This command will take a unitig graph (either before or after trimming) and \
-                 generate a dot plot image containing all pairwise comparisons of the sequences.");
+                 generate a dotplot image containing all pairwise comparisons of the sequences.");
 }
 
 
@@ -167,9 +167,9 @@ fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
 
 fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBuf, res: u32,
                   kmer: u32) {
-    section_header("Creating dot plot");
-    explanation("K-mers common between sequences are now used to build the dot plot image.");
-    let pb = spinner("creating dot plot...");
+    section_header("Creating dotplot");
+    explanation("K-mers common between sequences are now used to build the dotplot image.");
+    let pb = spinner("creating dotplot...");
 
     // We create an initial image to test the label sizes.
     let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) =
@@ -208,7 +208,7 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
 
     img.save(png_filename).unwrap();
     pb.finish_and_clear();
-    eprintln!("{} pairwise dot plot{} drawn to image", count, match count { 1 => "", _ => "s" });
+    eprintln!("{} pairwise dotplot{} drawn to image", count, match count { 1 => "", _ => "s" });
     eprintln!();
 }
 
@@ -241,7 +241,7 @@ fn between_seq_gap(gap: f64, max_total_gap: f64, seq_count: usize) -> f64 {
 fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
                  bottom_right_gap: u32, mut between_seq_gap: u32) ->
         (HashMap<(String, String), u32>, HashMap<(String, String), u32>, f64) {
-    // This function returns the image coordinates that start/end each sequence. Since the dot plot
+    // This function returns the image coordinates that start/end each sequence. Since the dotplot
     // is symmetrical, there is only one start/end per sequence (used for both x and y coordinates).
     let mut seq_lengths: HashMap<(String, String), u32> = HashMap::new();
     for (key, seq) in seqs {
@@ -250,7 +250,7 @@ fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, t
     let mut all_gaps = top_left_gap + bottom_right_gap + between_seq_gap * (seqs.len() as u32 - 1);
     let mut pixels_for_sequence = res.saturating_sub(all_gaps);
 
-    // If there isn't enough room for the dot plots, reduce between_seq_gap.
+    // If there isn't enough room for the dotplots, reduce between_seq_gap.
     if all_gaps > pixels_for_sequence && seqs.len() > 1 {
         between_seq_gap = ((res / 2) - top_left_gap - bottom_right_gap) / (seqs.len() as u32 - 1);
         all_gaps = top_left_gap + bottom_right_gap + between_seq_gap * (seqs.len() as u32 - 1);
