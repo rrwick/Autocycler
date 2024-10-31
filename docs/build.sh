@@ -46,4 +46,4 @@ sed -i 's|src="|src="autocycler_docs/|g' autocycler_docs.html
 tar -zcvf autocycler_docs.tar.gz autocycler_docs.html autocycler_docs/
 
 # Clean up:
-rm -rf Autocycler.wiki src book.toml
+rm -rf Autocycler.wiki src book.toml __pycache__
