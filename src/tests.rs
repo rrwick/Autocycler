@@ -43,7 +43,7 @@ pub fn make_gzipped_test_file(file_path: &PathBuf, contents: &str) {
 
 #[cfg(test)]
 mod tests {
-    use flate2::read::GzDecoder;
+    use flate2::read::MultiGzDecoder;
     use rand::{rngs::StdRng, SeedableRng};
     use rand::seq::SliceRandom;
     use std::fs::{File, read_to_string};
@@ -70,8 +70,8 @@ mod tests {
     }
 
     fn assert_same_content_gzipped(a: &PathBuf, b: &PathBuf) {
-        let mut gz_a = GzDecoder::new(File::open(a).unwrap());
-        let mut gz_b = GzDecoder::new(File::open(b).unwrap());
+        let mut gz_a = MultiGzDecoder::new(File::open(a).unwrap());
+        let mut gz_b = MultiGzDecoder::new(File::open(b).unwrap());
         let mut content_a = String::new();
         let mut content_b = String::new();
         gz_a.read_to_string(&mut content_a).unwrap();

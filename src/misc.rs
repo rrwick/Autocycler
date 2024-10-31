@@ -12,7 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use indicatif::{ProgressBar, ProgressStyle};
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use seq_io::fastq::Reader;
 use std::collections::HashSet;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
@@ -185,8 +185,11 @@ pub fn fastq_reader(fastq_file: &PathBuf)
         -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
     // Returns a reader for a FASTQ file that works on both unzipped and gzipped files.
     let file = File::open(fastq_file).expect("Error opening file");
-    let reader: Box<dyn Read> = if is_file_gzipped(fastq_file) { Box::new(GzDecoder::new(file)) }
-                                                          else { Box::new(file) };
+    let reader: Box<dyn Read> = if is_file_gzipped(fastq_file) {
+        Box::new(MultiGzDecoder::new(file))
+    } else {
+        Box::new(file)
+    };
     Reader::new(BufReader::new(reader))
 }
 
@@ -253,7 +256,7 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
 fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
     let file = File::open(&filename)?;
-    let reader = BufReader::new(GzDecoder::new(file));
+    let reader = BufReader::new(MultiGzDecoder::new(file));
     let mut name = String::new();
     let mut header = String::new();
     let mut sequence = String::new();
@@ -456,7 +459,7 @@ fn first_char_in_file_not_gzipped(filename: &PathBuf) -> io::Result<char> {
 
 fn first_char_in_file_gzipped(filename: &PathBuf) -> io::Result<char> {
     let file = File::open(filename)?;
-    let reader = BufReader::new(GzDecoder::new(file));
+    let reader = BufReader::new(MultiGzDecoder::new(file));
     first_non_empty_char(reader)
 }
 

@@ -84,13 +84,13 @@ fn parse_genome_size(genome_size_str: &str) -> u64 {
         Some('k') => 1_000.0,
         Some('m') => 1_000_000.0,
         Some('g') => 1_000_000_000.0,
-        _ => { quit_with_error("Error: cannot interpret genome size"); }
+        _ => { quit_with_error("cannot interpret genome size"); }
     };
     let number_part = &genome_size_str[..genome_size_str.len() - 1];
     if let Ok(size) = number_part.parse::<f64>() {
         return (size * multiplier).round() as u64;
     }
-    quit_with_error("Error: cannot interpret genome size");
+    quit_with_error("cannot interpret genome size");
 }
 
 
@@ -121,7 +121,7 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
     eprintln!("Mean read length: {} bp", mean_read_length);
     eprintln!();
     if total_depth < min_depth {
-        quit_with_error("Error: input reads are too shallow to subset");
+        quit_with_error("input reads are too shallow to subset");
     }
     eprintln!("Calculating subset sizes:");
     eprintln!("  subset_depth = {} * log_2(4 * total_depth / {}) / 2",
