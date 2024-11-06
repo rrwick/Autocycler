@@ -95,12 +95,12 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
         graph.print_basic_graph_info();
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();
-            let unitig_number = unitig.number + offset;
+            let unitig_num = unitig.number + offset;
             let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
             let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
                                                        else { "".to_string() };
-            writeln!(gfa_file, "S\t{}\t{}", unitig_number, unitig_seq).unwrap();
-            writeln!(fasta_file, ">{} length={}{}", unitig_number, unitig.length(), circ).unwrap();
+            writeln!(gfa_file, "S\t{}\t{}{}", unitig_num, unitig_seq, unitig.colour_tag()).unwrap();
+            writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), circ).unwrap();
             writeln!(fasta_file, "{}", unitig_seq).unwrap();
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {

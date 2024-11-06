@@ -25,6 +25,9 @@ pub struct SubsampleMetrics {
     pub input_read_count: usize,
     pub input_read_bases: u64,
     pub input_read_n50: u64,
+
+    // TODO: add input_read_min_length andinput_read_max_length
+
     pub output_reads: Vec<ReadSetDetails>,
 }
 

@@ -429,9 +429,11 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
 
     let mut unitig = Unitig::manual(new_unitig_number, merged_seq, forward_positions, reverse_positions,
                                     forward_next, forward_prev, reverse_next, reverse_prev, depth);
+
     if path.iter().any(|p| p.anchor()) {
-        unitig.anchor = true;
+        unitig.set_as_consentig();
     }
+
     let unitig_rc = Rc::new(RefCell::new(unitig));
     graph.unitigs.push(unitig_rc.clone());
 

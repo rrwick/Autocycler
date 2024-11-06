@@ -21,6 +21,11 @@ use crate::misc::{quit_with_error, reverse_complement, strand};
 use crate::position::Position;
 
 
+static ANCHOR_COLOUR: &str = "forestgreen";
+static BRIDGE_COLOUR: &str = "pink";
+static CONSENTIG_COLOUR: &str = "steelblue";
+
+
 #[derive(Clone)]
 pub struct Unitig {
     pub number: u32,
@@ -47,7 +52,7 @@ impl Unitig {
         // 3. The simplify_seqs method combines the k-mers into forward and reverse sequences.
         // 4. The trim_overlaps method removes overlapping sequences from both ends.
         Unitig {
-            number: number,
+            number,
             forward_kmers: VecDeque::from(vec![forward_kmer as *const Kmer]),
             reverse_kmers: VecDeque::from(vec![reverse_kmer as *const Kmer]),
             forward_seq: Vec::new(),
@@ -75,12 +80,15 @@ impl Unitig {
         let forward_seq = parts[2].as_bytes().to_owned();
         let reverse_seq = reverse_complement(&forward_seq);
         let depth = parts.iter()
-            .find(|&p| p.starts_with("DP:f:"))
-            .and_then(|p| p[5..].parse::<f64>().ok())
+            .find(|&p| p.starts_with("DP:f:")).and_then(|p| p[5..].parse::<f64>().ok())
             .unwrap_or_else(|| {
                 quit_with_error("Could not find a depth tag (e.g. DP:f:10.00) in the GFA segment \
                                  line.\nAre you sure this is an Autocycler-generated GFA file?");
             });
+        let anchor = parts.iter().any(|p| *p == format!("CL:z:{}", ANCHOR_COLOUR)) ||
+                     parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
+        let bridge = parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) ||
+                     parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
         Unitig {
             number: number,
             forward_kmers: VecDeque::new(),
@@ -88,8 +96,8 @@ impl Unitig {
             forward_seq,
             reverse_seq,
             depth,
-            anchor: false,
-            bridge: false,
+            anchor,
+            bridge,
             forward_positions: Vec::new(),
             reverse_positions: Vec::new(),
             forward_next: Vec::new(),
@@ -214,14 +222,14 @@ impl Unitig {
 
     pub fn gfa_segment_line(&self) -> String {
         let seq_str = String::from_utf8_lossy(&self.forward_seq);
-        let colour_tag = if self.anchor {
-            "\tCL:z:forestgreen"
-        } else if self.bridge {
-            "\tCL:z:pink"
-        } else {
-            ""
-        };
-        format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth, colour_tag)
+        format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth, self.colour_tag())
+    }
+
+    pub fn colour_tag(&self) -> String {
+        if self.is_consentig() { format!("\tCL:z:{}", CONSENTIG_COLOUR) }
+        else if self.anchor    { format!("\tCL:z:{}", ANCHOR_COLOUR) }
+        else if self.bridge    { format!("\tCL:z:{}", BRIDGE_COLOUR) }
+        else                   { String::new() }
     }
 
     pub fn length(&self) -> u32 {
@@ -325,6 +333,16 @@ impl Unitig {
         let prev = &self.forward_prev[0];
         next.number() == self.number && next.strand && prev.number() == self.number && prev.strand
     }
+
+    fn is_consentig(&self) -> bool {
+        // A unitig is labelled as consentig by having both the anchor and bridge flags set.
+        self.anchor && self.bridge
+    }
+
+    pub fn set_as_consentig(&mut self) {
+        self.anchor = true;
+        self.bridge = true;
+    }
 }
 
 impl fmt::Display for Unitig {
@@ -383,6 +401,10 @@ impl UnitigStrand {
 
     pub fn anchor(&self) -> bool {
         self.unitig.borrow().anchor
+    }
+
+    pub fn bridge(&self) -> bool {
+        self.unitig.borrow().bridge
     }
 }
 

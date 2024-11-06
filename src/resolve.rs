@@ -82,7 +82,7 @@ fn starting_message() {
 fn apply_unique_message() {
     section_header("Applying unique bridges");
     explanation("All unique bridges (those that do not conflict with other bridges) are now \
-                 applied to the graph.");
+                 applied to the graph, with linear paths merged to create consentigs.");
 }
 
 fn apply_final_message() {
