@@ -233,10 +233,6 @@ macro_rules! impl_metrics_helpers {
                 file.write_all(yaml_string.as_bytes()).unwrap();
             }
 
-            pub fn get_val_by_name(&self, name: &str) -> Option<String> {
-                serde_json::to_value(self).ok()?.get(name).map(|v| v.to_string())
-            }
-
             pub fn get_field_names() -> Vec<String> {
                 let mut field_names: Vec<String> = match serde_json::to_value(Self::default())
                     .expect("serialisation failed").as_object()
@@ -311,14 +307,6 @@ mod tests {
         assert!(metrics_4.cluster_balance_score < metrics_3.cluster_balance_score);
         assert!(metrics_5.cluster_balance_score < metrics_4.cluster_balance_score);
         assert!(metrics_6.cluster_balance_score < metrics_5.cluster_balance_score);
-    }
-
-    #[test]
-    fn test_get_val_by_name() {
-        let mut metrics = InputAssemblyMetrics::default();
-        metrics.input_assemblies_count = 12;
-        assert_eq!(metrics.get_val_by_name("input_assemblies_count"), Some("12".to_string()));
-        assert_eq!(metrics.get_val_by_name("abc"), None);
     }
 
     #[test]

@@ -406,10 +406,6 @@ impl UnitigStrand {
     pub fn anchor(&self) -> bool {
         self.unitig.borrow().anchor
     }
-
-    pub fn bridge(&self) -> bool {
-        self.unitig.borrow().bridge
-    }
 }
 
 impl fmt::Display for UnitigStrand {
