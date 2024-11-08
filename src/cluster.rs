@@ -15,7 +15,7 @@ use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
@@ -63,10 +63,9 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
 }
 
 
-fn check_settings(autocycler_dir: &PathBuf, gfa: &PathBuf, cutoff: f64,
-                  min_assemblies: &Option<usize>) {
-    check_if_dir_exists(&autocycler_dir);
-    check_if_file_exists(&gfa);
+fn check_settings(autocycler_dir: &Path, gfa: &Path, cutoff: f64, min_assemblies: &Option<usize>) {
+    check_if_dir_exists(autocycler_dir);
+    check_if_file_exists(gfa);
     if cutoff <= 0.0 || cutoff >= 1.0 {
         quit_with_error("--cutoff must be between 0 and 1 (exclusive)");
     }
@@ -84,8 +83,7 @@ fn starting_message() {
 }
 
 
-fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf,
-                    clustering_tsv: &PathBuf) {
+fn finished_message(pairwise_phylip: &Path, clustering_newick: &Path, clustering_tsv: &Path) {
     section_header("Finished!");
     explanation("You can now run autocycler trim on each cluster. If you want to manually \
                  inspect the clustering, you can view the following files.");
@@ -96,8 +94,8 @@ fn finished_message(pairwise_phylip: &PathBuf, clustering_newick: &PathBuf,
 }
 
 
-fn print_settings(autocycler_dir: &PathBuf, cutoff: f64, min_assemblies: usize,
-                  min_assemblies_option: Option<usize>, manual_clusters: &Vec<u16>) {
+fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
+                  min_assemblies_option: Option<usize>, manual_clusters: &[u16]) {
     eprintln!("Settings:");
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
@@ -119,7 +117,7 @@ fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Se
         section_header("Loading graph");
         explanation("The unitig graph is now loaded into memory.");
     }
-    let (graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
+    let (graph, sequences) = UnitigGraph::from_gfa_lines(gfa_lines);
     if print_info {
         graph.print_basic_graph_info();
     }
@@ -140,10 +138,10 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, fil
     let mut distances: HashMap<(u16, u16), f64> = HashMap::new();
     for seq_a in sequences {
         let a = sequence_unitigs.get(&seq_a.id).unwrap();
-        let a_len = total_unitig_length(&a, &unitig_lengths) as f64;
+        let a_len = total_unitig_length(a, &unitig_lengths) as f64;
         for seq_b in sequences {
             let b = sequence_unitigs.get(&seq_b.id).unwrap();
-            let ab: HashSet<u32> = a.intersection(&b).cloned().collect();
+            let ab: HashSet<u32> = a.intersection(b).cloned().collect();
             let ab_len = total_unitig_length(&ab, &unitig_lengths) as f64;
             let distance = 1.0 - (ab_len / a_len);
             distances.insert((seq_a.id, seq_b.id), distance);
@@ -151,7 +149,7 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, fil
     }
     eprintln!("{} sequences, {} total pairwise distances", sequences.len(), distances.len());
     eprintln!();
-    save_distance_matrix(&distances, &sequences, file_path);
+    save_distance_matrix(&distances, sequences, file_path);
     distances
 }
 
@@ -164,14 +162,14 @@ fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32
 fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
                         file_path: &PathBuf) {
     eprintln!("Saving distance matrix:");
-    let mut f = File::create(&file_path).unwrap();
-    write!(f, "{}\n", sequences.len()).unwrap();
+    let mut f = File::create(file_path).unwrap();
+    writeln!(f, "{}", sequences.len()).unwrap();
     for seq_a in sequences {
         write!(f, "{}", seq_a).unwrap();
         for seq_b in sequences {
             write!(f, "\t{:.8}", distances.get(&(seq_a.id, seq_b.id)).unwrap()).unwrap();
         }
-        write!(f, "\n").unwrap();
+        writeln!(f).unwrap();
     }
     eprintln!("  {}", file_path.display());
     eprintln!();
@@ -224,7 +222,7 @@ impl TreeNode {
         // This method is run on the root of the tree, and it divides the tree into clusters using
         // only the cutoff distance. 
         let mut clusters = Vec::new();
-        self.collect_clusters(cutoff / 2.0, &vec![], &mut clusters);
+        self.collect_clusters(cutoff / 2.0, &[], &mut clusters);
         clusters.sort();
         clusters
     }
@@ -245,11 +243,9 @@ impl TreeNode {
             clusters.push(self.id);
         } else if self.distance <= cutoff && !self.has_manual_child(manual_clusters) {
             clusters.push(self.id);
-        } else {
-            if !self.is_tip() {
-                self.left.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
-                self.right.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
-            }
+        } else if !self.is_tip() {
+            self.left.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
+            self.right.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
         }
     }
 
@@ -367,7 +363,7 @@ fn find_node_by_id(node: &TreeNode, id: u16) -> Option<&TreeNode> {
 }
 
 
-fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &PathBuf) {
+fn save_tree_to_newick(root: &TreeNode, sequences: &[Sequence], file_path: &PathBuf) {
     // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
     // length of the root, in order to ensure that root-to-tip distances are 0.5.
     eprintln!("Saving clustering tree:");
@@ -376,9 +372,9 @@ fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &P
     let mut file = File::create(file_path).unwrap();
     if root.distance < 0.5 {
         let root_length = 0.5 - root.distance;
-        write!(file, "({}:{});\n", newick_string, root_length).unwrap();
+        writeln!(file, "({}:{});", newick_string, root_length).unwrap();
     } else {
-        write!(file, "{};\n", newick_string).unwrap();
+        writeln!(file, "{};", newick_string).unwrap();
     }
     eprintln!("  {}", file_path.display());
     eprintln!();
@@ -388,13 +384,13 @@ fn save_tree_to_newick(root: &TreeNode, sequences: &Vec<Sequence>, file_path: &P
 fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
     match (&node.left, &node.right) {
         (Some(left), Some(right)) => {
-            let left_str = tree_to_newick(left, &index);
-            let right_str = tree_to_newick(right, &index);
+            let left_str = tree_to_newick(left, index);
+            let right_str = tree_to_newick(right, index);
             format!("({}:{},{}:{}){}", left_str, node.distance - left.distance,
                                        right_str, node.distance - right.distance,
                                        node.id)
         }
-        _ => format!("{}", index.get(&node.id).unwrap().string_for_newick()),
+        _ => index.get(&node.id).unwrap().string_for_newick().to_string(),
     }
 }
 
@@ -511,12 +507,12 @@ fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
 
 fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
                      distances: &HashMap<(u16, u16), f64>, cutoff: f64, min_assemblies: usize,
-                     manual_clusters: &Vec<u16>) -> HashMap<u16, ClusterQC> {
+                     manual_clusters: &[u16]) -> HashMap<u16, ClusterQC> {
     let clusters = if manual_clusters.is_empty() {
         let auto_clusters = tree.automatic_clustering(cutoff);
         refine_auto_clusters(tree, sequences, distances, &auto_clusters, cutoff, min_assemblies)
     } else {
-        tree.manual_clustering(cutoff, &manual_clusters)
+        tree.manual_clustering(cutoff, manual_clusters)
     };
     tree.check_complete_coverage(&clusters);
     qc_clusters(tree, sequences, distances, &clusters, manual_clusters, cutoff, min_assemblies)
@@ -524,7 +520,7 @@ fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
 
 
 fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashMap<(u16, u16), f64>,
-               cluster_nodes: &Vec<u16>, manual_clusters: &Vec<u16>, cutoff: f64,
+               cluster_nodes: &Vec<u16>, manual_clusters: &[u16], cutoff: f64,
                min_assemblies: usize) -> HashMap<u16, ClusterQC> {
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // QC-results HashMap.
@@ -566,7 +562,7 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
     // If using automatic clustering, clusters are now failed for being contained in other clusters
     // or appearing in too few input assemblies.
     if manual_clusters.is_empty() {
-        let max_cluster = get_max_cluster(&sequences);
+        let max_cluster = get_max_cluster(sequences);
         for c in 1..=max_cluster {
             let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c)
                                                   .map(|s| s.filename.clone()).collect();
@@ -593,7 +589,7 @@ fn score_clustering(tree: &TreeNode, sequences: &mut Vec<Sequence>,
                     min_assemblies: usize) -> f64 {
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // overall score for that clustering (higher is better).
-    let qc_results = qc_clusters(tree, sequences, distances, &clusters, &vec![], cutoff,
+    let qc_results = qc_clusters(tree, sequences, distances, clusters, &[], cutoff,
                                  min_assemblies);
     let metrics = clustering_metrics(sequences, &qc_results);
     metrics.overall_clustering_score
@@ -638,14 +634,14 @@ fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluste
 }
 
 
-fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &Vec<Sequence>) -> usize {
+fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequence]) -> usize {
     // This function automatically sets the --min_assemblies parameter, if the user didn't
     // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
     // but no less than 2, unless there is only one input assembly, in which case it will be 1.
     if min_assemblies_option.is_some() {
         return min_assemblies_option.unwrap();
     }
-    let assembly_count = get_assembly_count(&sequences);
+    let assembly_count = get_assembly_count(sequences);
     if assembly_count == 1 {
         return 1;
     }
@@ -687,7 +683,7 @@ impl ClusterQC {
 }
 
 
-fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
+fn cluster_is_contained_in_another(cluster_num: u16, sequences: &[Sequence],
                                    distances: &HashMap<(u16, u16), f64>, cutoff: f64,
                                    qc_results: &HashMap<u16, ClusterQC>) -> u16 {
     // Checks whether this cluster is contained within another cluster that has so-far passed QC.
@@ -721,8 +717,8 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &Vec<Sequence>,
 }
 
 
-fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
-                 clustering_dir: &PathBuf, gfa_lines: &Vec<String>) {
+fn save_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
+                 clustering_dir: &Path, gfa_lines: &Vec<String>) {
     let pass_dir = clustering_dir.join("qc_pass");
     let fail_dir = clustering_dir.join("qc_fail");
     save_qc_pass_clusters(sequences, qc_results, gfa_lines, &pass_dir);
@@ -730,8 +726,8 @@ fn save_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>
 }
 
 
-fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &Vec<String>, pass_dir: &PathBuf) {
+fn save_qc_pass_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
+                         gfa_lines: &Vec<String>, pass_dir: &Path) {
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();
         if qc.pass() {
@@ -749,7 +745,7 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
             eprintln!("{}", "  passed QC".green());
             let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
             save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
                                            cluster_dir.join("1_untrimmed.yaml"));
             eprintln!();
@@ -758,8 +754,8 @@ fn save_qc_pass_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
 }
 
 
-fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &Vec<String>, fail_dir: &PathBuf) {
+fn save_qc_fail_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
+                         gfa_lines: &Vec<String>, fail_dir: &Path) {
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();
         if qc.fail() {
@@ -780,7 +776,7 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
             }
             let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
             create_dir(&cluster_dir);
-            save_cluster_gfa(&sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
+            save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
             save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
                                            cluster_dir.join("1_untrimmed.yaml"));
             eprintln!();
@@ -789,11 +785,11 @@ fn save_qc_fail_clusters(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cl
 }
 
 
-fn save_cluster_gfa(sequences: &Vec<Sequence>, cluster_num: u16, gfa_lines: &Vec<String>,
+fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<String>,
                     out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num)
                                                .cloned().collect();
-    let (mut cluster_graph, _) = load_graph(&gfa_lines, false);
+    let (mut cluster_graph, _) = load_graph(gfa_lines, false);
     let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num)
                                             .map(|s| s.id).collect();
     for id in seq_ids_to_remove {
@@ -815,8 +811,8 @@ fn save_untrimmed_cluster_metrics(seq_lengths: Vec<usize>, cluster_dist: f64,
 fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
                     file_path: &PathBuf) {
     let mut file = File::create(file_path).unwrap();
-    write!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
-                  file_name\tcontig_name\tlength\n").unwrap();
+    writeln!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
+                  file_name\tcontig_name\tlength").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
         let qc = qc_results.get(&seq.cluster).unwrap();
@@ -826,7 +822,7 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
         } else {
             format!("{}", seq.cluster)
         };
-        write!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\n", seq.string_for_newick(),
+        writeln!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}", seq.string_for_newick(),
                pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(),
                seq.length).unwrap();
     }
@@ -886,12 +882,12 @@ fn reorder_clusters(sequences: &mut Vec<Sequence>) -> HashMap<u16, u16>{
 }
 
 
-fn get_assembly_count(sequences: &Vec<Sequence>) -> usize {
+fn get_assembly_count(sequences: &[Sequence]) -> usize {
     sequences.iter().map(|s| &s.filename).collect::<HashSet<_>>().len()
 }
 
 
-fn get_max_cluster(sequences: &Vec<Sequence>) -> u16 {
+fn get_max_cluster(sequences: &[Sequence]) -> u16 {
     sequences.iter().map(|s| s.cluster).max().unwrap()
 }
 
@@ -1044,8 +1040,8 @@ mod tests {
         let n6 = TreeNode { id: 6, left: Some(Box::new(n4)), right: Some(Box::new(n5)), distance: 0.1 };
         let n7 = TreeNode { id: 7, left: Some(Box::new(n3)), right: Some(Box::new(n6)), distance: 0.2 };
         let n8 = TreeNode { id: 8, left: Some(Box::new(n2)), right: Some(Box::new(n7)), distance: 0.3 };
-        let n9 = TreeNode { id: 9, left: Some(Box::new(n1)), right: Some(Box::new(n8)), distance: 0.5 };
-        n9
+
+        TreeNode { id: 9, left: Some(Box::new(n1)), right: Some(Box::new(n8)), distance: 0.5 }
     }
 
     fn test_tree_2() -> TreeNode {
@@ -1060,8 +1056,8 @@ mod tests {
         let n8 = TreeNode { id: 8, left: Some(Box::new(n5)), right: Some(Box::new(n6)), distance: 0.1 };
         let n9 = TreeNode { id: 9, left: Some(Box::new(n4)), right: Some(Box::new(n8)), distance: 0.2 };
         let n10 = TreeNode { id: 10, left: Some(Box::new(n7)), right: Some(Box::new(n9)), distance: 0.3 };
-        let n11 = TreeNode { id: 11, left: Some(Box::new(n1)), right: Some(Box::new(n10)), distance: 0.5 };
-        n11
+
+        TreeNode { id: 11, left: Some(Box::new(n1)), right: Some(Box::new(n10)), distance: 0.5 }
     }
 
     #[test]
@@ -1076,49 +1072,49 @@ mod tests {
     #[test]
     fn test_has_manual_child() {
         let tree = test_tree_1();
-        assert!(!tree.has_manual_child(&vec![]));
-        for n in 1..=9   { assert!( tree.has_manual_child(&vec![n])); }
-        for n in 10..=19 { assert!(!tree.has_manual_child(&vec![n])); }
+        assert!(!tree.has_manual_child(&[]));
+        for n in 1..=9   { assert!( tree.has_manual_child(&[n])); }
+        for n in 10..=19 { assert!(!tree.has_manual_child(&[n])); }
     }
 
     #[test]
     fn test_manual_clustering() {
         let tree = test_tree_1();
-        assert_eq!(tree.manual_clustering(0.5, &vec![]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![1]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2, 7]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![3]), vec![1, 2, 3, 6]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![4]), vec![1, 2, 3, 4, 5]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![5]), vec![1, 2, 3, 4, 5]);
-        assert_eq!(tree.manual_clustering(0.5, &vec![1, 2, 3, 4, 5]), vec![1, 2, 3, 4, 5]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![]), vec![1, 8]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![1]), vec![1, 8]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![2]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![3]), vec![1, 2, 3, 6]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![4]), vec![1, 2, 3, 4, 5]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![5]), vec![1, 2, 3, 4, 5]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![6]), vec![1, 2, 3, 6]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![7]), vec![1, 2, 7]);
-        assert_eq!(tree.manual_clustering(0.8, &vec![8]), vec![1, 8]);
+        assert_eq!(tree.manual_clustering(0.5, &[]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &[1]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &[1, 2]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &[1, 2, 7]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.5, &[3]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.5, &[4]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.5, &[5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.5, &[1, 2, 3, 4, 5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &[]), vec![1, 8]);
+        assert_eq!(tree.manual_clustering(0.8, &[1]), vec![1, 8]);
+        assert_eq!(tree.manual_clustering(0.8, &[2]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.8, &[3]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.8, &[4]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &[5]), vec![1, 2, 3, 4, 5]);
+        assert_eq!(tree.manual_clustering(0.8, &[6]), vec![1, 2, 3, 6]);
+        assert_eq!(tree.manual_clustering(0.8, &[7]), vec![1, 2, 7]);
+        assert_eq!(tree.manual_clustering(0.8, &[8]), vec![1, 8]);
     }
 
     #[test]
     fn test_check_consistency() {
         let tree = test_tree_1();
-        tree.check_consistency(&vec![1, 2, 3, 4, 5]);
-        tree.check_consistency(&vec![1, 2, 3, 6]);
-        tree.check_consistency(&vec![1, 2, 7]);
-        tree.check_consistency(&vec![1, 8]);
-        tree.check_consistency(&vec![9]);
+        tree.check_consistency(&[1, 2, 3, 4, 5]);
+        tree.check_consistency(&[1, 2, 3, 6]);
+        tree.check_consistency(&[1, 2, 7]);
+        tree.check_consistency(&[1, 8]);
+        tree.check_consistency(&[9]);
         assert!(panic::catch_unwind(|| {
-            tree.check_consistency(&vec![5, 6]);
+            tree.check_consistency(&[5, 6]);
         }).is_err());
         assert!(panic::catch_unwind(|| {
-            tree.check_consistency(&vec![6, 8]);
+            tree.check_consistency(&[6, 8]);
         }).is_err());
         assert!(panic::catch_unwind(|| {
-            tree.check_consistency(&vec![1, 9]);
+            tree.check_consistency(&[1, 9]);
         }).is_err());
     }
 
@@ -1156,34 +1152,34 @@ mod tests {
     #[test]
     fn test_check_complete_coverage() {
         let tree = test_tree_1();
-        tree.check_complete_coverage(&vec![1, 2, 3, 4, 5]);
-        tree.check_complete_coverage(&vec![1, 2, 3, 6]);
-        tree.check_complete_coverage(&vec![1, 2, 7]);
-        tree.check_complete_coverage(&vec![1, 8]);
-        tree.check_complete_coverage(&vec![9]);
+        tree.check_complete_coverage(&[1, 2, 3, 4, 5]);
+        tree.check_complete_coverage(&[1, 2, 3, 6]);
+        tree.check_complete_coverage(&[1, 2, 7]);
+        tree.check_complete_coverage(&[1, 8]);
+        tree.check_complete_coverage(&[9]);
         assert!(panic::catch_unwind(|| {
-            tree.check_complete_coverage(&vec![1, 2, 3, 4, 5, 6]);
+            tree.check_complete_coverage(&[1, 2, 3, 4, 5, 6]);
         }).is_err());
         assert!(panic::catch_unwind(|| {
-            tree.check_complete_coverage(&vec![1, 2, 3, 4]);
+            tree.check_complete_coverage(&[1, 2, 3, 4]);
         }).is_err());
         assert!(panic::catch_unwind(|| {
-            tree.check_complete_coverage(&vec![1, 6, 7]);
+            tree.check_complete_coverage(&[1, 6, 7]);
         }).is_err());
     }
 
     #[test]
     fn test_split_clusters() {
         let tree = test_tree_1();
-        assert_eq!(tree.split_clusters(&vec![1, 2, 3, 6]), vec![vec![1, 2, 3, 4, 5]]);
-        assert_eq!(tree.split_clusters(&vec![1, 2, 7]), vec![vec![1, 2, 3, 6]]);
-        assert_eq!(tree.split_clusters(&vec![1, 8]), vec![vec![1, 2, 7]]);
-        assert_eq!(tree.split_clusters(&vec![9]), vec![vec![1, 8]]);
+        assert_eq!(tree.split_clusters(&[1, 2, 3, 6]), vec![vec![1, 2, 3, 4, 5]]);
+        assert_eq!(tree.split_clusters(&[1, 2, 7]), vec![vec![1, 2, 3, 6]]);
+        assert_eq!(tree.split_clusters(&[1, 8]), vec![vec![1, 2, 7]]);
+        assert_eq!(tree.split_clusters(&[9]), vec![vec![1, 8]]);
 
         let tree = test_tree_2();
-        assert_eq!(tree.split_clusters(&vec![1, 4, 5, 6, 7]), vec![vec![1, 2, 3, 4, 5, 6]]);
-        assert_eq!(tree.split_clusters(&vec![1, 2, 3, 4, 8]), vec![vec![1, 2, 3, 4, 5, 6]]);
-        assert_eq!(tree.split_clusters(&vec![1, 4, 7, 8]), vec![vec![1, 2, 3, 4, 8], vec![1, 4, 5, 6, 7]]);
+        assert_eq!(tree.split_clusters(&[1, 4, 5, 6, 7]), vec![vec![1, 2, 3, 4, 5, 6]]);
+        assert_eq!(tree.split_clusters(&[1, 2, 3, 4, 8]), vec![vec![1, 2, 3, 4, 5, 6]]);
+        assert_eq!(tree.split_clusters(&[1, 4, 7, 8]), vec![vec![1, 2, 3, 4, 8], vec![1, 4, 5, 6, 7]]);
     }
 
     #[test]

@@ -85,8 +85,8 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigf
     if let Some(path) = input_assemblies_yaml   { map.extend(load_single_yaml_to_map(&path)); }
     if let Some(path) = clustering_yaml         { map.extend(load_single_yaml_to_map(&path)); }
     if let Some(path) = consensus_assembly_yaml { map.extend(load_single_yaml_to_map(&path)); }
-    if untrimmed_yamls.len() > 0 { map.extend(load_multi_yaml_to_map(&untrimmed_yamls)); }
-    if trimmed_yamls.len() > 0   { map.extend(load_multi_yaml_to_map(&trimmed_yamls)); }
+    if !untrimmed_yamls.is_empty() { map.extend(load_multi_yaml_to_map(&untrimmed_yamls)); }
+    if !trimmed_yamls.is_empty()   { map.extend(load_multi_yaml_to_map(&trimmed_yamls)); }
 
     for field in fields {
         print!("\t");
@@ -111,7 +111,7 @@ fn load_multi_yaml_to_map(yaml_paths: &Vec<PathBuf>) -> HashMap<String, Value> {
     for yaml_path in yaml_paths {
         let file_map = load_single_yaml_to_map(yaml_path);
         for (key, value) in file_map {
-            combined_map.entry(key).or_insert_with(Vec::new).push(value);
+            combined_map.entry(key).or_default().push(value);
         }
     }
     combined_map.into_iter().map(|(key, values)| (key, Value::Sequence(values))).collect()
@@ -140,7 +140,7 @@ fn visit_dirs_for_yaml_files(dir: &PathBuf, yaml_files: &mut Vec<PathBuf>) {
 }
 
 
-fn get_one_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Option<PathBuf> {
+fn get_one_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Option<PathBuf> {
     // Returns the YAML file in the given path with a matching filename. No match is okay and one
     // match is okay, but multiple matches will result in an error.
     let found_files = yaml_files.iter()
@@ -153,7 +153,7 @@ fn get_one_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Option<PathBu
 }
 
 
-fn get_multi_copy_yaml(yaml_files: &Vec<PathBuf>, filename: &str) -> Vec<PathBuf> {
+fn get_multi_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Vec<PathBuf> {
     // Returns all YAML files in the given path with a matching filename, excluding those that are
     // in a qc_fail directory.
     yaml_files.iter().filter(|path| {

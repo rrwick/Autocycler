@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use regex::bytes::Regex;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str;
 use std::time::Instant;
 
@@ -49,9 +49,9 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
 }
 
 
-fn check_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32, threads: usize) {
-    check_if_dir_exists(&assemblies_dir);
-    check_if_dir_is_not_dir(&autocycler_dir);
+fn check_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, threads: usize) {
+    check_if_dir_exists(assemblies_dir);
+    check_if_dir_is_not_dir(autocycler_dir);
     if k_size < 11   { quit_with_error("--kmer cannot be less than 11"); }
     if k_size > 501  { quit_with_error("--kmer cannot be greater than 501"); }
     if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
@@ -69,7 +69,7 @@ fn starting_message() {
 }
 
 
-fn print_settings(assemblies_dir: &PathBuf, autocycler_dir: &PathBuf, k_size: u32, threads: usize) {
+fn print_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --assemblies_dir {}", assemblies_dir.display());
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
@@ -90,7 +90,7 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, metrics: &mut Input
     for assembly in &assemblies {
         let mut assembly_details = InputAssemblyDetails::default();
         assembly_details.filename = assembly.to_string_lossy().to_string();
-        for (name, header, seq) in load_fasta(&assembly) {
+        for (name, header, seq) in load_fasta(assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize { continue; }
             seq_id += 1;
@@ -133,7 +133,7 @@ fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence
     explanation("K-mers in the input sequences are now hashed to make a De Bruijn graph.");
     let mut kmer_graph = KmerGraph::new(k_size);
     let pb = spinner("adding k-mers to graph...");
-    kmer_graph.add_sequences(&sequences, assembly_count);
+    kmer_graph.add_sequences(sequences, assembly_count);
     pb.finish_and_clear();
     eprintln!("Graph contains {} k-mers", kmer_graph.kmers.len());
     eprintln!();
@@ -158,14 +158,14 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
     explanation("The graph structure is now simplified by moving sequence into repeat unitigs \
                  when possible.");
     let pb = spinner("simplifying graph...");
-    simplify_structure(unitig_graph, &sequences);
+    simplify_structure(unitig_graph, sequences);
     pb.finish_and_clear();
     unitig_graph.print_basic_graph_info();
 }
 
 
 fn save_metrics(metrics: &mut InputAssemblyMetrics, assembly_count: usize,
-                sequences: &Vec<Sequence>, graph: &UnitigGraph, out_yaml: &PathBuf) {
+                sequences: &[Sequence], graph: &UnitigGraph, out_yaml: &PathBuf) {
     metrics.input_assemblies_count = assembly_count as u32;
     metrics.input_assemblies_total_contigs = sequences.len() as u32;
     metrics.input_assemblies_total_length = sequences.iter().map(|s| s.length as u64).sum();

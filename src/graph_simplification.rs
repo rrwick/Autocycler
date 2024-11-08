@@ -62,22 +62,22 @@ fn expand_repeats(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) -> usize {
     let mut total_shifted_seq = 0;
     for unitig_rc in &graph.unitigs {
         let unitig_number = unitig_rc.borrow().number;
-        let inputs = get_exclusive_inputs(&unitig_rc);
+        let inputs = get_exclusive_inputs(unitig_rc);
         if inputs.len() >= 2 && !fixed_starts.contains(&unitig_number) {
             let can_shift = inputs.iter().all(|input| {
                 !(input.strand && fixed_ends.contains(&input.number()) ||
                 !input.strand && fixed_starts.contains(&input.number()))});
             if can_shift {
-                total_shifted_seq += shift_sequence_1(&inputs, &unitig_rc);
+                total_shifted_seq += shift_sequence_1(&inputs, unitig_rc);
             }
         }
-        let outputs = get_exclusive_outputs(&unitig_rc);
+        let outputs = get_exclusive_outputs(unitig_rc);
         if outputs.len() >= 2 && !fixed_ends.contains(&unitig_number) {
             let can_shift = outputs.iter().all(|output| {
                 !(output.strand && fixed_starts.contains(&output.number()) ||
                 !output.strand && fixed_ends.contains(&output.number()))});
             if can_shift {
-                total_shifted_seq += shift_sequence_2(&unitig_rc, &outputs);
+                total_shifted_seq += shift_sequence_2(unitig_rc, &outputs);
             }
         }
     }
@@ -100,8 +100,8 @@ fn shift_sequence_1(sources: &Vec<UnitigStrand>, destination_rc: &Rc<RefCell<Uni
     //
     // The return value is the amount of sequence shifted.
     let mut common_seq = get_common_end_seq(sources);
-    avoid_zero_len_unitigs(&mut common_seq, &sources, true);
-    avoid_start_of_path(&mut common_seq, &destination_rc, true);
+    avoid_zero_len_unitigs(&mut common_seq, sources, true);
+    avoid_start_of_path(&mut common_seq, destination_rc, true);
     let shifted_amount = common_seq.len();
     if shifted_amount == 0 {
         return 0;
@@ -118,13 +118,13 @@ fn shift_sequence_1(sources: &Vec<UnitigStrand>, destination_rc: &Rc<RefCell<Uni
 }
 
 
-fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<UnitigStrand>) -> usize {
+fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &[UnitigStrand]) -> usize {
     // This function does the same thing as shift_sequence_1, but for the other side of a unitig:
     // * removes any common sequence from the starts of the source unitigs
     // * adds that common sequence to the end of the destination unitig
     let mut common_seq = get_common_start_seq(sources);
-    avoid_zero_len_unitigs(&mut common_seq, &sources, false);
-    avoid_start_of_path(&mut common_seq, &destination_rc, false);
+    avoid_zero_len_unitigs(&mut common_seq, sources, false);
+    avoid_start_of_path(&mut common_seq, destination_rc, false);
     let shifted_amount = common_seq.len();
     if shifted_amount == 0 {
         return 0;
@@ -141,14 +141,14 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &Vec<UnitigSt
 }
 
 
-fn avoid_zero_len_unitigs(common_seq: &mut Vec<u8>, sources: &Vec<UnitigStrand>, trim_from_start: bool) {
+fn avoid_zero_len_unitigs(common_seq: &mut Vec<u8>, sources: &[UnitigStrand], trim_from_start: bool) {
     // This function takes some common sequence (sequence that will be shifted from some unitigs
     // onto another) and trims it down to ensure that none of the source unitigs will end up with
     // a length of zero.
-    if common_seq.len() == 0 {
+    if common_seq.is_empty() {
         return;
     }
-    let dup = if check_for_duplicates(&sources) { 2 } else { 1 };
+    let dup = if check_for_duplicates(sources) { 2 } else { 1 };
     let min_source_len = sources.iter().map(|source| source.length()).min().unwrap();
     while min_source_len <= (common_seq.len() as u32) * dup {
         if trim_from_start {
@@ -165,7 +165,7 @@ fn avoid_start_of_path(common_seq: &mut Vec<u8>, destination_rc: &Rc<RefCell<Uni
     // This function takes some common sequence (sequence that will be shifted from some unitigs
     // onto another) and trims it down to ensure that the destination unitig's positions will not
     // end up at the start of a path, as this can cause problems.
-    if common_seq.len() == 0 {
+    if common_seq.is_empty() {
         return;
     }
     if trim_from_start {
@@ -180,7 +180,7 @@ fn avoid_start_of_path(common_seq: &mut Vec<u8>, destination_rc: &Rc<RefCell<Uni
 }
 
 
-fn check_for_duplicates(unitigs: &Vec<UnitigStrand>) -> bool {
+fn check_for_duplicates(unitigs: &[UnitigStrand]) -> bool {
     // Returns true if any two unitigs in the vector have the same number.
     unitigs.iter().map(|u| u.number()).collect::<HashSet<_>>().len() != unitigs.len()
 }
@@ -197,7 +197,7 @@ fn get_fixed_unitig_starts_and_ends(graph: &UnitigGraph,
     // The starts/end of sequence paths are fixed.
     for seq in sequences {
         let unitig_path = graph.get_unitig_path_for_sequence(seq);
-        if unitig_path.len() == 0 { continue; }
+        if unitig_path.is_empty() { continue; }
         let (first_unitig, first_strand) = unitig_path[0];
         if first_strand { fixed_starts.insert(first_unitig); }
                    else { fixed_ends.insert(first_unitig); }
@@ -281,7 +281,7 @@ fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<UnitigStrand> {
 }
 
 
-fn get_common_start_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
+fn get_common_start_seq(unitigs: &[UnitigStrand]) -> Vec<u8> {
     // This function returns the common sequence at the start of all given unitigs.
     let seqs: Vec<_> = unitigs.iter().map(|u| u.get_seq()).collect();
     if seqs.is_empty() { return Vec::new(); }
@@ -296,7 +296,7 @@ fn get_common_start_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
 }
 
 
-fn get_common_end_seq(unitigs: &Vec<UnitigStrand>) -> Vec<u8> {
+fn get_common_end_seq(unitigs: &[UnitigStrand]) -> Vec<u8> {
     // This function returns the common sequence at the end of all given unitigs.
     let seqs: Vec<Vec<u8>> = unitigs.iter().map(|u| u.get_seq())
         .map(|mut seq| { seq.reverse(); seq }).collect();
@@ -336,8 +336,8 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>, depth: 
 
             // Find unitigs which can potentially start a mergeable path.
             if already_used.contains(&unitig_number) { continue; }
-            if has_single_exclusive_input(&unitig_rc, unitig_strand) && can_merge_start(unitig_number, unitig_strand, &fixed_starts, &fixed_ends) { continue; }
-            let mut current_path = vec![UnitigStrand::new(&unitig_rc, unitig_strand)];
+            if has_single_exclusive_input(unitig_rc, unitig_strand) && can_merge_start(unitig_number, unitig_strand, &fixed_starts, &fixed_ends) { continue; }
+            let mut current_path = vec![UnitigStrand::new(unitig_rc, unitig_strand)];
             already_used.insert(unitig_number);
 
             // Extend the path as far as possible.
@@ -403,7 +403,7 @@ fn cannot_merge_end(unitig_number: u32, unitig_strand: bool, fixed_starts: &Hash
 
 
 fn has_single_exclusive_input(unitig_rc: &Rc<RefCell<Unitig>>, unitig_strand: bool) -> bool {
-    let inputs = if unitig_strand {get_exclusive_inputs(&unitig_rc)} else {get_exclusive_outputs(&unitig_rc)};
+    let inputs = if unitig_strand {get_exclusive_inputs(unitig_rc)} else {get_exclusive_outputs(unitig_rc)};
     inputs.len() == 1
 }
 

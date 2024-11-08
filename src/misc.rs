@@ -30,7 +30,7 @@ pub mod strand {
 
 
 pub fn create_dir(dir_path: &PathBuf) {
-    match create_dir_all(&dir_path) {
+    match create_dir_all(dir_path) {
         Ok(_) => {},
         Err(e) => quit_with_error(&format!("failed to create directory {}\n{}", dir_path.display(), e)),
     }
@@ -39,7 +39,7 @@ pub fn create_dir(dir_path: &PathBuf) {
 
 pub fn delete_dir_if_exists(dir_path: &PathBuf) {
     if dir_path.exists() && dir_path.is_dir() {
-        match remove_dir_all(&dir_path) {
+        match remove_dir_all(dir_path) {
             Ok(_) => {},
             Err(e) => quit_with_error(&format!("failed to delete directory {}\n{}", dir_path.display(), e)),
         }
@@ -94,7 +94,7 @@ fn is_assembly_file(path: &Path) -> bool {
 }
 
 
-pub fn check_if_file_exists(filename: &PathBuf) {
+pub fn check_if_file_exists(filename: &Path) {
     // Quits with an error if the given path is not an existing file.
     let path = Path::new(filename);
     if !path.exists() {
@@ -106,7 +106,7 @@ pub fn check_if_file_exists(filename: &PathBuf) {
 }
 
 
-pub fn check_if_dir_exists(dir: &PathBuf) {
+pub fn check_if_dir_exists(dir: &Path) {
     // Quits with an error if the given path is not an existing directory.
     let path = Path::new(dir);
     if !path.exists() {
@@ -118,7 +118,7 @@ pub fn check_if_dir_exists(dir: &PathBuf) {
 }
 
 
-pub fn check_if_dir_is_not_dir(dir: &PathBuf) {
+pub fn check_if_dir_is_not_dir(dir: &Path) {
     // Quits with an error if the given path exists but is not a directory (not existing is okay).
     if dir.exists() && !dir.is_dir() {
         quit_with_error(&format!("{} exists but is not a directory", dir.display()));
@@ -143,32 +143,32 @@ pub fn quit_with_error(text: &str) -> ! {
 pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
     // This function loads a FASTA file and runs a few checks on the result. If everything looks
     // good, it returns a vector of name+sequence tuples.
-    let load_result = if is_file_gzipped(&filename) {
-        load_fasta_gzipped(&filename)
+    let load_result = if is_file_gzipped(filename) {
+        load_fasta_gzipped(filename)
     } else {
-        load_fasta_not_gzipped(&filename)
+        load_fasta_not_gzipped(filename)
     };
     match load_result {
         Ok(_)  => (),
         Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
     }
     let fasta_seqs = load_result.unwrap();
-    check_load_fasta(&fasta_seqs, &filename);
+    check_load_fasta(&fasta_seqs, filename);
     fasta_seqs
 }
 
 
-fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &PathBuf) {
+fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path) {
     // This function looks at the result of the load_fasta function and does some checks to make
     // sure everything looks okay. If any problems are found, it will quit with an error message.
-    if fasta_seqs.len() == 0 {
+    if fasta_seqs.is_empty() {
         quit_with_error(&format!("{} contains no sequences", filename.display()));
     }
     for (name, _, sequence) in fasta_seqs {
-        if name.len() == 0 {
+        if name.is_empty() {
             quit_with_error(&format!("{} has an unnamed sequence", filename.display()));
         }
-        if sequence.len() == 0 {
+        if sequence.is_empty() {
             quit_with_error(&format!("{} has an empty sequence", filename.display()));
         }
     }
@@ -198,7 +198,7 @@ fn is_file_gzipped(filename: &PathBuf) -> bool {
     // This function returns true if the file appears to be gzipped (based on the first two bytes)
     // and false if not. If it can't open the file or read the first two bytes, it will quit with
     // an error message.
-    let open_result = File::open(&filename);
+    let open_result = File::open(filename);
     match open_result {
         Ok(_)  => (),
         Err(e) => quit_with_error(&format!("unable to open {}\n{}", filename.display(), e)),
@@ -217,21 +217,21 @@ fn is_file_gzipped(filename: &PathBuf) -> bool {
 
 fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
-    let file = File::open(&filename)?;
+    let file = File::open(filename)?;
     let reader = BufReader::new(file);
     let mut name = String::new();
     let mut header = String::new();
     let mut sequence = String::new();
     for line in reader.lines() {
         let text = line?;
-        if text.len() == 0 {continue;}
+        if text.is_empty() {continue;}
         if text.starts_with('>') {
             if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
             }
-            header = (&text[1..]).to_string();
+            header = text[1..].to_string();
             let first_piece = text[1..].split_whitespace().next();
             match first_piece {
                 Some(_) => (),
@@ -239,7 +239,7 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
             }
             name = first_piece.unwrap().to_string();
         } else {
-            if name.len() == 0 {
+            if name.is_empty() {
                 quit_with_error(&format!("{} is not correctly formatted", filename.display()));
             }
             sequence.push_str(&text);
@@ -255,21 +255,21 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
 
 fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
-    let file = File::open(&filename)?;
+    let file = File::open(filename)?;
     let reader = BufReader::new(MultiGzDecoder::new(file));
     let mut name = String::new();
     let mut header = String::new();
     let mut sequence = String::new();
     for line in reader.lines() {
         let text = line?;
-        if text.len() == 0 {continue;}
+        if text.is_empty() {continue;}
         if text.starts_with('>') {
             if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
             }
-            header = (&text[1..]).to_string();
+            header = text[1..].to_string();
             let first_piece = header.split_whitespace().next();
             match first_piece {
                 Some(_) => (),
@@ -277,7 +277,7 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
             }
             name = first_piece.unwrap().to_string();
         } else {
-            if name.len() == 0 {
+            if name.is_empty() {
                 quit_with_error(&format!("{} is not correctly formatted", filename.display()));
             }
             sequence.push_str(&text);
@@ -334,8 +334,8 @@ pub fn format_float(num: f64) -> String {
     // Formats a float with up to six decimal places but then drops trailing zeros.
     let mut formatted = format!("{:.6}", num);
     if !formatted.contains('.') { return formatted }
-    while formatted.chars().last().unwrap() == '0' { formatted.pop(); }
-    if formatted.chars().last().unwrap() == '.' { formatted.pop(); }
+    while formatted.ends_with('0') { formatted.pop(); }
+    if formatted.ends_with('.') { formatted.pop(); }
     formatted
 }
 
@@ -378,7 +378,7 @@ pub fn median_isize(values: &[isize]) -> isize {
 
 pub fn mad_usize(values: &[usize]) -> usize {
     if values.is_empty() { return 0; }
-    let median = median_usize(&values);
+    let median = median_usize(values);
     let absolute_deviations: Vec<_> = values.iter()
         .map(|v| (*v as isize - median as isize).abs()).collect();
     median_isize(&absolute_deviations) as usize
@@ -387,7 +387,7 @@ pub fn mad_usize(values: &[usize]) -> usize {
 
 pub fn mad_isize(values: &[isize]) -> isize {
     if values.is_empty() { return 0; }
-    let median = median_isize(&values);
+    let median = median_isize(values);
     let absolute_deviations: Vec<_> = values.iter().map(|v| (*v - median).abs()).collect();
     median_isize(&absolute_deviations)
 }
@@ -401,7 +401,7 @@ pub fn spinner(message: &str) -> ProgressBar {
         pb.enable_steady_tick(Duration::from_millis(100));
         pb.set_style(
             ProgressStyle::default_spinner()
-                .tick_strings(&vec!["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners 
+                .tick_strings(&["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners
                 .template("{spinner} {msg}").unwrap(),
         );
         pb.set_message(message.to_string().clone());
@@ -424,17 +424,17 @@ pub fn sign_at_end(num: i32) -> String {
 }
 
 
-pub fn sign_at_end_vec(nums: &Vec<i32>) -> String {
+pub fn sign_at_end_vec(nums: &[i32]) -> String {
     nums.iter().map(|&n| sign_at_end(n)).collect::<Vec<_>>().join(",")
 }
 
 
-pub fn up_to_first_space(string: &String) -> String {
+pub fn up_to_first_space(string: &str) -> String {
     string.split_whitespace().next().unwrap_or("").to_string()
 }
 
 
-pub fn after_first_space(string: &String) -> String {
+pub fn after_first_space(string: &str) -> String {
     let mut parts = string.splitn(2, char::is_whitespace);
     parts.next();
     parts.next().unwrap_or("").to_string()
@@ -599,38 +599,38 @@ mod tests {
 
     #[test]
     fn test_median() {
-        assert_eq!(median_usize(&mut vec![]), 0);
-        assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4]), 2);
-        assert_eq!(median_usize(&mut vec![4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_usize(&mut vec![0, 1, 2, 3, 4, 5]), 2);
-        assert_eq!(median_usize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_usize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
-        assert_eq!(median_usize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+        assert_eq!(median_usize(&[]), 0);
+        assert_eq!(median_usize(&[0, 1, 2, 3, 4]), 2);
+        assert_eq!(median_usize(&[4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_usize(&[0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median_usize(&[5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_usize(&[0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median_usize(&[10, 8, 6, 4, 2, 0]), 5);
 
-        assert_eq!(median_isize(&mut vec![]), 0);
-        assert_eq!(median_isize(&mut vec![0, 1, 2, 3, 4]), 2);
-        assert_eq!(median_isize(&mut vec![4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_isize(&mut vec![0, 1, 2, 3, 4, 5]), 2);
-        assert_eq!(median_isize(&mut vec![5, 4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_isize(&mut vec![0, 2, 4, 6, 8, 10]), 5);
-        assert_eq!(median_isize(&mut vec![10, 8, 6, 4, 2, 0]), 5);
+        assert_eq!(median_isize(&[]), 0);
+        assert_eq!(median_isize(&[0, 1, 2, 3, 4]), 2);
+        assert_eq!(median_isize(&[4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_isize(&[0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median_isize(&[5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median_isize(&[0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median_isize(&[10, 8, 6, 4, 2, 0]), 5);
     }
 
     #[test]
     fn test_median_absolute_deviation() {
-        assert_eq!(mad_usize(&mut vec![]), 0);
-        assert_eq!(mad_usize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
-        assert_eq!(mad_usize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
+        assert_eq!(mad_usize(&[]), 0);
+        assert_eq!(mad_usize(&[1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(mad_usize(&[4, 1, 9, 6, 1, 2, 2]), 1);
 
-        assert_eq!(mad_isize(&mut vec![]), 0);
-        assert_eq!(mad_isize(&mut vec![1, 1, 2, 2, 4, 6, 9]), 1);
-        assert_eq!(mad_isize(&mut vec![4, 1, 9, 6, 1, 2, 2]), 1);
+        assert_eq!(mad_isize(&[]), 0);
+        assert_eq!(mad_isize(&[1, 1, 2, 2, 4, 6, 9]), 1);
+        assert_eq!(mad_isize(&[4, 1, 9, 6, 1, 2, 2]), 1);
     }
 
     #[test]
     fn test_reverse_path() {
-        assert_eq!(reverse_path(&vec![1, -2]), vec![2, -1]);
-        assert_eq!(reverse_path(&vec![4, 8, -3]), vec![3, -8, -4]);
+        assert_eq!(reverse_path(&[1, -2]), vec![2, -1]);
+        assert_eq!(reverse_path(&[4, 8, -3]), vec![3, -8, -4]);
     }
 
     #[test]
@@ -641,23 +641,23 @@ mod tests {
 
     #[test]
     fn test_sign_at_end_vec() {
-        assert_eq!(sign_at_end_vec(&vec![8]), "8+".to_string());
-        assert_eq!(sign_at_end_vec(&vec![123, -321]), "123+,321-".to_string());
-        assert_eq!(sign_at_end_vec(&vec![-4, -5, 67, 34345, 1]), "4-,5-,67+,34345+,1+".to_string());
+        assert_eq!(sign_at_end_vec(&[8]), "8+".to_string());
+        assert_eq!(sign_at_end_vec(&[123, -321]), "123+,321-".to_string());
+        assert_eq!(sign_at_end_vec(&[-4, -5, 67, 34345, 1]), "4-,5-,67+,34345+,1+".to_string());
     }
 
     #[test]
     fn test_up_to_first_space() {
-        assert_eq!(up_to_first_space(&"xyz".to_string()), "xyz".to_string());
-        assert_eq!(up_to_first_space(&"1 2 3 4".to_string()), "1".to_string());
-        assert_eq!(up_to_first_space(&"abc def".to_string()), "abc".to_string());
+        assert_eq!(up_to_first_space("xyz"), "xyz".to_string());
+        assert_eq!(up_to_first_space("1 2 3 4"), "1".to_string());
+        assert_eq!(up_to_first_space("abc def"), "abc".to_string());
     }
 
     #[test]
     fn test_after_first_space() {
-        assert_eq!(after_first_space(&"xyz".to_string()), "".to_string());
-        assert_eq!(after_first_space(&"1 2 3 4".to_string()), "2 3 4".to_string());
-        assert_eq!(after_first_space(&"abc def".to_string()), "def".to_string());
+        assert_eq!(after_first_space("xyz"), "".to_string());
+        assert_eq!(after_first_space("1 2 3 4"), "2 3 4".to_string());
+        assert_eq!(after_first_space("abc def"), "def".to_string());
     }
 
     #[test]

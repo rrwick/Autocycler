@@ -16,7 +16,7 @@ use rand::seq::SliceRandom;
 use seq_io::fastq::Record;
 use std::collections::HashSet;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
 use crate::metrics::{ReadSetDetails, SubsampleMetrics};
@@ -45,7 +45,7 @@ pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
 }
 
 
-fn check_settings(fastq_file: &PathBuf, out_dir: &PathBuf, genome_size: u64, subset_count: usize,
+fn check_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_count: usize,
                   min_read_depth: f64) {
     check_if_file_exists(fastq_file);
     check_if_dir_is_not_dir(out_dir);
@@ -62,8 +62,8 @@ fn starting_message() {
 }
 
 
-fn print_settings(fastq_file: &PathBuf, out_dir: &PathBuf, genome_size: u64,
-                  subset_count: usize, min_read_depth: f64, seed: u64) {
+fn print_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_count: usize,
+                  min_read_depth: f64, seed: u64) {
     eprintln!("Settings:");
     eprintln!("  --reads {}", fastq_file.display());
     eprintln!("  --out_dir {}", out_dir.display());
@@ -137,7 +137,7 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
 
 
 fn save_subsets(input_fastq: &PathBuf, subset_count: usize, input_count: usize,
-                reads_per_subset: usize, out_dir: &PathBuf, seed: u64,
+                reads_per_subset: usize, out_dir: &Path, seed: u64,
                 metrics: &mut SubsampleMetrics) {
     section_header("Subsetting reads");
     explanation("The reads are now shuffled and grouped into subset files.");
@@ -163,8 +163,8 @@ fn save_subsets(input_fastq: &PathBuf, subset_count: usize, input_count: usize,
 }
 
 
-fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &Vec<usize>,
-                     i: usize) -> HashSet<usize> {
+fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &[usize], i: usize)
+        -> HashSet<usize> {
     // For a given subsample (index i), this function returns a HashSet of the read indices which
     // will go in that subsample.
     let input_count = read_order.len();
@@ -191,7 +191,7 @@ fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &
 
 
 fn write_subsampled_reads(input_fastq: &PathBuf, subset_count: usize,
-                          subset_indices: &Vec<HashSet<usize>>, subset_files: &mut Vec<File>)
+                          subset_indices: &[HashSet<usize>], subset_files: &mut [File])
         -> Vec<Vec<u64>> {
     // This function loops through the input reads, and saves each read to the appropriate output
     // file. It also gathers up and returns the sorted read lengths for each subsampled read set.

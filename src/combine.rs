@@ -13,7 +13,7 @@
 
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
 use crate::metrics::{CombineMetrics, ResolvedClusterDetails};
@@ -50,7 +50,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
 
 fn check_settings(in_gfas: &Vec<PathBuf>) {
     for gfa in in_gfas {
-        check_if_file_exists(&gfa);
+        check_if_file_exists(gfa);
     }
 }
 
@@ -61,7 +61,7 @@ fn starting_message() {
 }
 
 
-fn print_settings(autocycler_dir: &PathBuf, in_gfas: &Vec<PathBuf>) {
+fn print_settings(autocycler_dir: &Path, in_gfas: &[PathBuf]) {
     eprintln!("Settings:");
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --in_gfas {}", in_gfas[0].display());
@@ -72,7 +72,7 @@ fn print_settings(autocycler_dir: &PathBuf, in_gfas: &Vec<PathBuf>) {
 }
 
 
-fn finished_message(combined_gfa: &PathBuf, combined_fasta: &PathBuf) {
+fn finished_message(combined_gfa: &Path, combined_fasta: &Path) {
     section_header("Finished!");
     eprintln!("Combined graph: {}", combined_gfa.display());
     eprintln!("Combined fasta: {}", combined_fasta.display());
@@ -91,7 +91,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
     let mut offset = 0;
     for gfa in in_gfas {
         eprintln!("{}", gfa.display());
-        let (graph, _) = UnitigGraph::from_gfa_file(&gfa);
+        let (graph, _) = UnitigGraph::from_gfa_file(gfa);
         graph.print_basic_graph_info();
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();

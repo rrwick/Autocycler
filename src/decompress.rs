@@ -13,7 +13,7 @@
 
 use std::io::{BufWriter, Write};
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
@@ -39,13 +39,13 @@ pub fn decompress(in_gfa: PathBuf, out_dir: Option<PathBuf>, out_file: Option<Pa
 }
 
 
-fn check_settings(in_gfa: &PathBuf, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
-    check_if_file_exists(&in_gfa);
+fn check_settings(in_gfa: &Path, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
+    check_if_file_exists(in_gfa);
     if out_dir.is_none() && out_file.is_none() {
         quit_with_error("either --out_dir or --out_file is required")
     }
     if let Some(out_dir) = out_dir {
-        check_if_dir_is_not_dir(&out_dir);
+        check_if_dir_is_not_dir(out_dir);
     }
 }
 
@@ -58,7 +58,7 @@ fn starting_message() {
 }
 
 
-fn print_settings(in_gfa: &PathBuf, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
+fn print_settings(in_gfa: &Path, out_dir: &Option<PathBuf>, out_file: &Option<PathBuf>) {
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     if let Some(out_dir) = out_dir {
@@ -71,16 +71,16 @@ fn print_settings(in_gfa: &PathBuf, out_dir: &Option<PathBuf>, out_file: &Option
 }
 
 
-fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The unitig graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
     unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
 }
 
 
-pub fn save_original_seqs_to_dir(out_dir: &PathBuf, unitig_graph: &UnitigGraph,
+pub fn save_original_seqs_to_dir(out_dir: &Path, unitig_graph: &UnitigGraph,
                                  sequences: &Vec<Sequence>) {
     section_header("Reconstructing assemblies from unitig graph");
     explanation("Each contig is reconstructed by tracing its path through the unitig graph, with \
@@ -121,7 +121,7 @@ fn save_original_seqs_to_file(out_file: &PathBuf, unitig_graph: &UnitigGraph,
                  the results saved to a file.");
     eprintln!("{}:", out_file.display());
     let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
-    let file = File::create(&out_file).unwrap();
+    let file = File::create(out_file).unwrap();
     let mut buf_writer = BufWriter::new(file);
     let mut filenames: Vec<&String> = original_seqs.keys().collect();
     filenames.sort();
@@ -129,7 +129,7 @@ fn save_original_seqs_to_file(out_file: &PathBuf, unitig_graph: &UnitigGraph,
         let headers_seqs = &original_seqs[filename];
         let clean_filename = filename.replace(" ", "_");
         for (header, seq) in headers_seqs {
-            eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(&header), seq.len());
+            eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(header), seq.len());
             writeln!(buf_writer, ">{}__{}", clean_filename, header).unwrap();
             writeln!(buf_writer, "{}", seq).unwrap();
         }

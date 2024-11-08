@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::graph_simplification::merge_linear_paths;
@@ -67,9 +67,9 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
 }
 
 
-fn check_settings(cluster_dir: &PathBuf, trimmed_gfa: &PathBuf) {
-    check_if_dir_exists(&cluster_dir);
-    check_if_file_exists(&trimmed_gfa);
+fn check_settings(cluster_dir: &Path, trimmed_gfa: &Path) {
+    check_if_dir_exists(cluster_dir);
+    check_if_file_exists(trimmed_gfa);
 }
 
 
@@ -92,14 +92,14 @@ fn apply_final_message() {
 }
 
 
-fn finished_message(final_gfa: &PathBuf) {
+fn finished_message(final_gfa: &Path) {
     section_header("Finished!");
     eprintln!("Final consensus graph: {}", final_gfa.display());
     eprintln!();
 }
 
 
-fn print_settings(cluster_dir: &PathBuf, verbose: bool) {
+fn print_settings(cluster_dir: &Path, verbose: bool) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
     if verbose {
@@ -115,10 +115,10 @@ fn load_graph(gfa_lines: &Vec<String>, print_info: bool,
         section_header("Loading graph");
         explanation("The unitig graph is now loaded into memory.");
     }
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(gfa_lines);
     if let Some(anchors) = anchors {
         for num in anchors {
-            unitig_graph.unitig_index.get(&num).unwrap().borrow_mut().anchor = true;
+            unitig_graph.unitig_index.get(num).unwrap().borrow_mut().anchor = true;
         }
     }
     if print_info {
@@ -128,7 +128,7 @@ fn load_graph(gfa_lines: &Vec<String>, print_info: bool,
 }
 
 
-fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<u32> {
+fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &[Sequence]) -> Vec<u32> {
     section_header("Finding anchor unitigs");
     explanation("Anchor unitigs are those that occur once and only once in each sequence. They \
                  will definitely be present in the final sequence and will serve as the connection \
@@ -160,7 +160,7 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Ve
 }
 
 
-fn create_bridges(graph: &UnitigGraph, sequences: &Vec<Sequence>, anchors: &Vec<u32>) -> Vec<Bridge> {
+fn create_bridges(graph: &UnitigGraph, sequences: &[Sequence], anchors: &[u32]) -> Vec<Bridge> {
     section_header("Building bridges");
     explanation("Bridges connect one anchor unitig to the next.");
     let anchor_set: HashSet<u32> = anchors.iter().cloned().collect();
@@ -176,7 +176,7 @@ fn create_bridges(graph: &UnitigGraph, sequences: &Vec<Sequence>, anchors: &Vec<
 }
 
 
-fn determine_ambiguity(bridges: &mut Vec<Bridge>) -> usize {
+fn determine_ambiguity(bridges: &mut [Bridge]) -> usize {
     // This function classifies each Bridge as conflicting or not. A Bridge is conflicting if it
     // shares its start or end unitig with another Bridge. The return value is the number of
     // conflicting Bridges.
@@ -249,7 +249,7 @@ fn reduce_depths(graph: &mut UnitigGraph, bridge: &Bridge) {
     // bridge.
     for path in &bridge.all_paths {
         for signed_num in path {
-            let mut unitig = graph.unitig_index.get(&(signed_num.abs() as u32)).unwrap().borrow_mut();
+            let mut unitig = graph.unitig_index.get(&signed_num.unsigned_abs()).unwrap().borrow_mut();
             unitig.reduce_depth_by_one();
         }
     }
@@ -331,7 +331,7 @@ fn get_anchor_to_anchor_paths(sequence_paths: &Vec<Vec<i32>>, anchor_set: &HashS
     for path in sequence_paths {
         let mut last_anchor_i: Option<usize> = None;
         for (i, &value) in path.iter().enumerate() {
-            if anchor_set.contains(&(value.abs() as u32)) {
+            if anchor_set.contains(&value.unsigned_abs()) {
                 if let Some(start) = last_anchor_i {
                     let a_to_a_forward = &path[start..=i];
                     let a_to_a_reverse = reverse_path(a_to_a_forward);
@@ -353,7 +353,7 @@ fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>) -> HashMap<(i
     let mut grouped_paths: HashMap<(i32, i32), Vec<Vec<i32>>> = HashMap::new();
     for path in anchor_to_anchor_paths {
         if let (Some(&start), Some(&end)) = (path.first(), path.last()) {
-            grouped_paths.entry((start, end)).or_insert_with(Vec::new).push(path);
+            grouped_paths.entry((start, end)).or_default().push(path);
         }
     }
     grouped_paths
@@ -393,7 +393,7 @@ impl Bridge {
         let mut best_path = Vec::new();
         let mut max_count = 0;
         for (path, count) in path_counts {
-            if count > max_count || (count == max_count && compare_paths(&path, &best_path)) {
+            if count > max_count || (count == max_count && compare_paths(path, &best_path)) {
                 best_path = path.clone();
                 max_count = count;
             }
@@ -403,7 +403,7 @@ impl Bridge {
             start,
             end,
             all_paths: trimmed_paths,
-            best_path: best_path,
+            best_path,
             conflicting: false,
         }
     }
@@ -424,11 +424,11 @@ impl Bridge {
 impl fmt::Display for Bridge {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.best_path.is_empty() {
-            write!(f, "{} {} {} ({}×)", sign_at_end(self.start), "→",
+            write!(f, "{} → {} ({}×)", sign_at_end(self.start),
                    sign_at_end(self.end), self.depth())
         } else {
-            write!(f, "{} {} {} {} {} ({}×)", sign_at_end(self.start), "→",
-                   sign_at_end_vec(&self.best_path).dimmed(), "→", sign_at_end(self.end), self.depth())
+            write!(f, "{} → {} → {} ({}×)", sign_at_end(self.start),
+                   sign_at_end_vec(&self.best_path).dimmed(), sign_at_end(self.end), self.depth())
         }
 
     }

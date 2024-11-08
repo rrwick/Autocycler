@@ -16,7 +16,7 @@ use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
@@ -51,11 +51,11 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
 }
 
 
-fn check_settings(cluster_dir: &PathBuf, untrimmed_gfa: &PathBuf, min_identity: f64, mad: f64,
+fn check_settings(cluster_dir: &Path, untrimmed_gfa: &Path, min_identity: f64, mad: f64,
                   threads: usize) {
-    check_if_dir_exists(&cluster_dir);
-    check_if_file_exists(&untrimmed_gfa);
-    if min_identity < 0.0 || min_identity > 1.0 {
+    check_if_dir_exists(cluster_dir);
+    check_if_file_exists(untrimmed_gfa);
+    if !(0.0..=1.0).contains(&min_identity) {
         quit_with_error("--min_identity must be between 0.0 and 1 (inclusive)");
     }
     if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
@@ -73,7 +73,7 @@ fn starting_message() {
 }
 
 
-fn finished_message(trimmed_gfa: &PathBuf) {
+fn finished_message(trimmed_gfa: &Path) {
     section_header("Finished!");
     explanation("You can now run autocycler resolve on this cluster. If you want to manually \
                  inspect the trimming, you can run autocycler dotplot on the sequences both before \
@@ -83,7 +83,7 @@ fn finished_message(trimmed_gfa: &PathBuf) {
 }
 
 
-fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, mad: f64,
+fn print_settings(cluster_dir: &Path, min_identity: f64, max_unitigs: usize, mad: f64,
                   threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
@@ -99,10 +99,10 @@ fn print_settings(cluster_dir: &PathBuf, min_identity: f64, max_unitigs: usize, 
 }
 
 
-fn load_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+fn load_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading graph");
     explanation("The unitig graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
     unitig_graph.print_basic_graph_info();
     (unitig_graph, sequences)
 }
@@ -118,7 +118,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
                  are searched for and trimmed if found.");
     let paths: Vec<_> = sequences.iter().map(|seq| graph.get_unitig_path_for_sequence_i32(seq)).collect();
     let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
-        let trimmed_path = trim_path_start_end(path, &weights, min_identity, max_unitigs);
+        let trimmed_path = trim_path_start_end(path, weights, min_identity, max_unitigs);
         if let Some(trimmed_path) = trimmed_path {
             let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
             (Some((trimmed_path, trimmed_length)), format!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red()))
@@ -148,7 +148,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         let mut trimmed_end = false;
 
         let path_2;
-        let trimmed_path_start = trim_path_hairpin_start(&path, &weights, min_identity, max_unitigs);
+        let trimmed_path_start = trim_path_hairpin_start(path, weights, min_identity, max_unitigs);
         if trimmed_path_start.is_some() {
             trimmed_start = true;
             path_2 = trimmed_path_start.unwrap();
@@ -157,7 +157,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         }
 
         let path_3;
-        let trimmed_path_end = trim_path_hairpin_end(&path_2, &weights, min_identity, max_unitigs);
+        let trimmed_path_end = trim_path_hairpin_end(&path_2, weights, min_identity, max_unitigs);
         if trimmed_path_end.is_some() {
             trimmed_end = true;
             path_3 = trimmed_path_end.unwrap();
@@ -189,11 +189,11 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
 
 
 fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_results: Vec<Option<(Vec<i32>, u32)>>,
-                    graph: &mut UnitigGraph, sequences: &Vec<Sequence>) -> Vec<Sequence> {
+                    graph: &mut UnitigGraph, sequences: &[Sequence]) -> Vec<Sequence> {
     let start_end_count = start_end_results.iter().filter(|x| x.is_some()).count();
     let hairpin_count = hairpin_results.iter().filter(|x| x.is_some()).count();
     if start_end_count == 0 && hairpin_count == 0 {
-        return sequences.clone();
+        return sequences.to_owned();
     }
 
     let mut trimmed_sequences = vec![];
@@ -220,7 +220,7 @@ fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_res
             graph.remove_sequence_from_graph(seq.id);
             let (path, trimmed_length) = result.as_ref().unwrap();
             let trimmed_sequence = graph.create_sequence_and_positions(seq.id, *trimmed_length, seq.filename.clone(),
-                                                                        seq.contig_header.clone(), seq.cluster, path_to_tuples(&path));
+                                                                        seq.contig_header.clone(), seq.cluster, path_to_tuples(path));
             trimmed_sequences.push(trimmed_sequence);
         }
     }
@@ -265,13 +265,13 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
                  has occurred above.");
     graph.recalculate_depths();
     graph.remove_zero_depth_unitigs();
-    merge_linear_paths(graph, &sequences, None);
+    merge_linear_paths(graph, sequences, None);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
 }
 
 
-fn save_metrics(trimmed_yaml: &PathBuf, sequences: &Vec<Sequence>) {
+fn save_metrics(trimmed_yaml: &PathBuf, sequences: &[Sequence]) {
     let seq_lengths = sequences.iter().map(|s| s.length).collect();
     let metrics = TrimmedClusterMetrics::new(seq_lengths);
     metrics.save_to_yaml(trimmed_yaml);
@@ -287,8 +287,9 @@ fn path_to_tuples(path: &[i32]) -> Vec<(u32, bool)> {
 }
 
 
-fn trim_path_start_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
-    let alignment = overlap_alignment(&path, &path, &weights, min_identity, max_unitigs, true);
+fn trim_path_start_end(path: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
+                       max_unitigs: usize) -> Option<Vec<i32>> {
+    let alignment = overlap_alignment(path, path, weights, min_identity, max_unitigs, true);
     if alignment.is_empty() { return None; }
     let midpoint_index = find_midpoint(&alignment, weights);
     let start = alignment[midpoint_index].a_index;
@@ -297,9 +298,10 @@ fn trim_path_start_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identit
 }
 
 
-fn trim_path_hairpin_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
+fn trim_path_hairpin_end(path: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
+                         max_unitigs: usize) -> Option<Vec<i32>> {
     let rev_path = reverse_path(path);
-    let mut alignment = overlap_alignment(&rev_path, &path, &weights, min_identity, max_unitigs, false);
+    let mut alignment = overlap_alignment(&rev_path, path, weights, min_identity, max_unitigs, false);
     if alignment.is_empty() { return None; }
     let mut end = 0;
     while !alignment.is_empty() {
@@ -317,12 +319,11 @@ fn trim_path_hairpin_end(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_ident
 }
 
 
-fn trim_path_hairpin_start(path: &Vec<i32>, weights: &HashMap<i32, u32>, min_identity: f64, max_unitigs: usize) -> Option<Vec<i32>> {
+fn trim_path_hairpin_start(path: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
+                           max_unitigs: usize) -> Option<Vec<i32>> {
     let rev_path = reverse_path(path);
     let trimmed_reverse_path = trim_path_hairpin_end(&rev_path, weights, min_identity, max_unitigs);
-    if trimmed_reverse_path.is_none() {
-        return None;
-    }
+    trimmed_reverse_path.as_ref()?;
     Some(reverse_path(&trimmed_reverse_path.unwrap()))
 }
 
@@ -364,8 +365,8 @@ fn trim_gaps_b_back(alignment: &mut VecDeque<AlignmentPiece>) {
 }
 
 
-fn overlap_alignment(path_a: &Vec<i32>, path_b: &Vec<i32>, weights: &HashMap<i32, u32>,
-                     min_identity: f64, max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
+fn overlap_alignment(path_a: &[i32], path_b: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
+                     max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
     // This function performs a dynamic-programming alignment to find overlaps between two paths,
     // with some special logic for Autocycler trim:
     // * Scores are weighted by the length of the unitig (matches are positive scores, mismatches
@@ -520,7 +521,7 @@ mod tests {
         let path = vec![-4, 5, -6];
         assert_eq!(path_to_tuples(&path), vec![(4, strand::REVERSE), (5, strand::FORWARD), (6, strand::REVERSE)]);
 
-        assert_eq!(path_to_tuples(&vec![]), vec![]);
+        assert_eq!(path_to_tuples(&[]), vec![]);
     }
 
     #[test]

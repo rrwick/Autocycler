@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::kmer_graph::KmerGraph;
@@ -47,7 +47,7 @@ impl UnitigGraph {
         u_graph
     }
 
-    pub fn from_gfa_file(gfa_filename: &PathBuf) -> (Self, Vec<Sequence>) {
+    pub fn from_gfa_file(gfa_filename: &Path) -> (Self, Vec<Sequence>) {
         let gfa_lines = load_file_lines(gfa_filename);
         Self::from_gfa_lines(&gfa_lines)
     }
@@ -62,9 +62,9 @@ impl UnitigGraph {
         let mut path_lines: Vec<&str> = Vec::new();
         for line in gfa_lines {
             let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
-            match parts.get(0) {
+            match parts.first() {
                 Some(&"H") => u_graph.read_gfa_header_line(&parts),
-                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(Unitig::from_segment_line(&line)))),
+                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(Unitig::from_segment_line(line)))),
                 Some(&"L") => link_lines.push(line),
                 Some(&"P") => path_lines.push(line),
                 _ => {}
@@ -188,7 +188,7 @@ impl UnitigGraph {
             }
             let reverse_kmer = k_graph.reverse(forward_kmer);
             unitig_number += 1;
-            let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, &reverse_kmer);
+            let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, reverse_kmer);
             seen.insert(forward_kmer.seq());
             seen.insert(reverse_kmer.seq());
 
@@ -199,7 +199,7 @@ impl UnitigGraph {
                 if rev_k.first_position() { break; }
                 let next_kmers = k_graph.next_kmers(for_k.seq());
                 if next_kmers.len() != 1 { break; }
-                for_k = &next_kmers[0];
+                for_k = next_kmers[0];
                 if seen.contains(for_k.seq()) { break; }
                 let prev_kmers = k_graph.prev_kmers(for_k.seq());
                 if prev_kmers.len() != 1 { break; }
@@ -217,7 +217,7 @@ impl UnitigGraph {
                 if for_k.first_position() { break; }
                 let prev_kmers = k_graph.prev_kmers(for_k.seq());
                 if prev_kmers.len() != 1 { break; }
-                for_k = &prev_kmers[0];
+                for_k = prev_kmers[0];
                 if seen.contains(for_k.seq()) { break; }
                 let next_kmers = k_graph.next_kmers(for_k.seq());
                 if next_kmers.len() != 1 { break; }
@@ -330,7 +330,7 @@ impl UnitigGraph {
             writeln!(file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand)?;
         }
         for s in sequences {
-            writeln!(file, "{}", self.get_gfa_path_line(&s))?;
+            writeln!(file, "{}", self.get_gfa_path_line(s))?;
         }
         Ok(())
     }
@@ -368,7 +368,7 @@ impl UnitigGraph {
             -> HashMap<String, Vec<(String, String)>> {
         let mut original_seqs = HashMap::new();
         for seq in seqs {
-            let (filename, header, sequence) = self.reconstruct_original_sequence(&seq);
+            let (filename, header, sequence) = self.reconstruct_original_sequence(seq);
             original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
         }
         original_seqs
@@ -378,7 +378,7 @@ impl UnitigGraph {
             -> Vec<((String, String), Vec<u8>)> {
         let mut original_seqs = Vec::new();
         for seq in seqs {
-            let (filename, _header, sequence) = self.reconstruct_original_sequence(&seq);
+            let (filename, _header, sequence) = self.reconstruct_original_sequence(seq);
             original_seqs.push(((filename, seq.contig_name()), sequence.as_bytes().to_owned()));
         }
         original_seqs.sort();
@@ -386,13 +386,13 @@ impl UnitigGraph {
     }
 
     fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
-        let path = self.get_unitig_path_for_sequence(&seq);
+        let path = self.get_unitig_path_for_sequence(seq);
         let sequence = self.get_sequence_from_path(&path);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         (seq.filename.clone(), seq.contig_header.clone(), sequence)
     }
 
-    fn get_sequence_from_path(&self, path: &Vec<(u32, bool)>) -> String {
+    fn get_sequence_from_path(&self, path: &[(u32, bool)]) -> String {
         // Given a path (vector of unitig IDs and strands), this function returns the sequence
         // traced by that path. It also requires a unitig index so it can quickly look up unitigs
         // by their number.
@@ -404,8 +404,8 @@ impl UnitigGraph {
         sequence.into_iter().collect()
     }
 
-    pub fn get_sequence_from_path_signed(&self, path: &Vec<i32>) -> Vec<u8> {
-        let path: Vec<_> = path.iter().map(|&x| (x.abs() as u32, x >= 0)).collect();
+    pub fn get_sequence_from_path_signed(&self, path: &[i32]) -> Vec<u8> {
+        let path: Vec<_> = path.iter().map(|&x| (x.unsigned_abs(), x >= 0)).collect();
         self.get_sequence_from_path(&path).as_bytes().to_owned()
     }
 
@@ -656,7 +656,7 @@ impl UnitigGraph {
 
     pub fn delete_outgoing_links(&mut self, signed_num: i32) {
         let strand = if signed_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let unitig_num = signed_num.abs() as u32;
+        let unitig_num = signed_num.unsigned_abs();
         let next_numbers: Vec<i32> = {
             let unitig = self.unitig_index.get(&unitig_num).unwrap().borrow();
             let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next }; 
@@ -669,7 +669,7 @@ impl UnitigGraph {
 
     pub fn delete_incoming_links(&mut self, signed_num: i32) {
         let strand = if signed_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let unitig_num = signed_num.abs() as u32;
+        let unitig_num = signed_num.unsigned_abs();
         let prev_numbers: Vec<i32> = {
             let unitig = self.unitig_index.get(&unitig_num).unwrap().borrow();
             let prev_unitigs = if strand { &unitig.forward_prev } else { &unitig.reverse_prev }; 
@@ -688,8 +688,8 @@ impl UnitigGraph {
     fn delete_link_one_way(&mut self, start_num: i32, end_num: i32) {
         let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
         let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let start_num = start_num.abs() as u32;
-        let end_num = end_num.abs() as u32;
+        let start_num = start_num.unsigned_abs();
+        let end_num = end_num.unsigned_abs();
         let start_rc = self.unitig_index.get(&start_num).unwrap();
         let end_rc = self.unitig_index.get(&end_num).unwrap();
 
@@ -736,19 +736,19 @@ impl UnitigGraph {
     fn create_link_one_way(&mut self, start_num: i32, end_num: i32) {
         let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
         let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let start_num = start_num.abs() as u32;
-        let end_num = end_num.abs() as u32;
+        let start_num = start_num.unsigned_abs();
+        let end_num = end_num.unsigned_abs();
         let start_rc = self.unitig_index.get(&start_num).unwrap();
         let end_rc = self.unitig_index.get(&end_num).unwrap();
         {
             let mut start = start_rc.borrow_mut();
-            let connection = UnitigStrand { unitig: Rc::clone(&end_rc), strand: end_strand };
+            let connection = UnitigStrand { unitig: Rc::clone(end_rc), strand: end_strand };
             let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
             next_unitigs.push(connection);
         }
         {
             let mut end = end_rc.borrow_mut();
-            let reverse_connection = UnitigStrand { unitig: Rc::clone(&start_rc), strand: start_strand };
+            let reverse_connection = UnitigStrand { unitig: Rc::clone(start_rc), strand: start_strand };
             let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
             prev_unitigs.push(reverse_connection);
         }
@@ -808,7 +808,7 @@ impl UnitigGraph {
         connections
     }
 
-    pub fn component_is_circular_loop(&self, component: &Vec<u32>) -> bool {
+    pub fn component_is_circular_loop(&self, component: &[u32]) -> bool {
         // Given a connected component of the graph, this function returns whether or not it forms
         // a simple circular loop.
         if component.is_empty() { return false; }
@@ -911,10 +911,10 @@ mod tests {
 
     #[test]
     fn test_reverse_path() {
-        assert_eq!(reverse_path(&vec![(1, strand::FORWARD), (2, strand::REVERSE)]),
-                                 vec![(2, strand::FORWARD), (1, strand::REVERSE)]);
-        assert_eq!(reverse_path(&vec![(4, strand::FORWARD), (8, strand::FORWARD), (3, strand::REVERSE)]),
-                                 vec![(3, strand::FORWARD), (8, strand::REVERSE), (4, strand::REVERSE)]);
+        assert_eq!(reverse_path(&[(1, strand::FORWARD), (2, strand::REVERSE)]),
+                             vec![(2, strand::FORWARD), (1, strand::REVERSE)]);
+        assert_eq!(reverse_path(&[(4, strand::FORWARD), (8, strand::FORWARD), (3, strand::REVERSE)]),
+                             vec![(3, strand::FORWARD), (8, strand::REVERSE), (4, strand::REVERSE)]);
     }
 
     #[test]
@@ -1115,18 +1115,18 @@ mod tests {
     fn test_get_sequence_from_path() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
-        assert_eq!(graph.get_sequence_from_path(&vec![(10, true), (8, false), (4, false), (1, false), (3, true)]),
+        assert_eq!(graph.get_sequence_from_path(&[(10, true), (8, false), (4, false), (1, false), (3, true)]),
                    "TAGATCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCCTGAATCGCCTA".to_string());
-        assert_eq!(graph.get_sequence_from_path(&vec![(5, true), (6, true), (6, false), (5, false)]),
+        assert_eq!(graph.get_sequence_from_path(&[(5, true), (6, true), (6, false), (5, false)]),
                    "CGAACCATTACTTGTACAAGTAATGGTTCG".to_string());
-        assert_eq!(graph.get_sequence_from_path(&vec![(3, false), (1, true), (4, true), (7, false), (9, false), (7, true), (4, false), (1, false), (2, false)]),
+        assert_eq!(graph.get_sequence_from_path(&[(3, false), (1, true), (4, true), (7, false), (9, false), (7, true), (4, false), (1, false), (2, false)]),
                    "TAGGCGATTCAGGCATTCGCTGCGCTCGCTTCGCTTTGCTCGGCTCGAAGGCGCGCCTTCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCACAGCGACGACGGCA".to_string());
 
-        assert_eq!(graph.get_sequence_from_path_signed(&vec![10, -8, -4, -1, 3]),
+        assert_eq!(graph.get_sequence_from_path_signed(&[10, -8, -4, -1, 3]),
                    "TAGATCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCCTGAATCGCCTA".as_bytes());
-        assert_eq!(graph.get_sequence_from_path_signed(&vec![5, 6, -6, -5]),
+        assert_eq!(graph.get_sequence_from_path_signed(&[5, 6, -6, -5]),
                    "CGAACCATTACTTGTACAAGTAATGGTTCG".as_bytes());
-        assert_eq!(graph.get_sequence_from_path_signed(&vec![-3, 1, 4, -7, -9, 7, -4, -1, -2]),
+        assert_eq!(graph.get_sequence_from_path_signed(&[-3, 1, 4, -7, -9, 7, -4, -1, -2]),
                    "TAGGCGATTCAGGCATTCGCTGCGCTCGCTTCGCTTTGCTCGGCTCGAAGGCGCGCCTTCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCACAGCGACGACGGCA".as_bytes());
     }
 
@@ -1151,27 +1151,27 @@ mod tests {
     #[test]
     fn test_component_is_circular_loop() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
-        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+        assert!(!graph.component_is_circular_loop(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
-        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3]));
+        assert!(!graph.component_is_circular_loop(&[1, 2, 3]));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
-        assert!(!graph.component_is_circular_loop(&vec![1, 2, 3, 4, 5, 6, 7]));
+        assert!(!graph.component_is_circular_loop(&[1, 2, 3, 4, 5, 6, 7]));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
-        assert!(graph.component_is_circular_loop(&vec![1, 2, 3]));
-        assert!(graph.component_is_circular_loop(&vec![3, 2, 1]));
-        assert!(graph.component_is_circular_loop(&vec![2, 3, 1]));
-        assert!(graph.component_is_circular_loop(&vec![4, 5]));
-        assert!(graph.component_is_circular_loop(&vec![5, 4]));
+        assert!(graph.component_is_circular_loop(&[1, 2, 3]));
+        assert!(graph.component_is_circular_loop(&[3, 2, 1]));
+        assert!(graph.component_is_circular_loop(&[2, 3, 1]));
+        assert!(graph.component_is_circular_loop(&[4, 5]));
+        assert!(graph.component_is_circular_loop(&[5, 4]));
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
-        assert!(!graph.component_is_circular_loop(&vec![1, 5]));
-        assert!(!graph.component_is_circular_loop(&vec![2]));
-        assert!(!graph.component_is_circular_loop(&vec![3, 6]));
-        assert!(graph.component_is_circular_loop(&vec![4]));
-        assert!(!graph.component_is_circular_loop(&vec![]));
+        assert!(!graph.component_is_circular_loop(&[1, 5]));
+        assert!(!graph.component_is_circular_loop(&[2]));
+        assert!(!graph.component_is_circular_loop(&[3, 6]));
+        assert!(graph.component_is_circular_loop(&[4]));
+        assert!(!graph.component_is_circular_loop(&[]));
     }
 
     #[test]

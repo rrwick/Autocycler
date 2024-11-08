@@ -94,7 +94,7 @@ impl Unitig {
         let bridge = parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) ||
                      parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
         Unitig {
-            number: number,
+            number,
             forward_kmers: VecDeque::new(),
             reverse_kmers: VecDeque::new(),
             forward_seq,
@@ -221,7 +221,7 @@ impl Unitig {
         self.reverse_seq = self.reverse_seq[..self.reverse_seq.len() - overlap].to_vec();
         self.forward_seq = self.forward_seq[..self.forward_seq.len() - overlap].to_vec();
         self.reverse_seq = self.reverse_seq[overlap..].to_vec();
-        assert!(self.forward_seq.len() >= 1);
+        assert!(!self.forward_seq.is_empty());
     }
 
     pub fn gfa_segment_line(&self) -> String {
@@ -379,7 +379,7 @@ impl UnitigStrand {
     pub fn new(unitig: &Rc<RefCell<Unitig>>, strand: bool) -> Self {
         UnitigStrand {
             unitig: Rc::clone(unitig),
-            strand: strand,
+            strand,
         }
     }
 
@@ -456,12 +456,12 @@ mod tests {
         u.add_kmer_to_end(&forward_k3, &reverse_k3);
         u.simplify_seqs();
 
-        assert_eq!(u.length(), 7 as u32);
+        assert_eq!(u.length(), 7_u32);
         assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCATAGC");
         assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "GCTATGC");
 
         u.trim_overlaps(k_size as usize);
-        assert_eq!(u.length(), 3 as u32);
+        assert_eq!(u.length(), 3_u32);
         assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "ATA");
         assert_eq!(std::str::from_utf8(&u.reverse_seq).unwrap(), "TAT");
     }

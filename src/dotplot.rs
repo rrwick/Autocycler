@@ -16,7 +16,7 @@ use image::{RgbImage, Rgb, ImageBuffer};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
 use crate::misc::{first_char_in_file, quit_with_error, reverse_complement, spinner,
@@ -87,7 +87,7 @@ fn starting_message() {
 }
 
 
-fn print_settings(input: &PathBuf, res: u32, kmer: u32) {
+fn print_settings(input: &Path, res: u32, kmer: u32) {
     eprintln!("Settings:");
     eprintln!("  --input {}", input.display());
     eprintln!("  --res {}", res);
@@ -96,7 +96,7 @@ fn print_settings(input: &PathBuf, res: u32, kmer: u32) {
 }
 
 
-fn finished_message(out_png: &PathBuf) {
+fn finished_message(out_png: &Path) {
     section_header("Finished!");
     eprintln!("Pairwise dotplots: {}", out_png.display());
     eprintln!();
@@ -106,27 +106,27 @@ fn finished_message(out_png: &PathBuf) {
 fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<((String, String), Vec<u8>)> {
     let seqs = match input_type {
         InputType::GFA => {
-            let (graph, sequences) = load_from_graph(&input);
+            let (graph, sequences) = load_from_graph(input);
             graph.reconstruct_original_sequences_u8(&sequences)
         },
         InputType::FASTA => {
-            load_from_fasta(&input)
+            load_from_fasta(input)
         }
         InputType::Directory => {
-            load_from_directory(&input)
+            load_from_directory(input)
         }
     };
-    if seqs.len() == 0 {
+    if seqs.is_empty() {
         quit_with_error("no sequences were loaded")
     }
     seqs
 }
 
 
-fn load_from_graph(gfa: &PathBuf) -> (UnitigGraph, Vec<Sequence>) {
+fn load_from_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from the provided unitig graph.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa);
+    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
     for s in &sequences {
         eprintln!("{}", s);
     }
@@ -139,7 +139,7 @@ fn load_from_fasta(filename: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from the provided FASTA file.");
     let mut seqs = Vec::new();
-    for (name, _, seq) in load_fasta(&filename) {
+    for (name, _, seq) in load_fasta(filename) {
         eprintln!("{} ({} bp)", name, seq.len());
         seqs.push(((String::new(), name), seq.as_bytes().to_owned()));
     }
@@ -155,7 +155,7 @@ fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
     let assemblies = find_all_assemblies(dir);
     for assembly in &assemblies {
         let filename = assembly.file_name().and_then(|name| name.to_str()).map(|s| s.to_string()).unwrap();
-        for (name, _, seq) in load_fasta(&assembly) {
+        for (name, _, seq) in load_fasta(assembly) {
             eprintln!("{} {} ({} bp)", filename, name, seq.len());
             seqs.push(((filename.clone(), name), seq.as_bytes().to_owned()));
         }
@@ -187,7 +187,7 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
     let (start_positions, end_positions, bp_per_pixel) =
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, true);
-    draw_labels(&mut img, &seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
+    draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
                 false);
 
     let mut count = 0;
@@ -204,7 +204,7 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
 
     // The boxes are drawn once more, this time with no fill, to overwrite any dots which leaked
     // into the outline.
-    draw_sequence_boxes(&mut img, &seqs, &start_positions, &end_positions, false);
+    draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, false);
 
     img.save(png_filename).unwrap();
     pb.finish_and_clear();
@@ -285,7 +285,7 @@ fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>
             let start_b = start_positions[name_b] - 1;
             let end_b = end_positions[name_b] + 2;
             let rect = Rect::at(start_a as i32, start_b as i32)
-                .of_size((end_a - start_a) as u32, (end_b - start_b) as u32);
+                .of_size(end_a - start_a, end_b - start_b);
             if fill {
                 let fill_colour = if name_a == name_b { SELF_VS_SELF_COLOUR }
                                                  else { SELF_VS_OTHER_COLOUR };
@@ -312,8 +312,8 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
         let start = start_positions[name];
         let end = end_positions[name];
         available_width = (end - start) as f32;
-        let text_width = calculate_text_width(&filename, scale, &font).max(
-                         calculate_text_width(&contig_name, scale, &font));
+        let text_width = calculate_text_width(filename, scale, font).max(
+                         calculate_text_width(contig_name, scale, font));
         if text_width > available_width {
             text_height_f32 *= available_width / text_width;
             scale = PxScale::from(text_height_f32);
@@ -339,8 +339,8 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
         draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, filename);
 
         // Vertical labels on the left side.
-        draw_vertical_text(img, text_width, text_height, contig_name, pos_1, end, &scale, &font);
-        draw_vertical_text(img, text_width, text_height, filename, pos_2, end, &scale, &font);
+        draw_vertical_text(img, text_width, text_height, contig_name, pos_1, end, &scale, font);
+        draw_vertical_text(img, text_width, text_height, filename, pos_2, end, &scale, font);
     }
     text_height_f32
 }
@@ -425,9 +425,9 @@ fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a
     let seq_len = seq.len() - kmer_size + 1;
     for i in 0..seq_len {
         let forward_kmer = &seq[i..i+kmer_size];
-        forward_kmers.entry(forward_kmer).or_insert_with(Vec::new).push(i as u32);
+        forward_kmers.entry(forward_kmer).or_default().push(i as u32);
         let reverse_kmer = &rev_comp_seq[i..i+kmer_size];
-        reverse_kmers.entry(reverse_kmer).or_insert_with(Vec::new).push((seq_len - i - 1) as u32);
+        reverse_kmers.entry(reverse_kmer).or_default().push((seq_len - i - 1) as u32);
     }
     assert!(forward_kmers.len() < seq.len());
     assert!(reverse_kmers.len() < seq.len());
