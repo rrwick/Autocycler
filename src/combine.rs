@@ -99,7 +99,11 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fas
             let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
             let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
                                                        else { "".to_string() };
-            writeln!(gfa_file, "S\t{}\t{}{}", unitig_num, unitig_seq, unitig.colour_tag()).unwrap();
+            let mut colour_tag = unitig.colour_tag();
+            if colour_tag.is_empty() {
+                colour_tag = "\tCL:z:orangered".to_string();
+            }
+            writeln!(gfa_file, "S\t{}\t{}{}", unitig_num, unitig_seq, colour_tag).unwrap();
             writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), circ).unwrap();
             writeln!(fasta_file, "{}", unitig_seq).unwrap();
         }

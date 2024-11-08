@@ -34,8 +34,12 @@ pub struct Unitig {
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
+
+    // TODO: I might want to drop anchor and bridge and instead create a unitig-type enum that
+    //       can cover all options: anchor, bridge, consentig, etc.
     pub anchor: bool,
     pub bridge: bool,
+
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
     pub forward_next: Vec<UnitigStrand>,
