@@ -225,14 +225,14 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
     for line in reader.lines() {
         let text = line?;
         if text.is_empty() {continue;}
-        if text.starts_with('>') {
+        if let Some(text) = text.strip_prefix('>') {
             if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
             }
-            header = text[1..].to_string();
-            let first_piece = text[1..].split_whitespace().next();
+            header = text.to_string();
+            let first_piece = text.split_whitespace().next();
             match first_piece {
                 Some(_) => (),
                 None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
@@ -263,14 +263,14 @@ fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, Str
     for line in reader.lines() {
         let text = line?;
         if text.is_empty() {continue;}
-        if text.starts_with('>') {
+        if let Some(text) = text.strip_prefix('>') {
             if !name.is_empty() {
                 sequence.make_ascii_uppercase();
                 fasta_seqs.push((name, header, sequence));
                 sequence = String::new();
             }
-            header = text[1..].to_string();
-            let first_piece = header.split_whitespace().next();
+            header = text.to_string();
+            let first_piece = text.split_whitespace().next();
             match first_piece {
                 Some(_) => (),
                 None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
@@ -682,5 +682,21 @@ mod tests {
 
         make_gzipped_test_file(&filename, "XYZ");
         assert_eq!(first_char_in_file(&filename).unwrap(), 'X');
+    }
+
+    #[test]
+    fn test_load_fasta() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
+        let fasta = load_fasta_not_gzipped(&filename).unwrap();
+        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
+                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+
+        make_gzipped_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
+        let fasta = load_fasta_gzipped(&filename).unwrap();
+        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
+                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
     }
 }

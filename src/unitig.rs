@@ -119,7 +119,7 @@ impl Unitig {
         // This constructor is for manually building a Unitig object from a sequence and positions.
         // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
         let reverse_seq = reverse_complement(&forward_seq);
-        let depth = if depth.is_none() { forward_positions.len() as f64 } else { depth.unwrap() };
+        let depth = if let Some(d) = depth { d } else { forward_positions.len() as f64 };
         Unitig {
             number,
             forward_kmers: VecDeque::new(),

@@ -60,7 +60,7 @@ fn check_settings(res: u32, kmer: u32) {
 }
 
 
-enum InputType { GFA, FASTA, Directory }
+enum InputType { Gfa, Fasta, Directory }
 
 fn determine_input_type(input: &PathBuf) -> InputType {
     if input.is_dir() {
@@ -71,8 +71,8 @@ fn determine_input_type(input: &PathBuf) -> InputType {
     }
     let first_char = first_char_in_file(input).unwrap();
     match first_char {
-        '>' => InputType::FASTA,
-        'H' | 'S' => InputType::GFA,
+        '>' => InputType::Fasta,
+        'H' | 'S' => InputType::Gfa,
         _ => {
             quit_with_error("--input is neither GFA or FASTA");
         }
@@ -105,11 +105,11 @@ fn finished_message(out_png: &Path) {
 
 fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<((String, String), Vec<u8>)> {
     let seqs = match input_type {
-        InputType::GFA => {
+        InputType::Gfa => {
             let (graph, sequences) = load_from_graph(input);
             graph.reconstruct_original_sequences_u8(&sequences)
         },
-        InputType::FASTA => {
+        InputType::Fasta => {
             load_from_fasta(input)
         }
         InputType::Directory => {
@@ -348,10 +348,10 @@ fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
 
 fn calculate_text_width(text: &str, scale: PxScale, font: &FontArc) -> f32 {
     let scaled_font = font.as_scaled(scale);
-    text.chars().filter_map(|c| {
-                    let glyph_id = scaled_font.glyph_id(c);
-                    Some(scaled_font.h_advance(glyph_id))
-                }).sum()
+    text.chars().map(|c| {
+        let glyph_id = scaled_font.glyph_id(c);
+        scaled_font.h_advance(glyph_id)
+    }).sum()
 }
 
 

@@ -28,7 +28,7 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new_with_seq(id: u16, seq: String, filename: String, contig_header: String,
+    pub fn new_with_seq(id: usize, seq: String, filename: String, contig_header: String,
                         length: usize, half_k: u32) -> Sequence {
         // This constructor creates a Sequence object with the actual sequence stored. This is used
         // when creating a k-mer graph from Sequences, because the actual sequence is needed to get
@@ -48,7 +48,7 @@ impl Sequence {
         let reverse_seq = reverse_complement(&forward_seq);
 
         Sequence {
-            id,
+            id: id as u16,
             forward_seq,
             reverse_seq,
             filename,

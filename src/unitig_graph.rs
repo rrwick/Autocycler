@@ -83,8 +83,8 @@ impl UnitigGraph {
 
     fn read_gfa_header_line(&mut self, parts: &Vec<&str>) {
         for &p in parts {
-            if p.starts_with("KM:i:") {
-                if let Ok(k) = p[5..].parse::<u32>() {
+            if let Some(tag_val) = p.strip_prefix("KM:i:") {
+                if let Ok(k) = tag_val.parse::<u32>() {
                     self.k_size = k;
                     return;
                 }
@@ -130,14 +130,14 @@ impl UnitigGraph {
             let mut header = None;
             let mut cluster = 0;
             for p in &parts[2..] {
-                if p.starts_with("LN:i:") {
-                    length = Some(p[5..].parse::<u32>().expect("Error parsing length"));
-                } else if p.starts_with("FN:Z:") {
-                    filename = Some(p[5..].to_string());
-                } else if p.starts_with("HD:Z:") {
-                    header = Some(p[5..].to_string());
-                } else if p.starts_with("CL:i:") {
-                    cluster = p[5..].parse::<u16>().expect("Error parsing cluster");
+                if let Some(tag_val) = p.strip_prefix("LN:i:") {
+                    length = Some(tag_val.parse::<u32>().expect("Error parsing length"));
+                } else if let Some(tag_val) = p.strip_prefix("FN:Z:") {
+                    filename = Some(tag_val.to_string());
+                } else if let Some(tag_val) = p.strip_prefix("HD:Z:") {
+                    header = Some(tag_val.to_string());
+                } else if let Some(tag_val) = p.strip_prefix("CL:i:") {
+                    cluster = tag_val.parse::<u16>().expect("Error parsing cluster");
                 }
             }
             if length.is_none() || filename.is_none() || header.is_none() {

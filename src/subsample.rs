@@ -11,6 +11,8 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(clippy::needless_range_loop)]
+
 use rand::{rngs::StdRng, SeedableRng};
 use rand::seq::SliceRandom;
 use seq_io::fastq::Record;

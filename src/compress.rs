@@ -85,11 +85,10 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, metrics: &mut Input
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
     let half_k = k_size / 2;
-    let mut seq_id = 0usize;
+    let mut seq_id: usize = 0;
     let mut sequences = Vec::new();
     for assembly in &assemblies {
-        let mut assembly_details = InputAssemblyDetails::default();
-        assembly_details.filename = assembly.to_string_lossy().to_string();
+        let mut assembly_details = InputAssemblyDetails::new(assembly);
         for (name, header, seq) in load_fasta(assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize { continue; }
@@ -100,13 +99,8 @@ pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, metrics: &mut Input
             }
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
-            let seq = Sequence::new_with_seq(seq_id as u16, seq, filename, contig_header,
-                                             seq_len, half_k);
-            let mut contig_details = InputContigDetails::default();
-            contig_details.name = seq.contig_name();
-            contig_details.description = seq.contig_description();
-            contig_details.length = seq.length as u64;
-            assembly_details.contigs.push(contig_details);
+            let seq = Sequence::new_with_seq(seq_id, seq, filename, contig_header, seq_len, half_k);
+            assembly_details.contigs.push(InputContigDetails::new(&seq));
             sequences.push(seq);
         }
         metrics.input_assembly_details.push(assembly_details);

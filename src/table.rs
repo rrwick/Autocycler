@@ -24,10 +24,10 @@ use crate::misc::{check_if_dir_exists, quit_with_error, format_float_sigfigs};
 pub fn table(autocycler_dir: Option<PathBuf>, name: String, fields: String, sigfigs: usize) {
     check_settings(&autocycler_dir, sigfigs);
     let fields = parse_fields(fields);
-    if autocycler_dir.is_none() {
-        print_header(fields);
+    if let Some(autocycler_dir) = autocycler_dir {
+        print_values(autocycler_dir, name, fields, sigfigs);
     } else {
-        print_values(autocycler_dir.unwrap(), name, fields, sigfigs);
+        print_header(fields);
     }
 }
 

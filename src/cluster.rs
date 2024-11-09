@@ -239,9 +239,8 @@ impl TreeNode {
     }
 
     fn collect_clusters(&self, cutoff: f64, manual_clusters: &[u16], clusters: &mut Vec<u16>) {
-        if manual_clusters.contains(&self.id) {
-            clusters.push(self.id);
-        } else if self.distance <= cutoff && !self.has_manual_child(manual_clusters) {
+        if manual_clusters.contains(&self.id) ||
+                (self.distance <= cutoff && !self.has_manual_child(manual_clusters)) {
             clusters.push(self.id);
         } else if !self.is_tip() {
             self.left.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
@@ -395,8 +394,7 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
 }
 
 
-fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>)
-        -> TreeNode {
+fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
     section_header("Clustering sequences");
     explanation("Contigs are organise into a tree using UPGMA. Then clusters are defined from the \
                  tree using the distance cutoff.");
@@ -475,10 +473,8 @@ fn get_closest_pair(distances: &HashMap<(u16, u16), f64>) -> (u16, u16, f64) {
     unique_keys.sort_unstable();
     unique_keys.dedup();
 
-    for i in 0..unique_keys.len() {
-        let a = unique_keys[i];
-        for j in i + 1..unique_keys.len() {
-            let b = unique_keys[j];
+    for (i, &a) in unique_keys.iter().enumerate() {
+        for &b in unique_keys.iter().skip(i + 1) {
             if let Some(&dist) = distances.get(&(a, b)).or_else(|| distances.get(&(b, a))) {
                 if dist < min_distance {
                     min_distance = dist;
@@ -638,8 +634,8 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequenc
     // This function automatically sets the --min_assemblies parameter, if the user didn't
     // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
     // but no less than 2, unless there is only one input assembly, in which case it will be 1.
-    if min_assemblies_option.is_some() {
-        return min_assemblies_option.unwrap();
+    if let Some(min_assemblies) = min_assemblies_option {
+        return min_assemblies;
     }
     let assembly_count = get_assembly_count(sequences);
     if assembly_count == 1 {

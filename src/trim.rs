@@ -11,6 +11,8 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(clippy::needless_range_loop)]
+
 use colored::Colorize;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
@@ -120,7 +122,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
     let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
         let trimmed_path = trim_path_start_end(path, weights, min_identity, max_unitigs);
         if let Some(trimmed_path) = trimmed_path {
-            let trimmed_length: u32 = trimmed_path.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+            let trimmed_length: u32 = trimmed_path.iter().map(|&u| weights[&u.abs()]).sum();
             (Some((trimmed_path, trimmed_length)), format!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red()))
         } else {
             (None, format!("{}: {}", seq, "not trimmed".green()))
@@ -169,7 +171,7 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
             (None, format!("{}: {}", seq, "not trimmed".green()))
         } else {
             let message;
-            let trimmed_length: u32 = path_3.iter().filter_map(|&u| Some(weights[&u.abs()])).sum();
+            let trimmed_length: u32 = path_3.iter().map(|&u| weights[&u.abs()]).sum();
             if trimmed_start && trimmed_end {
                 message = format!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
             } else if trimmed_start {
@@ -482,10 +484,12 @@ fn overlap_alignment(path_a: &[i32], path_b: &[i32], weights: &HashMap<i32, u32>
 
 
 fn find_midpoint(alignment: &VecDeque<AlignmentPiece>, weights: &HashMap<i32, u32>) -> usize {
-    let total_weight = alignment.iter().filter_map(|p| { let mut weight = 0;
-                                                         if p.a_unitig != GAP { weight += weights[&p.a_unitig.abs()]; }
-                                                         if p.b_unitig != GAP { weight += weights[&p.b_unitig.abs()]; }
-                                                         Some(weight) }).sum::<u32>();
+    let total_weight = alignment.iter().map(|p| {
+        let mut weight = 0;
+        if p.a_unitig != GAP { weight += weights[&p.a_unitig.abs()]; }
+        if p.b_unitig != GAP { weight += weights[&p.b_unitig.abs()]; }
+        weight
+    }).sum::<u32>();
     let mut cumulative_weight = 0;
     let mut best_index = 0;
     let mut best_closeness = 1.0;

@@ -15,9 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::misc::{median_usize, mad_usize};
+use crate::sequence::Sequence;
 
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -78,12 +79,31 @@ pub struct InputAssemblyDetails {
     pub contigs: Vec<InputContigDetails>
 }
 
+impl InputAssemblyDetails {
+    pub fn new(filename: &Path) -> Self {
+        InputAssemblyDetails {
+            filename: filename.to_string_lossy().to_string(),
+            contigs: Vec::new(),
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct InputContigDetails {
     pub name: String,
     pub description: String,
     pub length: u64,
+}
+
+impl InputContigDetails {
+    pub fn new(seq: &Sequence) -> Self {
+        InputContigDetails {
+            name: seq.contig_name(),
+            description: seq.contig_description(),
+            length: seq.length as u64,
+        }
+    }
 }
 
 

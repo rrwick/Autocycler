@@ -160,7 +160,7 @@ fn avoid_zero_len_unitigs(common_seq: &mut Vec<u8>, sources: &[UnitigStrand], tr
 }
 
 
-fn avoid_start_of_path(common_seq: &mut Vec<u8>, destination_rc: &Rc<RefCell<Unitig>>,
+fn avoid_start_of_path(common_seq: &mut Vec<u8>, dest_rc: &Rc<RefCell<Unitig>>,
                        trim_from_start: bool) {
     // This function takes some common sequence (sequence that will be shifted from some unitigs
     // onto another) and trims it down to ensure that the destination unitig's positions will not
@@ -169,11 +169,11 @@ fn avoid_start_of_path(common_seq: &mut Vec<u8>, destination_rc: &Rc<RefCell<Uni
         return;
     }
     if trim_from_start {
-        while let Some(_) = destination_rc.borrow().forward_positions.iter().find(|p| p.pos <= common_seq.len() as u32) {
+        while dest_rc.borrow().forward_positions.iter().any(|p| p.pos <= common_seq.len() as u32) {
             common_seq.remove(0);
         }
     } else {
-        while let Some(_) = destination_rc.borrow().reverse_positions.iter().find(|p| p.pos <= common_seq.len() as u32) {
+        while dest_rc.borrow().reverse_positions.iter().any(|p| p.pos <= common_seq.len() as u32) {
             common_seq.pop();
         }
     }
