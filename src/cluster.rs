@@ -194,7 +194,7 @@ fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TreeNode {
     id: u16,
     left: Option<Box<TreeNode>>,
@@ -406,12 +406,7 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) ->
     // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences {
         clusters.insert(seq.id, HashSet::from([seq.id]));
-        nodes.insert(seq.id, TreeNode {
-            id: seq.id,
-            left: None,
-            right: None,
-            distance: 0.0,
-        });
+        nodes.insert(seq.id, TreeNode { id: seq.id, ..Default::default() });
     }
 
     while clusters.len() > 1 {
@@ -1028,31 +1023,29 @@ mod tests {
 
     fn test_tree_1() -> TreeNode {
         // Generates this tree: (1:0.5,(2:0.3,(3:0.2,(4:0.1,5:0.1):0.1):0.1):0.2);
-        let n1 = TreeNode { id: 1, left: None, right: None, distance: 0.0 };
-        let n2 = TreeNode { id: 2, left: None, right: None, distance: 0.0 };
-        let n3 = TreeNode { id: 3, left: None, right: None, distance: 0.0 };
-        let n4 = TreeNode { id: 4, left: None, right: None, distance: 0.0 };
-        let n5 = TreeNode { id: 5, left: None, right: None, distance: 0.0 };
+        let n1 = TreeNode { id: 1, ..Default::default() };
+        let n2 = TreeNode { id: 2, ..Default::default() };
+        let n3 = TreeNode { id: 3, ..Default::default() };
+        let n4 = TreeNode { id: 4, ..Default::default() };
+        let n5 = TreeNode { id: 5, ..Default::default() };
         let n6 = TreeNode { id: 6, left: Some(Box::new(n4)), right: Some(Box::new(n5)), distance: 0.1 };
         let n7 = TreeNode { id: 7, left: Some(Box::new(n3)), right: Some(Box::new(n6)), distance: 0.2 };
         let n8 = TreeNode { id: 8, left: Some(Box::new(n2)), right: Some(Box::new(n7)), distance: 0.3 };
-
         TreeNode { id: 9, left: Some(Box::new(n1)), right: Some(Box::new(n8)), distance: 0.5 }
     }
 
     fn test_tree_2() -> TreeNode {
         // Generates this tree: (1:0.5,((2:0.1,3:0.1):0.2,(4:0.2,(5:0.1,6:0.1):0.1):0.1):0.2);
-        let n1 = TreeNode { id: 1, left: None, right: None, distance: 0.0 };
-        let n2 = TreeNode { id: 2, left: None, right: None, distance: 0.0 };
-        let n3 = TreeNode { id: 3, left: None, right: None, distance: 0.0 };
-        let n4 = TreeNode { id: 4, left: None, right: None, distance: 0.0 };
-        let n5 = TreeNode { id: 5, left: None, right: None, distance: 0.0 };
-        let n6 = TreeNode { id: 6, left: None, right: None, distance: 0.0 };
+        let n1 = TreeNode { id: 1, ..Default::default() };
+        let n2 = TreeNode { id: 2, ..Default::default() };
+        let n3 = TreeNode { id: 3, ..Default::default() };
+        let n4 = TreeNode { id: 4, ..Default::default() };
+        let n5 = TreeNode { id: 5, ..Default::default() };
+        let n6 = TreeNode { id: 6, ..Default::default() };
         let n7 = TreeNode { id: 7, left: Some(Box::new(n2)), right: Some(Box::new(n3)), distance: 0.1 };
         let n8 = TreeNode { id: 8, left: Some(Box::new(n5)), right: Some(Box::new(n6)), distance: 0.1 };
         let n9 = TreeNode { id: 9, left: Some(Box::new(n4)), right: Some(Box::new(n8)), distance: 0.2 };
         let n10 = TreeNode { id: 10, left: Some(Box::new(n7)), right: Some(Box::new(n9)), distance: 0.3 };
-
         TreeNode { id: 11, left: Some(Box::new(n1)), right: Some(Box::new(n10)), distance: 0.5 }
     }
 

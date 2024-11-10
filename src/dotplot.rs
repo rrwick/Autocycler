@@ -103,11 +103,20 @@ fn finished_message(out_png: &Path) {
 }
 
 
-fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<((String, String), Vec<u8>)> {
+#[derive(Eq, Hash, PartialEq, Clone)]
+struct FileSeqName {
+    filename: String,
+    seqname: String,
+}
+
+
+fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<(FileSeqName, Vec<u8>)> {
     let seqs = match input_type {
         InputType::Gfa => {
             let (graph, sequences) = load_from_graph(input);
-            graph.reconstruct_original_sequences_u8(&sequences)
+            let reconstructed = graph.reconstruct_original_sequences_u8(&sequences);
+            reconstructed.into_iter().map(|((filename, seqname), seq)|
+                                          (FileSeqName { filename, seqname }, seq)).collect()
         },
         InputType::Fasta => {
             load_from_fasta(input)
@@ -135,20 +144,21 @@ fn load_from_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn load_from_fasta(filename: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
+fn load_from_fasta(filename: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from the provided FASTA file.");
     let mut seqs = Vec::new();
     for (name, _, seq) in load_fasta(filename) {
         eprintln!("{} ({} bp)", name, seq.len());
-        seqs.push(((String::new(), name), seq.as_bytes().to_owned()));
+        seqs.push((FileSeqName { filename: String::new(), seqname: name },
+                   seq.as_bytes().to_owned()));
     }
     eprintln!();
     seqs
 }
 
 
-fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
+fn load_from_directory(dir: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from FASTA files in the provided directory.");
     let mut seqs = Vec::new();
@@ -157,7 +167,8 @@ fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
         let filename = assembly.file_name().and_then(|name| name.to_str()).map(|s| s.to_string()).unwrap();
         for (name, _, seq) in load_fasta(assembly) {
             eprintln!("{} {} ({} bp)", filename, name, seq.len());
-            seqs.push(((filename.clone(), name), seq.as_bytes().to_owned()));
+            seqs.push((FileSeqName { filename: filename.clone(), seqname: name },
+                       seq.as_bytes().to_owned()));
         }
     }
     eprintln!();
@@ -165,8 +176,7 @@ fn load_from_directory(dir: &PathBuf) -> Vec<((String, String), Vec<u8>)> {
 }
 
 
-fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBuf, res: u32,
-                  kmer: u32) {
+fn create_dotplot(seqs: &Vec<(FileSeqName, Vec<u8>)>, png_filename: &PathBuf, res: u32, kmer: u32) {
     section_header("Creating dotplot");
     explanation("K-mers common between sequences are now used to build the dotplot image.");
     let pb = spinner("creating dotplot...");
@@ -178,8 +188,8 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     let mut img = ImageBuffer::from_pixel(res, res, BACKGROUND_COLOUR);
     let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).unwrap();
-    let text_height = draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap,
-                                  &font, max_font_size, true);
+    let (text_height, _, _) = reduce_scale(seqs, &start_positions, &end_positions, &font,
+                                           max_font_size);
 
     // Now that we know the values for text_height, we start over, this time readjusting the
     // top-left gap (so it isn't bigger than necessary).
@@ -187,17 +197,15 @@ fn create_dotplot(seqs: &Vec<((String, String), Vec<u8>)>, png_filename: &PathBu
     let (start_positions, end_positions, bp_per_pixel) =
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, true);
-    draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap, &font, max_font_size,
-                false);
+    draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap, &font, max_font_size);
 
     let mut count = 0;
     for (name_a, seq_a) in seqs {
         let rev_comp_seq_a = reverse_complement(seq_a);
-        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(kmer as usize, seq_a,
-                                                                    &rev_comp_seq_a);
+        let kmers = get_all_kmer_positions(kmer as usize, seq_a, &rev_comp_seq_a);
         for (name_b, seq_b) in seqs {
-            draw_dots(&mut img, name_a, name_b, seq_a, seq_b, &start_positions,
-                      &forward_kmers, &reverse_kmers, bp_per_pixel, kmer as usize);
+            draw_dots(&mut img, start_positions[name_a], start_positions[name_b], seq_a, seq_b,
+                      &kmers, bp_per_pixel);
             count += 1;
         }
     }
@@ -238,12 +246,12 @@ fn between_seq_gap(gap: f64, max_total_gap: f64, seq_count: usize) -> f64 {
 }
 
 
-fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
+fn get_positions(seqs: &Vec<(FileSeqName, Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
                  bottom_right_gap: u32, mut between_seq_gap: u32) ->
-        (HashMap<(String, String), u32>, HashMap<(String, String), u32>, f64) {
+        (HashMap<FileSeqName, u32>, HashMap<FileSeqName, u32>, f64) {
     // This function returns the image coordinates that start/end each sequence. Since the dotplot
     // is symmetrical, there is only one start/end per sequence (used for both x and y coordinates).
-    let mut seq_lengths: HashMap<(String, String), u32> = HashMap::new();
+    let mut seq_lengths: HashMap<FileSeqName, u32> = HashMap::new();
     for (key, seq) in seqs {
         seq_lengths.insert(key.clone(), (seq.len() as u32).saturating_sub(kmer).saturating_add(1));
     }
@@ -275,9 +283,9 @@ fn get_positions(seqs: &Vec<((String, String), Vec<u8>)>, res: u32, kmer: u32, t
 }
 
 
-fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
-                       start_positions: &HashMap<(String, String), u32>,
-                       end_positions: &HashMap<(String, String), u32>, fill: bool) {
+fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<(FileSeqName, Vec<u8>)>,
+                       start_positions: &HashMap<FileSeqName, u32>,
+                       end_positions: &HashMap<FileSeqName, u32>, fill: bool) {
     for (name_a, _) in seqs {
         let start_a = start_positions[name_a] - 1;
         let end_a = end_positions[name_a] + 2;
@@ -297,52 +305,56 @@ fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>
 }
 
 
-fn draw_labels(img: &mut RgbImage, seqs: &Vec<((String, String), Vec<u8>)>,
-               start_positions: &HashMap<(String, String), u32>,
-               end_positions: &HashMap<(String, String), u32>,
-               text_gap: u32, font: &FontArc, max_font_size: u32, skip_draw: bool) -> f32 {
-    let min_pos = start_positions.values().min().cloned().unwrap_or_default();
-    let mut text_height_f32 = max_font_size as f32;
-    let mut scale = PxScale::from(text_height_f32);
-    let mut available_width = 1.0;
-
-    // Reduce the scale as needed to ensure that all labels will fit in their available space.
+fn reduce_scale(seqs: &Vec<(FileSeqName, Vec<u8>)>, start_positions: &HashMap<FileSeqName, u32>,
+                end_positions: &HashMap<FileSeqName, u32>, font: &FontArc, max_font_size: u32)
+        -> (f32, f32, PxScale) {
+    // Reduces the scale as needed to ensure that all labels will fit in their available space.
+    let mut text_height = max_font_size as f32;
+    let mut scale = PxScale::from(text_height);
+    let mut available_width: f32 = 1.0;
     for (name, _) in seqs {
-        let (filename, contig_name) = name;
         let start = start_positions[name];
         let end = end_positions[name];
         available_width = (end - start) as f32;
-        let text_width = calculate_text_width(filename, scale, font).max(
-                         calculate_text_width(contig_name, scale, font));
+        let text_width = calculate_text_width(&name.filename, scale, font)
+                             .max(calculate_text_width(&name.seqname, scale, font));
         if text_width > available_width {
-            text_height_f32 *= available_width / text_width;
-            scale = PxScale::from(text_height_f32);
+            text_height *= available_width / text_width;
+            scale = PxScale::from(text_height);
         }
     }
+    (text_height, available_width, scale)
+}
 
-    // The first time this function is run, we only need the text height.
-    if skip_draw {
-        return text_height_f32;
-    }
 
-    let text_height = text_height_f32 as u32;
-    let text_width = (available_width.ceil()) as u32;
+struct TextDimensions {
+    width: u32,
+    height: u32,
+}
+
+
+fn draw_labels(img: &mut RgbImage, seqs: &Vec<(FileSeqName, Vec<u8>)>,
+               start_positions: &HashMap<FileSeqName, u32>,
+               end_positions: &HashMap<FileSeqName, u32>,
+               text_gap: u32, font: &FontArc, max_font_size: u32) {
+    let min_pos = start_positions.values().min().cloned().unwrap_or_default();
+    let (text_height, available_width, scale) =
+        reduce_scale(seqs, start_positions, end_positions, font, max_font_size);
+    let dim = TextDimensions { width: (available_width.ceil()) as u32, height: text_height as u32 };
     for (name, _) in seqs {
-        let (filename, contig_name) = name;
         let start = start_positions[name];
         let end = end_positions[name];
-        let pos_1 = min_pos - text_gap - text_height;
-        let pos_2 = pos_1 - text_height;
+        let pos_1 = min_pos - text_gap - dim.height;
+        let pos_2 = pos_1 - dim.height;
 
         // Horizontal labels on the top side.
-        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, contig_name);
-        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, filename);
+        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, &name.seqname);
+        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, &name.filename);
 
         // Vertical labels on the left side.
-        draw_vertical_text(img, text_width, text_height, contig_name, pos_1, end, &scale, font);
-        draw_vertical_text(img, text_width, text_height, filename, pos_2, end, &scale, font);
+        draw_vertical_text(img, &dim, &name.seqname, pos_1, end, &scale, font);
+        draw_vertical_text(img, &dim, &name.filename, pos_2, end, &scale, font);
     }
-    text_height_f32
 }
 
 
@@ -355,18 +367,18 @@ fn calculate_text_width(text: &str, scale: PxScale, font: &FontArc) -> f32 {
 }
 
 
-fn draw_vertical_text(img: &mut RgbImage, width: u32, height: u32, text: &str, x: u32, y: u32,
+fn draw_vertical_text(img: &mut RgbImage, dim: &TextDimensions, text: &str, x: u32, y: u32,
                       scale: &PxScale, font: &FontArc) {
     // Draws text onto the image rotated 90 degrees counterclockwise. Does this by creating a temp
     // image with the text and then copying it over, pixel-by-pixel, with the appropriate
     // transformation.
     let (full_width, full_height) = (img.width(), img.height());
-    let mut temp_img = ImageBuffer::from_pixel(width, height, BACKGROUND_COLOUR);
+    let mut temp_img = ImageBuffer::from_pixel(dim.width, dim.height, BACKGROUND_COLOUR);
     draw_text_mut(&mut temp_img, TEXT_COLOUR, 0, 0, *scale, font, text);
-    for i in 0..width {
+    for i in 0..dim.width {
         let new_y = y - i;
         if new_y >= full_height { continue; }
-        for j in 0..height {
+        for j in 0..dim.height {
             let new_x = x + j;
             if new_x < full_width {
                 let pixel = temp_img.get_pixel(i, j);
@@ -379,26 +391,22 @@ fn draw_vertical_text(img: &mut RgbImage, width: u32, height: u32, text: &str, x
 }
 
 
-fn draw_dots(img: &mut RgbImage, name_a: &(String, String), name_b: &(String, String),
-             seq_a: &[u8], seq_b: &[u8], start_positions: &HashMap<(String, String), u32>,
-             a_forward_kmers: &HashMap<&[u8], Vec<u32>>,
-             a_reverse_kmers: &HashMap<&[u8], Vec<u32>>, bp_per_pixel: f64, kmer_size: usize) {
-    let a_start_pos = start_positions[name_a];
-    let b_start_pos = start_positions[name_b];
+fn draw_dots(img: &mut RgbImage, a_start_pos: u32, b_start_pos: u32,
+             seq_a: &[u8], seq_b: &[u8], a_kmers: &Kmers, bp_per_pixel: f64) {
     let (width, height) = (img.width(), img.height());
-    if seq_a.len() < kmer_size || seq_b.len() < kmer_size {
+    if seq_a.len() < a_kmers.size || seq_b.len() < a_kmers.size {
         return;
     }
-    for j in 0..(seq_b.len() - kmer_size + 1) {
+    for j in 0..(seq_b.len() - a_kmers.size + 1) {
         let j_pixel = (j as f64 / bp_per_pixel).round() as u32 + b_start_pos;
-        let k = &seq_b[j..j + kmer_size];
-        if let Some(a_reverse_positions) = a_reverse_kmers.get(k) {
+        let k = &seq_b[j..j + a_kmers.size];
+        if let Some(a_reverse_positions) = a_kmers.reverse.get(k) {
             for &i in a_reverse_positions {
                 let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
                 draw_dot(img, i_pixel, j_pixel, width, height, REVERSE_DOT_COLOUR);
             }
         }
-        if let Some(a_forward_positions) = a_forward_kmers.get(k) {
+        if let Some(a_forward_positions) = a_kmers.forward.get(k) {
             for &i in a_forward_positions {
                 let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
                 draw_dot(img, i_pixel, j_pixel, width, height, FORWARD_DOT_COLOUR);
@@ -415,12 +423,19 @@ fn draw_dot(img: &mut RgbImage, i: u32, j: u32, width: u32, height: u32, colour:
 }
 
 
-fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a [u8]) ->
-        (HashMap<&'a [u8], Vec<u32>>, HashMap<&'a [u8], Vec<u32>>) {
+struct Kmers<'a> {
+    forward: HashMap<&'a [u8], Vec<u32>>,
+    reverse: HashMap<&'a [u8], Vec<u32>>,
+    size: usize
+}
+
+
+fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a [u8])
+        -> Kmers<'a> {
     let mut forward_kmers: HashMap<&[u8], Vec<u32>> = HashMap::new();
     let mut reverse_kmers: HashMap<&[u8], Vec<u32>> = HashMap::new();
     if seq.len() < kmer_size {
-        return (forward_kmers, reverse_kmers);
+        return Kmers { forward: forward_kmers, reverse: reverse_kmers, size: kmer_size };
     }
     let seq_len = seq.len() - kmer_size + 1;
     for i in 0..seq_len {
@@ -431,7 +446,7 @@ fn get_all_kmer_positions<'a>(kmer_size: usize, seq: &'a [u8], rev_comp_seq: &'a
     }
     assert!(forward_kmers.len() < seq.len());
     assert!(reverse_kmers.len() < seq.len());
-    (forward_kmers, reverse_kmers)
+    Kmers { forward: forward_kmers, reverse: reverse_kmers, size: kmer_size }
 }
 
 
@@ -447,47 +462,34 @@ mod tests {
 
         let expected_forward: HashMap<&[u8], Vec<u32>> = {
             let mut map = HashMap::new();
-            map.insert(&b"ACGA"[..], vec![0]);
-            map.insert(&b"CGAC"[..], vec![1]);
-            map.insert(&b"GACT"[..], vec![2]);
-            map.insert(&b"ACTG"[..], vec![3, 15]);
-            map.insert(&b"CTGA"[..], vec![4, 16]);
-            map.insert(&b"TGAC"[..], vec![5]);
-            map.insert(&b"GACA"[..], vec![6]);
-            map.insert(&b"ACAT"[..], vec![7]);
-            map.insert(&b"CATC"[..], vec![8]);
-            map.insert(&b"ATCA"[..], vec![9]);
-            map.insert(&b"TCAG"[..], vec![10]);
-            map.insert(&b"CAGC"[..], vec![11]);
-            map.insert(&b"AGCA"[..], vec![12]);
-            map.insert(&b"GCAC"[..], vec![13]);
+            map.insert(&b"ACGA"[..], vec![0]);     map.insert(&b"CGAC"[..], vec![1]);
+            map.insert(&b"GACT"[..], vec![2]);     map.insert(&b"ACTG"[..], vec![3, 15]);
+            map.insert(&b"CTGA"[..], vec![4, 16]); map.insert(&b"TGAC"[..], vec![5]);
+            map.insert(&b"GACA"[..], vec![6]);     map.insert(&b"ACAT"[..], vec![7]);
+            map.insert(&b"CATC"[..], vec![8]);     map.insert(&b"ATCA"[..], vec![9]);
+            map.insert(&b"TCAG"[..], vec![10]);    map.insert(&b"CAGC"[..], vec![11]);
+            map.insert(&b"AGCA"[..], vec![12]);    map.insert(&b"GCAC"[..], vec![13]);
             map.insert(&b"CACT"[..], vec![14]);
             map
         };
 
         let expected_reverse: HashMap<&[u8], Vec<u32>> = {
             let mut map = HashMap::new();
-            map.insert(&b"TCAG"[..], vec![16, 4]);
-            map.insert(&b"CAGT"[..], vec![15, 3]);
-            map.insert(&b"AGTG"[..], vec![14]);
-            map.insert(&b"GTGC"[..], vec![13]);
-            map.insert(&b"TGCT"[..], vec![12]);
-            map.insert(&b"GCTG"[..], vec![11]);
-            map.insert(&b"CTGA"[..], vec![10]);
-            map.insert(&b"TGAT"[..], vec![9]);
-            map.insert(&b"GATG"[..], vec![8]);
-            map.insert(&b"ATGT"[..], vec![7]);
-            map.insert(&b"TGTC"[..], vec![6]);
-            map.insert(&b"GTCA"[..], vec![5]);
-            map.insert(&b"AGTC"[..], vec![2]);
-            map.insert(&b"GTCG"[..], vec![1]);
+            map.insert(&b"TCAG"[..], vec![16, 4]); map.insert(&b"CAGT"[..], vec![15, 3]);
+            map.insert(&b"AGTG"[..], vec![14]);    map.insert(&b"GTGC"[..], vec![13]);
+            map.insert(&b"TGCT"[..], vec![12]);    map.insert(&b"GCTG"[..], vec![11]);
+            map.insert(&b"CTGA"[..], vec![10]);    map.insert(&b"TGAT"[..], vec![9]);
+            map.insert(&b"GATG"[..], vec![8]);     map.insert(&b"ATGT"[..], vec![7]);
+            map.insert(&b"TGTC"[..], vec![6]);     map.insert(&b"GTCA"[..], vec![5]);
+            map.insert(&b"AGTC"[..], vec![2]);     map.insert(&b"GTCG"[..], vec![1]);
             map.insert(&b"TCGT"[..], vec![0]);
             map
         };
 
-        let (forward_kmers, reverse_kmers) = get_all_kmer_positions(4, &seq, &rev_seq);
-        assert_eq!(forward_kmers, expected_forward);
-        assert_eq!(reverse_kmers, expected_reverse);
+        let kmers = get_all_kmer_positions(4, &seq, &rev_seq);
+        assert_eq!(kmers.forward, expected_forward);
+        assert_eq!(kmers.reverse, expected_reverse);
+        assert_eq!(kmers.size, 4);
     }
 
     #[test]

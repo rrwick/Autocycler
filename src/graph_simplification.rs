@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use crate::misc::strand;
+use crate::misc::{reverse_complement, strand};
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
@@ -427,8 +427,15 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
     let forward_next = if last.strand {last.unitig.borrow().forward_next.clone()} else {last.unitig.borrow().reverse_next.clone()};
     let reverse_prev = if last.strand {last.unitig.borrow().reverse_prev.clone()} else {last.unitig.borrow().forward_prev.clone()};
 
-    let mut unitig = Unitig::manual(new_unitig_number, merged_seq, forward_positions, reverse_positions,
-                                    forward_next, forward_prev, reverse_next, reverse_prev, depth);
+    let mut unitig = Unitig {
+        number: new_unitig_number,
+        reverse_seq: reverse_complement(&merged_seq),
+        forward_seq: merged_seq,
+        depth: if let Some(d) = depth { d } else { forward_positions.len() as f64 },
+        forward_positions, reverse_positions,
+        forward_next, forward_prev, reverse_next, reverse_prev,
+        ..Default::default()
+    };
 
     if path.iter().any(|p| p.anchor()) {
         unitig.set_as_consentig();

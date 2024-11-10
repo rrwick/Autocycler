@@ -26,11 +26,11 @@ static BRIDGE_COLOUR: &str = "pink";
 static CONSENTIG_COLOUR: &str = "steelblue";
 
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Unitig {
     pub number: u32,
-    forward_kmers: VecDeque<*const Kmer>,
-    reverse_kmers: VecDeque<*const Kmer>,
+    pub forward_kmers: VecDeque<*const Kmer>,
+    pub reverse_kmers: VecDeque<*const Kmer>,
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
@@ -59,17 +59,7 @@ impl Unitig {
             number,
             forward_kmers: VecDeque::from(vec![forward_kmer as *const Kmer]),
             reverse_kmers: VecDeque::from(vec![reverse_kmer as *const Kmer]),
-            forward_seq: Vec::new(),
-            reverse_seq: Vec::new(),
-            depth: 0.0,
-            anchor: false,
-            bridge: false,
-            forward_positions: Vec::new(),
-            reverse_positions: Vec::new(),
-            forward_next: Vec::new(),
-            forward_prev: Vec::new(),
-            reverse_next: Vec::new(),
-            reverse_prev: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -94,47 +84,8 @@ impl Unitig {
         let bridge = parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) ||
                      parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
         Unitig {
-            number,
-            forward_kmers: VecDeque::new(),
-            reverse_kmers: VecDeque::new(),
-            forward_seq,
-            reverse_seq,
-            depth,
-            anchor,
-            bridge,
-            forward_positions: Vec::new(),
-            reverse_positions: Vec::new(),
-            forward_next: Vec::new(),
-            forward_prev: Vec::new(),
-            reverse_next: Vec::new(),
-            reverse_prev: Vec::new(),
-        }
-    }
-
-    pub fn manual(number: u32, forward_seq: Vec<u8>,
-                  forward_positions: Vec<Position>, reverse_positions: Vec<Position>,
-                  forward_next: Vec<UnitigStrand>, forward_prev: Vec<UnitigStrand>,
-                  reverse_next: Vec<UnitigStrand>, reverse_prev: Vec<UnitigStrand>,
-                  depth: Option<f64>) -> Self {
-        // This constructor is for manually building a Unitig object from a sequence and positions.
-        // It's used when manipulating a UnitigGraph, e.g. by merging linear paths of Unitigs.
-        let reverse_seq = reverse_complement(&forward_seq);
-        let depth = if let Some(d) = depth { d } else { forward_positions.len() as f64 };
-        Unitig {
-            number,
-            forward_kmers: VecDeque::new(),
-            reverse_kmers: VecDeque::new(),
-            forward_seq,
-            reverse_seq,
-            depth,
-            anchor: false,
-            bridge: false,
-            forward_positions,
-            reverse_positions,
-            forward_next,
-            forward_prev,
-            reverse_next,
-            reverse_prev,
+            number, forward_seq, reverse_seq, depth, anchor, bridge,
+            ..Default::default()
         }
     }
 
@@ -142,20 +93,8 @@ impl Unitig {
         // This constructor is for manually building a Unitig object when creating bridges.
         let reverse_seq = reverse_complement(&forward_seq);
         Unitig {
-            number,
-            forward_kmers: VecDeque::new(),
-            reverse_kmers: VecDeque::new(),
-            forward_seq,
-            reverse_seq,
-            depth,
-            anchor: false,
-            bridge: true,
-            forward_positions: vec![],
-            reverse_positions: vec![],
-            forward_next: vec![],
-            forward_prev: vec![],
-            reverse_next: vec![],
-            reverse_prev: vec![],
+            number, forward_seq, reverse_seq, depth, bridge: true,
+            ..Default::default()
         }
     }
 

@@ -25,6 +25,7 @@ use crate::unitig::{Unitig, UnitigStrand};
 use crate::misc::{quit_with_error, strand, load_file_lines};
 
 
+#[derive(Default)]
 pub struct UnitigGraph {
     pub unitigs: Vec<Rc<RefCell<Unitig>>>,
     pub k_size: u32,
@@ -34,9 +35,8 @@ pub struct UnitigGraph {
 impl UnitigGraph {
     pub fn from_kmer_graph(k_graph: &KmerGraph) -> Self {
         let mut u_graph = UnitigGraph {
-            unitigs: Vec::new(),
             k_size: k_graph.k_size,
-            unitig_index: HashMap::new(),
+            ..Default::default()
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
         u_graph.simplify_seqs();
@@ -53,11 +53,7 @@ impl UnitigGraph {
     }
 
     pub fn from_gfa_lines(gfa_lines: &Vec<String>) -> (Self, Vec<Sequence>) {
-        let mut u_graph = UnitigGraph {
-            unitigs: Vec::new(),
-            k_size: 0,
-            unitig_index: HashMap::new(),
-        };
+        let mut u_graph = UnitigGraph::default();
         let mut link_lines: Vec<&str> = Vec::new();
         let mut path_lines: Vec<&str> = Vec::new();
         for line in gfa_lines {
