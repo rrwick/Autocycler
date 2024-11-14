@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::misc::{median_usize, mad_usize};
 use crate::sequence::Sequence;
@@ -247,7 +247,7 @@ pub struct ResolvedClusterDetails {
 macro_rules! impl_metrics_helpers {
     ($struct_name:ty) => {
         impl $struct_name {
-            pub fn save_to_yaml(&self, filename: &PathBuf) {
+            pub fn save_to_yaml(&self, filename: &Path) {
                 let yaml_string = serde_yaml::to_string(&self).unwrap();
                 let mut file = File::create(filename).unwrap();
                 file.write_all(yaml_string.as_bytes()).unwrap();

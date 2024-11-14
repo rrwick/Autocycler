@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
 use crate::kmer_graph::KmerGraph;
@@ -316,7 +316,7 @@ impl UnitigGraph {
         self.build_unitig_index();
     }
 
-    pub fn save_gfa(&self, gfa_filename: &PathBuf, sequences: &Vec<Sequence>) -> io::Result<()> {
+    pub fn save_gfa(&self, gfa_filename: &Path, sequences: &Vec<Sequence>) -> io::Result<()> {
         let mut file = File::create(gfa_filename)?;
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
         for unitig in &self.unitigs {

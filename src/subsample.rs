@@ -96,7 +96,7 @@ fn parse_genome_size(genome_size_str: &str) -> u64 {
 }
 
 
-fn input_fastq_stats(fastq_file: &PathBuf, metrics: &mut SubsampleMetrics) -> (usize, u64) {
+fn input_fastq_stats(fastq_file: &Path, metrics: &mut SubsampleMetrics) -> (usize, u64) {
     let mut read_lengths: Vec<u64> = fastq_reader(fastq_file).records()
         .map(|record| record.expect("Error reading FASTQ file").seq().len() as u64).collect();
     read_lengths.sort_unstable();
@@ -138,7 +138,7 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
 }
 
 
-fn save_subsets(input_fastq: &PathBuf, subset_count: usize, input_count: usize,
+fn save_subsets(input_fastq: &Path, subset_count: usize, input_count: usize,
                 reads_per_subset: usize, out_dir: &Path, seed: u64,
                 metrics: &mut SubsampleMetrics) {
     section_header("Subsetting reads");
@@ -192,7 +192,7 @@ fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &
 }
 
 
-fn write_subsampled_reads(input_fastq: &PathBuf, subset_count: usize,
+fn write_subsampled_reads(input_fastq: &Path, subset_count: usize,
                           subset_indices: &[HashSet<usize>], subset_files: &mut [File])
         -> Vec<Vec<u64>> {
     // This function loops through the input reads, and saves each read to the appropriate output

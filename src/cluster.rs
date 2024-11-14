@@ -130,7 +130,7 @@ fn check_sequence_count(sequences: &[Sequence], max_contigs: u32) {
 }
 
 
-fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &PathBuf)
+fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &Path)
         -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
@@ -165,7 +165,7 @@ fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32
 
 
 fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
-                        file_path: &PathBuf) {
+                        file_path: &Path) {
     eprintln!("Saving distance matrix:");
     let mut f = File::create(file_path).unwrap();
     writeln!(f, "{}", sequences.len()).unwrap();
@@ -367,7 +367,7 @@ fn find_node_by_id(node: &TreeNode, id: u16) -> Option<&TreeNode> {
 }
 
 
-fn save_tree_to_newick(root: &TreeNode, sequences: &[Sequence], file_path: &PathBuf) {
+fn save_tree_to_newick(root: &TreeNode, sequences: &[Sequence], file_path: &Path) {
     // Saves the tree to a NEWICK file. If necessary, it will add an additional node to specify the
     // length of the root, in order to ensure that root-to-tip distances are 0.5.
     eprintln!("Saving clustering tree:");
@@ -805,7 +805,7 @@ fn save_untrimmed_cluster_metrics(seq_lengths: Vec<usize>, cluster_dist: f64,
 
 
 fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
-                    file_path: &PathBuf) {
+                    file_path: &Path) {
     let mut file = File::create(file_path).unwrap();
     writeln!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
                   file_name\tcontig_name\tlength").unwrap();

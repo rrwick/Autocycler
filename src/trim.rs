@@ -273,7 +273,7 @@ fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
 }
 
 
-fn save_metrics(trimmed_yaml: &PathBuf, sequences: &[Sequence]) {
+fn save_metrics(trimmed_yaml: &Path, sequences: &[Sequence]) {
     let seq_lengths = sequences.iter().map(|s| s.length).collect();
     let metrics = TrimmedClusterMetrics::new(seq_lengths);
     metrics.save_to_yaml(trimmed_yaml);

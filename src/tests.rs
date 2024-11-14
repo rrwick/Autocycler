@@ -18,7 +18,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use rand::seq::SliceRandom;
 use std::fs::{File, read_to_string};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use tempfile::tempdir;
 
 use crate::compress::load_sequences;
@@ -35,13 +35,13 @@ pub fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
 }
 
 
-pub fn make_test_file(file_path: &PathBuf, contents: &str) {
+pub fn make_test_file(file_path: &Path, contents: &str) {
     let mut file = File::create(file_path).unwrap();
     write!(file, "{}", contents).unwrap();
 }
 
 
-pub fn make_gzipped_test_file(file_path: &PathBuf, contents: &str) {
+pub fn make_gzipped_test_file(file_path: &Path, contents: &str) {
     let mut file = File::create(file_path).unwrap();
     let mut e = GzEncoder::new(Vec::new(), Compression::default());
     e.write_all(contents.as_bytes()).unwrap();
@@ -56,12 +56,12 @@ fn random_seq(length: usize, seed: u64) -> String {
 }
 
 
-fn assert_same_content(a: &PathBuf, b: &PathBuf) {
+fn assert_same_content(a: &Path, b: &Path) {
     assert_eq!(read_to_string(a).unwrap(), read_to_string(b).unwrap());
 }
 
 
-fn assert_same_content_gzipped(a: &PathBuf, b: &PathBuf) {
+fn assert_same_content_gzipped(a: &Path, b: &Path) {
     let mut gz_a = MultiGzDecoder::new(File::open(a).unwrap());
     let mut gz_b = MultiGzDecoder::new(File::open(b).unwrap());
     let mut content_a = String::new();

@@ -62,7 +62,7 @@ fn check_settings(res: u32, kmer: u32) {
 
 enum InputType { Gfa, Fasta, Directory }
 
-fn determine_input_type(input: &PathBuf) -> InputType {
+fn determine_input_type(input: &Path) -> InputType {
     if input.is_dir() {
         return InputType::Directory;
     }
@@ -110,7 +110,7 @@ struct FileSeqName {
 }
 
 
-fn load_sequences(input: &PathBuf, input_type: InputType) -> Vec<(FileSeqName, Vec<u8>)> {
+fn load_sequences(input: &Path, input_type: InputType) -> Vec<(FileSeqName, Vec<u8>)> {
     let seqs = match input_type {
         InputType::Gfa => {
             let (graph, sequences) = load_from_graph(input);
@@ -144,7 +144,7 @@ fn load_from_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
 }
 
 
-fn load_from_fasta(filename: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
+fn load_from_fasta(filename: &Path) -> Vec<(FileSeqName, Vec<u8>)> {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from the provided FASTA file.");
     let mut seqs = Vec::new();
@@ -158,7 +158,7 @@ fn load_from_fasta(filename: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
 }
 
 
-fn load_from_directory(dir: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
+fn load_from_directory(dir: &Path) -> Vec<(FileSeqName, Vec<u8>)> {
     section_header("Loading sequences");
     explanation("Sequences are now loaded from FASTA files in the provided directory.");
     let mut seqs = Vec::new();
@@ -176,7 +176,7 @@ fn load_from_directory(dir: &PathBuf) -> Vec<(FileSeqName, Vec<u8>)> {
 }
 
 
-fn create_dotplot(seqs: &Vec<(FileSeqName, Vec<u8>)>, png_filename: &PathBuf, res: u32, kmer: u32) {
+fn create_dotplot(seqs: &Vec<(FileSeqName, Vec<u8>)>, png_filename: &Path, res: u32, kmer: u32) {
     section_header("Creating dotplot");
     explanation("K-mers common between sequences are now used to build the dotplot image.");
     let pb = spinner("creating dotplot...");

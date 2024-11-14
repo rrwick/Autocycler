@@ -114,7 +114,7 @@ fn write_sequences<W: Write>(mut writer: BufWriter<W>, headers_seqs: &Vec<(Strin
 }
 
 
-fn save_original_seqs_to_file(out_file: &PathBuf, unitig_graph: &UnitigGraph,
+fn save_original_seqs_to_file(out_file: &Path, unitig_graph: &UnitigGraph,
                               sequences: &Vec<Sequence>) {
     section_header("Reconstructing assemblies from unitig graph");
     explanation("Each contig is reconstructed by tracing its path through the unitig graph, with \

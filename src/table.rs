@@ -14,7 +14,7 @@
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::metrics::{ClusteringMetrics, CombineMetrics, InputAssemblyMetrics, SubsampleMetrics,
                      TrimmedClusterMetrics, UntrimmedClusterMetrics};
@@ -25,7 +25,7 @@ pub fn table(autocycler_dir: Option<PathBuf>, name: String, fields: String, sigf
     check_settings(&autocycler_dir, sigfigs);
     let fields = parse_fields(fields);
     if let Some(autocycler_dir) = autocycler_dir {
-        print_values(autocycler_dir, name, fields, sigfigs);
+        print_values(&autocycler_dir, name, fields, sigfigs);
     } else {
         print_header(fields);
     }
@@ -66,13 +66,13 @@ fn print_header(fields: Vec<String>) {
 }
 
 
-fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigfigs: usize) {
+fn print_values(autocycler_dir: &Path, name: String, fields: Vec<String>, sigfigs: usize) {
     if name.contains('\t') {
         quit_with_error("--name cannot contain tab characters")
     }
     print!("{}", name);
 
-    let yaml_files = find_all_yaml_files(&autocycler_dir);
+    let yaml_files = find_all_yaml_files(autocycler_dir);
     let subsample_yaml = get_one_copy_yaml(&yaml_files, "subsample.yaml");
     let input_assemblies_yaml = get_one_copy_yaml(&yaml_files, "input_assemblies.yaml");
     let clustering_yaml = get_one_copy_yaml(&yaml_files, "clustering.yaml");
@@ -98,7 +98,7 @@ fn print_values(autocycler_dir: PathBuf, name: String, fields: Vec<String>, sigf
 }
 
 
-fn load_single_yaml_to_map(yaml_path: &PathBuf) -> HashMap<String, Value> {
+fn load_single_yaml_to_map(yaml_path: &Path) -> HashMap<String, Value> {
     let content = fs::read_to_string(yaml_path)
         .unwrap_or_else(|_| quit_with_error("Could not read YAML file"));
     serde_yaml::from_str(&content)
@@ -118,7 +118,7 @@ fn load_multi_yaml_to_map(yaml_paths: &Vec<PathBuf>) -> HashMap<String, Value> {
 }
 
 
-fn find_all_yaml_files(autocycler_dir: &PathBuf) -> Vec<PathBuf> {
+fn find_all_yaml_files(autocycler_dir: &Path) -> Vec<PathBuf> {
     let mut yaml_files = Vec::new();
     visit_dirs_for_yaml_files(autocycler_dir, &mut yaml_files);
     yaml_files.sort();
@@ -126,7 +126,7 @@ fn find_all_yaml_files(autocycler_dir: &PathBuf) -> Vec<PathBuf> {
 }
 
 
-fn visit_dirs_for_yaml_files(dir: &PathBuf, yaml_files: &mut Vec<PathBuf>) {
+fn visit_dirs_for_yaml_files(dir: &Path, yaml_files: &mut Vec<PathBuf>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();

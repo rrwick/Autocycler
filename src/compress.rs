@@ -79,7 +79,7 @@ fn print_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, thr
 }
 
 
-pub fn load_sequences(assemblies_dir: &PathBuf, k_size: u32, metrics: &mut InputAssemblyMetrics)
+pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAssemblyMetrics)
         -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
@@ -159,7 +159,7 @@ fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequenc
 
 
 fn save_metrics(metrics: &mut InputAssemblyMetrics, assembly_count: usize,
-                sequences: &[Sequence], graph: &UnitigGraph, out_yaml: &PathBuf) {
+                sequences: &[Sequence], graph: &UnitigGraph, out_yaml: &Path) {
     metrics.input_assemblies_count = assembly_count as u32;
     metrics.input_assemblies_total_contigs = sequences.len() as u32;
     metrics.input_assemblies_total_length = sequences.iter().map(|s| s.length as u64).sum();

@@ -29,7 +29,7 @@ pub mod strand {
 }
 
 
-pub fn create_dir(dir_path: &PathBuf) {
+pub fn create_dir(dir_path: &Path) {
     match create_dir_all(dir_path) {
         Ok(_) => {},
         Err(e) => quit_with_error(&format!("failed to create directory {}\n{}", dir_path.display(), e)),
@@ -37,7 +37,7 @@ pub fn create_dir(dir_path: &PathBuf) {
 }
 
 
-pub fn delete_dir_if_exists(dir_path: &PathBuf) {
+pub fn delete_dir_if_exists(dir_path: &Path) {
     if dir_path.exists() && dir_path.is_dir() {
         match remove_dir_all(dir_path) {
             Ok(_) => {},
@@ -60,7 +60,7 @@ pub fn load_file_lines(filename: &Path) -> Vec<String> {
 }
 
 
-pub fn find_all_assemblies(in_dir: &PathBuf) -> Vec<PathBuf> {
+pub fn find_all_assemblies(in_dir: &Path) -> Vec<PathBuf> {
     let paths = match read_dir(in_dir) {
         Ok(paths) => paths,
         Err(e) => {
@@ -140,9 +140,12 @@ pub fn quit_with_error(text: &str) -> ! {
 }
 
 
-pub fn load_fasta(filename: &PathBuf) -> Vec<(String, String, String)> {
+pub fn load_fasta(filename: &Path) -> Vec<(String, String, String)> {
     // This function loads a FASTA file and runs a few checks on the result. If everything looks
     // good, it returns a vector of name+sequence tuples.
+
+
+
     let load_result = if is_file_gzipped(filename) {
         load_fasta_gzipped(filename)
     } else {
@@ -181,7 +184,7 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path)
 }
 
 
-pub fn fastq_reader(fastq_file: &PathBuf)
+pub fn fastq_reader(fastq_file: &Path)
         -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
     // Returns a reader for a FASTQ file that works on both unzipped and gzipped files.
     let file = File::open(fastq_file).expect("Error opening file");
@@ -194,7 +197,7 @@ pub fn fastq_reader(fastq_file: &PathBuf)
 }
 
 
-fn is_file_gzipped(filename: &PathBuf) -> bool {
+fn is_file_gzipped(filename: &Path) -> bool {
     // This function returns true if the file appears to be gzipped (based on the first two bytes)
     // and false if not. If it can't open the file or read the first two bytes, it will quit with
     // an error message.
@@ -215,7 +218,7 @@ fn is_file_gzipped(filename: &PathBuf) -> bool {
 }
 
 
-fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
+fn load_fasta_not_gzipped(filename: &Path) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
@@ -253,7 +256,7 @@ fn load_fasta_not_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String,
 }
 
 
-fn load_fasta_gzipped(filename: &PathBuf) -> io::Result<Vec<(String, String, String)>> {
+fn load_fasta_gzipped(filename: &Path) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
     let file = File::open(filename)?;
     let reader = BufReader::new(MultiGzDecoder::new(file));
@@ -441,7 +444,7 @@ pub fn after_first_space(string: &str) -> String {
 }
 
 
-pub fn first_char_in_file(filename: &PathBuf) -> io::Result<char> {
+pub fn first_char_in_file(filename: &Path) -> io::Result<char> {
     if is_file_gzipped(filename) {
         first_char_in_file_gzipped(filename)
     } else {
@@ -450,14 +453,14 @@ pub fn first_char_in_file(filename: &PathBuf) -> io::Result<char> {
 }
 
 
-fn first_char_in_file_not_gzipped(filename: &PathBuf) -> io::Result<char> {
+fn first_char_in_file_not_gzipped(filename: &Path) -> io::Result<char> {
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
     first_non_empty_char(reader)
 }
 
 
-fn first_char_in_file_gzipped(filename: &PathBuf) -> io::Result<char> {
+fn first_char_in_file_gzipped(filename: &Path) -> io::Result<char> {
     let file = File::open(filename)?;
     let reader = BufReader::new(MultiGzDecoder::new(file));
     first_non_empty_char(reader)

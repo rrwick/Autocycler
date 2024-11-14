@@ -28,7 +28,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
 
     check_settings(&in_gfas);
     if let Some(parent) = combined_gfa.parent() {
-        create_dir(&parent.to_path_buf());
+        create_dir(parent);
     }
     starting_message();
     print_settings(&autocycler_dir, &in_gfas);
@@ -80,7 +80,7 @@ fn finished_message(combined_gfa: &Path, combined_fasta: &Path) {
 }
 
 
-fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &PathBuf, combined_fasta: &PathBuf,
+fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta: &Path,
                     metrics: &mut CombineMetrics) {
     section_header("Combining clusters");
     explanation("This command combines different clusters into a single assembly file.");
