@@ -78,6 +78,10 @@ enum Commands {
                help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
         min_assemblies: Option<usize>,
 
+        /// refuse to run if mean contigs per assembly exceeds this value
+        #[clap(long = "max_contigs", default_value = "25")]
+        max_contigs: u32,
+
         /// manually define clusters using tree node numbers
         #[clap(long = "manual", hide_default_value = true,
                help = "manually define clusters using tree node numbers [default: automatic]")]
@@ -241,8 +245,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, manual }) => {
-            cluster::cluster(autocycler_dir, cutoff, min_assemblies, manual);
+        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
+            cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);
         },
         Some(Commands::Combine { autocycler_dir, in_gfas }) => {
             combine::combine(autocycler_dir, in_gfas);

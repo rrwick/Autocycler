@@ -28,7 +28,7 @@ use crate::unitig_graph::UnitigGraph;
 
 
 pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Option<usize>,
-               manual_clusters: Option<String>) {
+               max_contigs: u32, manual_clusters: Option<String>) {
     let gfa = autocycler_dir.join("input_assemblies.gfa");
     let clustering_dir = autocycler_dir.join("clustering");
     let pairwise_phylip = clustering_dir.join("pairwise_distances.phylip");
@@ -40,11 +40,12 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     create_dir(&clustering_dir);
     starting_message();
     let gfa_lines = load_file_lines(&gfa);
-    let (graph, mut sequences) = load_graph(&gfa_lines, true);
+    let (graph, mut sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
     let manual_clusters = parse_manual_clusters(manual_clusters);
-    print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option,
+    print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option, max_contigs,
                    &manual_clusters);
+    check_sequence_count(&sequences, max_contigs);
     let asymmetrical_distances = pairwise_contig_distances(&graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
     let mut tree = upgma(&symmetrical_distances, &mut sequences);
@@ -95,7 +96,7 @@ fn finished_message(pairwise_phylip: &Path, clustering_newick: &Path, clustering
 
 
 fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
-                  min_assemblies_option: Option<usize>, manual_clusters: &[u16]) {
+                  min_assemblies_option: Option<usize>, max_contigs: u32, manual_clusters: &[u16]) {
     eprintln!("Settings:");
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
@@ -104,6 +105,7 @@ fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
     } else {
         eprintln!("  --min_assemblies {}", min_assemblies);
     }
+    eprintln!("  --max_contigs {}", max_contigs);
     if !manual_clusters.is_empty() {
         eprintln!("  --manual {}", manual_clusters.iter().map(|c| c.to_string())
                                                   .collect::<Vec<String>>() .join(","));
@@ -112,16 +114,19 @@ fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
 }
 
 
-fn load_graph(gfa_lines: &Vec<String>, print_info: bool) -> (UnitigGraph, Vec<Sequence>) {
-    if print_info {
-        section_header("Loading graph");
-        explanation("The unitig graph is now loaded into memory.");
+fn check_sequence_count(sequences: &[Sequence], max_contigs: u32) {
+    let assembly_count = get_assembly_count(sequences) as f64;
+    let sequence_count = sequences.len() as f64;
+    if sequence_count == 0.0 {
+        quit_with_error("no sequences found in input_assemblies.gfa")
     }
-    let (graph, sequences) = UnitigGraph::from_gfa_lines(gfa_lines);
-    if print_info {
-        graph.print_basic_graph_info();
+    let mean_seqs_per_assembly = sequence_count / assembly_count;
+    if mean_seqs_per_assembly > max_contigs as f64 {
+        let e = format!("the mean number of contigs per input assembly ({:.1}) exceeds the allowed \
+                         threshold ({}). Are your input assemblies fragmented or contaminated?",
+                        mean_seqs_per_assembly, max_contigs);
+        quit_with_error(&e);
     }
-    (graph, sequences)
 }
 
 
@@ -780,7 +785,7 @@ fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<St
                     out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num)
                                                .cloned().collect();
-    let (mut cluster_graph, _) = load_graph(gfa_lines, false);
+    let (mut cluster_graph, _) = UnitigGraph::from_gfa_lines(gfa_lines);
     let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num)
                                             .map(|s| s.id).collect();
     for id in seq_ids_to_remove {
