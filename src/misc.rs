@@ -15,6 +15,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::MultiGzDecoder;
 use seq_io::fastq::Reader;
 use std::collections::HashSet;
+use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
 use std::io::{prelude::*, BufReader, Read};
@@ -143,9 +144,9 @@ pub fn quit_with_error(text: &str) -> ! {
 pub fn load_fasta(filename: &Path) -> Vec<(String, String, String)> {
     // This function loads a FASTA file and runs a few checks on the result. If everything looks
     // good, it returns a vector of name+sequence tuples.
-
-
-
+    if is_file_empty(filename) {
+        quit_with_error(&format!("{} is an empty file", filename.display()));
+    }
     let load_result = if is_file_gzipped(filename) {
         load_fasta_gzipped(filename)
     } else {
@@ -194,6 +195,14 @@ pub fn fastq_reader(fastq_file: &Path)
         Box::new(file)
     };
     Reader::new(BufReader::new(reader))
+}
+
+
+fn is_file_empty(filename: &Path) -> bool {
+    match fs::metadata(filename) {
+        Ok(metadata) => metadata.len() == 0,
+        Err(_) => false,
+    }
 }
 
 
@@ -701,5 +710,17 @@ mod tests {
         let fasta = load_fasta_gzipped(&filename).unwrap();
         assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
                                ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+    }
+
+    #[test]
+    fn test_is_file_empty() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_test_file(&filename, "");
+        assert!(is_file_empty(&filename));
+
+        make_test_file(&filename, "x");
+        assert!(!is_file_empty(&filename));
     }
 }
