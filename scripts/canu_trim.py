@@ -26,7 +26,7 @@ import sys
 def get_arguments():
     parser = argparse.ArgumentParser(description='Canu circular contig trimmer')
     parser.add_argument('input', type=str,
-                        help='Filename of Canu assembly in FASTA format')
+                        help='Filename of Canu assembly in FASTA format (can be gzipped)')
     args = parser.parse_args()
     return args
 
