@@ -16,17 +16,14 @@ use colored::Colorize;
 
 
 pub fn section_header(text: &str) {
-    colored::control::set_override(true);
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let date = format!("({})", now);
     eprintln!();
     eprintln!("{} {}", text.bold().bright_yellow().underline(), date.dimmed());
-    colored::control::unset_override();
 }
 
 
 pub fn explanation(text: &str) {
-    colored::control::set_override(true);
     let mut term_width = 80;
     if let Some((w, _)) = term_size::dimensions_stderr() {
         term_width = w;
@@ -34,5 +31,4 @@ pub fn explanation(text: &str) {
     let indented_text = format!("    {}", text);
     eprintln!("{}", textwrap::fill(&indented_text, term_width).dimmed());
     eprintln!();
-    colored::control::unset_override();
 }
