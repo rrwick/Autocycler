@@ -50,6 +50,12 @@ for cmd in canu canu_trim.py; do
     fi
 done
 
+# Ensure the output prefix will work.
+if ! touch "$assembly".fasta &> /dev/null; then
+    echo "Error: cannot write to this location: $assembly"
+    exit 1
+fi
+
 # Create a temporary directory which is deleted when the script exits.
 temp_dir=$(mktemp -d)
 cleanup() {
