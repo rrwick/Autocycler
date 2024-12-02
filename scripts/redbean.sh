@@ -31,28 +31,28 @@ genome_size=$4  # estimated genome size
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
     exit 1
 fi
 sort_threads=$(( threads < 4 ? threads : 4 ))
 
 # Check that the reads file exists.
 if [[ ! -f "$reads" ]]; then
-    echo "Error: $reads does not exist"
+    >&2 echo "Error: $reads does not exist"
     exit 1
 fi
 
 # Ensure the requirements are met.
 for cmd in wtdbg2 wtpoa-cns; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd not found in PATH"
+        >&2 echo "Error: $cmd not found in PATH"
         exit 1
     fi
 done
 
 # Ensure the output prefix will work.
 if ! touch "$assembly".fasta &> /dev/null; then
-    echo "Error: cannot write to this location: $assembly"
+    >&2 echo "Error: cannot write to this location: $assembly"
     exit 1
 fi
 
@@ -69,7 +69,7 @@ wtpoa-cns -t 16 -i "$temp_dir"/dbg.ctg.lay.gz -fo "$temp_dir"/dbg.raw.fa
 
 # Check if Redbean ran successfully.
 if [[ ! -s "$temp_dir"/dbg.raw.fa ]]; then
-    echo "Error: Redbean assembly failed."
+    >&2 echo "Error: Redbean assembly failed."
     exit 1
 fi
 

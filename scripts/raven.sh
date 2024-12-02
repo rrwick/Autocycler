@@ -30,27 +30,27 @@ threads=$3      # thread count
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
     exit 1
 fi
 
 # Check that the reads file exists.
 if [[ ! -f "$reads" ]]; then
-    echo "Error: $reads does not exist"
+    >&2 echo "Error: $reads does not exist"
     exit 1
 fi
 
 # Ensure the requirements are met.
 for cmd in raven; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd not found in PATH"
+        >&2 echo "Error: $cmd not found in PATH"
         exit 1
     fi
 done
 
 # Ensure the output prefix will work.
 if ! touch "$assembly".fasta &> /dev/null; then
-    echo "Error: cannot write to this location: $assembly"
+    >&2 echo "Error: cannot write to this location: $assembly"
     exit 1
 fi
 
@@ -66,6 +66,6 @@ raven --threads "$threads" --disable-checkpoints --graphical-fragment-assembly "
 
 # Check if Raven ran successfully.
 if [[ ! -s "$assembly".fasta ]]; then
-    echo "Error: Raven assembly failed."
+    >&2 echo "Error: Raven assembly failed."
     exit 1
 fi

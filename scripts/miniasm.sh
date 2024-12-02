@@ -34,27 +34,27 @@ threads=$3      # thread count
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
     exit 1
 fi
 
 # Check that the reads file exists.
 if [[ ! -f "$reads" ]]; then
-    echo "Error: $reads does not exist"
+    >&2 echo "Error: $reads does not exist"
     exit 1
 fi
 
 # Ensure the requirements are met.
 for cmd in miniasm minipolish minimap2 racon any2fasta; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd not found in PATH"
+        >&2 echo "Error: $cmd not found in PATH"
         exit 1
     fi
 done
 
 # Ensure the output prefix will work.
 if ! touch "$assembly".fasta &> /dev/null; then
-    echo "Error: cannot write to this location: $assembly"
+    >&2 echo "Error: cannot write to this location: $assembly"
     exit 1
 fi
 
@@ -73,7 +73,7 @@ miniasm -f "$reads" "$temp_dir"/overlap.paf > "$temp_dir"/unpolished.gfa
 
 # Check if miniasm ran successfully.
 if [[ ! -s "$temp_dir"/unpolished.gfa ]]; then
-    echo "Error: miniasm assembly failed."
+    >&2 echo "Error: miniasm assembly failed."
     exit 1
 fi
 
@@ -82,7 +82,7 @@ minipolish --threads "$threads" "$reads" "$temp_dir"/unpolished.gfa > "$assembly
 
 # Check if Minipolish ran successfully.
 if [[ ! -s "$assembly".gfa ]]; then
-    echo "Error: Minipolish assembly failed."
+    >&2 echo "Error: Minipolish assembly failed."
     exit 1
 fi
 
@@ -91,6 +91,6 @@ any2fasta "$assembly".gfa > "$assembly".fasta
 
 # Check if any2fasta ran successfully.
 if [[ ! -s "$assembly".fasta ]]; then
-    echo "Error: any2fasta assembly failed."
+    >&2 echo "Error: any2fasta assembly failed."
     exit 1
 fi

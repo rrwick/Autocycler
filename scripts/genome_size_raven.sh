@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 
-# This script is a wrapper for running La Jolla Assembler in a single command.
+# This script is a wrapper for getting a genome size estimate in a single command using Raven.
 
 # Usage:
-#   lja.sh <read_fastq> <assembly_prefix> <threads>
+#   raven.sh <read_fastq> <threads>
 
 # Requirements:
-#   La Jolla Assembler: https://github.com/AntonBankevich/LJA
+#   Raven: https://github.com/lbcb-sci/raven
+#   seqtk: https://github.com/lh3/seqtk
 
 # Copyright 2024 Ryan Wick (rrwick@gmail.com)
 # https://github.com/rrwick/Autocycler
@@ -25,12 +26,11 @@ set -e
 
 # Get arguments.
 reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
+threads=$2      # thread count
 
 # Validate input parameters.
-if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+if [[ -z "$reads" || -z "$threads" ]]; then
+    >&2 echo "Usage: $0 <read_fastq> <threads>"
     exit 1
 fi
 
@@ -41,18 +41,12 @@ if [[ ! -f "$reads" ]]; then
 fi
 
 # Ensure the requirements are met.
-for cmd in lja; do
+for cmd in raven seqtk cut; do
     if ! command -v "$cmd" &> /dev/null; then
         >&2 echo "Error: $cmd not found in PATH"
         exit 1
     fi
 done
-
-# Ensure the output prefix will work.
-if ! touch "$assembly".fasta &> /dev/null; then
-    >&2 echo "Error: cannot write to this location: $assembly"
-    exit 1
-fi
 
 # Create a temporary directory which is deleted when the script exits.
 temp_dir=$(mktemp -d)
@@ -61,15 +55,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Run LJA.
-lja -o "$temp_dir" --reads "$reads" --threads "$threads"
+# Run Raven.
+raven --threads "$threads" --disable-checkpoints "$reads" > "$temp_dir"/raven.fasta
 
-# Check if LJA ran successfully.
-if [[ ! -s "$temp_dir"/assembly.fasta ]]; then
-    >&2 echo "Error: LJA assembly failed."
+# Check if Raven ran successfully.
+if [[ ! -s "$temp_dir"/raven.fasta ]]; then
+    >&2 echo "Error: Raven assembly failed."
     exit 1
 fi
 
-# Copy output files.
-cp "$temp_dir"/assembly.fasta "$assembly".fasta
-cp "$temp_dir"/mdbg.gfa "$assembly".gfa
+# Print genome size.
+seqtk size "$temp_dir"/raven.fasta | cut -f2

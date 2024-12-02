@@ -32,27 +32,27 @@ genome_size=$4  # estimated genome size
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
     exit 1
 fi
 
 # Check that the reads file exists.
 if [[ ! -f "$reads" ]]; then
-    echo "Error: $reads does not exist"
+    >&2 echo "Error: $reads does not exist"
     exit 1
 fi
 
 # Ensure the requirements are met.
 for cmd in canu canu_trim.py; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd not found in PATH"
+        >&2 echo "Error: $cmd not found in PATH"
         exit 1
     fi
 done
 
 # Ensure the output prefix will work.
 if ! touch "$assembly".fasta &> /dev/null; then
-    echo "Error: cannot write to this location: $assembly"
+    >&2 echo "Error: cannot write to this location: $assembly"
     exit 1
 fi
 
@@ -68,7 +68,7 @@ canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThr
 
 # Check if Canu ran successfully.
 if [[ ! -s "$temp_dir"/canu.contigs.fasta ]]; then
-    echo "Error: Canu assembly failed."
+    >&2 echo "Error: Canu assembly failed."
     exit 1
 fi
 

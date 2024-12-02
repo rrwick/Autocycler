@@ -16,4 +16,5 @@ dependencies:
   - nextpolish>=1.4.1            # https://github.com/Nextomics/NextPolish
   - racon>=1.5.0                 # https://github.com/lbcb-sci/racon
   - raven-assembler>=1.8.3       # https://github.com/lbcb-sci/raven
+  - seqtk>=1.4                   # https://github.com/lh3/seqtk
   - wtdbg>=2.5                   # https://github.com/ruanjue/wtdbg2

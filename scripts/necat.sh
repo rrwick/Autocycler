@@ -31,14 +31,14 @@ genome_size=$4  # estimated genome size
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
     exit 1
 fi
 assembly_abs=$(realpath "$assembly")
 
 # Check that the reads file exists.
 if [[ ! -f "$reads" ]]; then
-    echo "Error: $reads does not exist"
+    >&2 echo "Error: $reads does not exist"
     exit 1
 fi
 reads_abs=$(realpath "$reads")
@@ -53,13 +53,13 @@ for cmd in necat.pl necat; do
     fi
 done
 if [[ "$found_necat" = false ]]; then
-    echo "Error: neither necat.pl nor necat found in PATH"
+    >&2 echo "Error: neither necat.pl nor necat found in PATH"
     exit 1
 fi
 
 # Ensure the output prefix will work.
 if ! touch "$assembly".fasta &> /dev/null; then
-    echo "Error: cannot write to this location: $assembly"
+    >&2 echo "Error: cannot write to this location: $assembly"
     exit 1
 fi
 
@@ -87,7 +87,7 @@ echo "$reads_abs" > read_list.txt
 
 # Check if NECAT ran successfully.
 if [[ ! -s necat/6-bridge_contigs/polished_contigs.fasta ]]; then
-    echo "Error: NECAT assembly failed."
+    >&2 echo "Error: NECAT assembly failed."
     exit 1
 fi
 
