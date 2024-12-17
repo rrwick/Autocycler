@@ -11,6 +11,7 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
+use colored::Colorize;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -44,7 +45,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
     let mut metrics = CombineMetrics::default();
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
     metrics.save_to_yaml(&combined_yaml);
-    finished_message(&combined_gfa, &combined_fasta);
+    finished_message(&combined_gfa, &combined_fasta, &metrics);
 }
 
 
@@ -72,10 +73,16 @@ fn print_settings(autocycler_dir: &Path, in_gfas: &[PathBuf]) {
 }
 
 
-fn finished_message(combined_gfa: &Path, combined_fasta: &Path) {
+fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &CombineMetrics) {
     section_header("Finished!");
     eprintln!("Combined graph: {}", combined_gfa.display());
     eprintln!("Combined fasta: {}", combined_fasta.display());
+    eprintln!();
+    if metrics.consensus_assembly_fully_resolved {
+        eprintln!("{}", "Consensus assembly is fully resolved 😄".green().bold());
+    } else {
+        eprintln!("{}", "One or more clusters failed to fully resolve 😟".red().bold());
+    }
     eprintln!();
 }
 
