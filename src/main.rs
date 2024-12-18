@@ -178,7 +178,7 @@ enum Commands {
         genome_size: String,
 
         /// Number of subsampled read sets to output
-        #[clap(short = 'c', long = "count", default_value = "24")]
+        #[clap(short = 'c', long = "count", default_value = "4")]
         count: usize,
 
         /// Minimum allowed read depth
