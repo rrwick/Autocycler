@@ -1,7 +1,6 @@
 channels:
   - bioconda
   - conda-forge
-  - defaults
 dependencies:
   - any2fasta>=0.4.2             # https://github.com/tseemann/any2fasta
   - canu>=2.2                    # https://github.com/marbl/canu
