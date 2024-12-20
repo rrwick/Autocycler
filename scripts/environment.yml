@@ -5,7 +5,7 @@ channels:
 dependencies:
   - any2fasta>=0.4.2             # https://github.com/tseemann/any2fasta
   - canu>=2.2                    # https://github.com/marbl/canu
-  - flye>=2.9.5                  # https://github.com/fenderglass/Flye
+  - flye>=2.9.5                  # https://github.com/mikolmogorov/Flye
   - lja>=0.2                     # https://github.com/AntonBankevich/LJA
   - metamdbg>=1.0                # https://github.com/GaetanBenoitDev/metaMDBG
   - miniasm>=0.3                 # https://github.com/lh3/miniasm
