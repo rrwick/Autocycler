@@ -67,7 +67,7 @@ fn finished_message(out_gfa: &Path) {
 fn clean_graph(graph: &mut UnitigGraph, remove_tigs: &[u32], in_gfa: &Path) {
     section_header("Cleaning graph");
     explanation("The user-specified tigs are now removed from the graph.");
-    check_tig_nums_are_valid(in_gfa, &graph, remove_tigs);
+    check_tig_nums_are_valid(in_gfa, graph, remove_tigs);
     let remove_set: HashSet<u32> = HashSet::from_iter(remove_tigs.iter().cloned());
     graph.remove_unitigs_by_number(remove_set);
     graph.print_basic_graph_info();
@@ -77,7 +77,7 @@ fn clean_graph(graph: &mut UnitigGraph, remove_tigs: &[u32], in_gfa: &Path) {
 fn merge_graph(graph: &mut UnitigGraph) {
     section_header("Merging linear paths");
     explanation("Linear paths in the graph are now merged.");
-    merge_linear_paths(graph, &vec![], false);
+    merge_linear_paths(graph, &vec![]);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
 }

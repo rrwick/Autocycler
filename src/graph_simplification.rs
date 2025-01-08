@@ -17,6 +17,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use crate::misc::{reverse_complement, strand};
+use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
@@ -313,7 +314,7 @@ fn get_common_end_seq(unitigs: &[UnitigStrand]) -> Vec<u8> {
 }
 
 
-pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>, require_same_depth: bool) {
+pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
     // This function looks for linear paths in the graph (where one Unitig leads only to another
     // and vice versa) and merges them together when possible.
     //
@@ -343,12 +344,10 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>, require
             // Extend the path as far as possible.
             loop {
                 let unitig = current_path.last().unwrap();
-                let current_depth = unitig.depth();
                 if cannot_merge_end(unitig.number(), unitig.strand, &fixed_starts, &fixed_ends) { break; }
                 let mut outputs = if unitig.strand { get_exclusive_outputs(&unitig.unitig) } else { get_exclusive_inputs(&unitig.unitig) };
                 if outputs.len() != 1 { break; }
                 let output = &mut outputs[0];
-                if require_same_depth && output.depth() != current_depth { break; }
                 if !unitig.strand { output.strand = !output.strand; }
                 let output_number = output.number();
                 if already_used.contains(&output_number) { break; }
@@ -433,8 +432,7 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
         number: new_unitig_number,
         reverse_seq: reverse_complement(&merged_seq),
         forward_seq: merged_seq,
-        depth: if !forward_positions.is_empty() { forward_positions.len() as f64 }
-               else { weighted_mean_depth(path) },
+        depth: get_merge_path_depth(path, &forward_positions),
         forward_positions, reverse_positions,
         forward_next, forward_prev, reverse_next, reverse_prev,
         ..Default::default()
@@ -499,6 +497,24 @@ fn merge_unitig_seqs(path: &Vec<UnitigStrand>) -> Vec<u8> {
         merged_seq.extend(u.get_seq());
     }
     merged_seq
+}
+
+
+fn get_merge_path_depth(path: &Vec<UnitigStrand>, forward_positions: &[Position]) -> f64 {
+    // If the unitigs have position information, use that to determine depth.
+    if !forward_positions.is_empty() {
+        return forward_positions.len() as f64;
+    }
+
+    // If the path contains an anchor unitig, set the merged depth to the anchor's depth.
+    for u in path {
+        if u.anchor() {
+            return u.depth();
+        }
+    }
+
+    // Otherwise, give a weighted mean depth of the unitigs in the path.
+    weighted_mean_depth(path)
 }
 
 
@@ -729,7 +745,7 @@ mod tests {
     fn test_merge_linear_paths_1() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_3());
         assert_eq!(graph.unitigs.len(), 7);
-        merge_linear_paths(&mut graph, &seqs, false);
+        merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 3);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&8).unwrap().borrow().forward_seq).unwrap(),
                    "TTCGCTGCGCTCGCTTCGCTTTTGCACAGCGACGACGGCATGCCTGAATCGCCTA");
@@ -753,7 +769,7 @@ mod tests {
     fn test_merge_linear_paths_2() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
         assert_eq!(graph.unitigs.len(), 5);
-        merge_linear_paths(&mut graph, &seqs, false);
+        merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 2);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&6).unwrap().borrow().forward_seq).unwrap(),
                    "ACGACTACGAGCACGAGTCGTCGTCGTAACTGACT");
@@ -772,7 +788,7 @@ mod tests {
     fn test_merge_linear_paths_3() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
         assert_eq!(graph.unitigs.len(), 6);
-        merge_linear_paths(&mut graph, &seqs, false);
+        merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 5);
         assert_eq!(std::str::from_utf8(&graph.unitig_index.get(&7).unwrap().borrow().forward_seq).unwrap(),
                    "AAATGCGACTGTG");
@@ -782,7 +798,7 @@ mod tests {
     fn test_merge_linear_paths_4() {
         let (mut graph, seqs) = UnitigGraph::from_gfa_lines(&get_test_gfa_14());
         assert_eq!(graph.unitigs.len(), 13);
-        merge_linear_paths(&mut graph, &seqs, false);
+        merge_linear_paths(&mut graph, &seqs);
         assert_eq!(graph.unitigs.len(), 11);
     }
 }

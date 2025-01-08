@@ -793,7 +793,7 @@ fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<St
         cluster_graph.remove_sequence_from_graph(id);
     }
     cluster_graph.remove_zero_depth_unitigs();
-    merge_linear_paths(&mut cluster_graph, &cluster_seqs, false);
+    merge_linear_paths(&mut cluster_graph, &cluster_seqs);
     cluster_graph.save_gfa(&out_gfa, &cluster_seqs).unwrap();
 }
 
