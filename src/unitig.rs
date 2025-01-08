@@ -338,6 +338,10 @@ impl UnitigStrand {
         self.unitig.borrow().length()
     }
 
+    pub fn depth(&self) -> f64 {
+        self.unitig.borrow().depth
+    }
+
     pub fn get_seq(&self) -> Vec<u8> {
         self.unitig.borrow().get_seq(self.strand)
     }

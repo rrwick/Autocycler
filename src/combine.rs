@@ -34,9 +34,9 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
     starting_message();
     print_settings(&autocycler_dir, &in_gfas);
 
-    // TODO: add an optional argument for reads, which will add depth values to the combined
-    //       assembly. Find unique k-mers in the combined assembly and then count the occurrences
-    //       of those k-mers in the reads.
+    // TODO: add an optional argument for reads. When used, the reads will be used to set unitig
+    //       depths (instead of input assembly count). Find unique k-mers in the combined assembly
+    //       and then count the occurrences of those k-mers in the reads.
 
     // TODO: sort the input GFA files in order of decreasing size. They may already be in this
     //       order (from the clustering step), but not necessarily (e.g. due to small plasmid
@@ -106,11 +106,13 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
             let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
             let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
                                                        else { "".to_string() };
+            let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
             let mut colour_tag = unitig.colour_tag();
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:z:orangered".to_string();
             }
-            writeln!(gfa_file, "S\t{}\t{}{}", unitig_num, unitig_seq, colour_tag).unwrap();
+            writeln!(gfa_file, "S\t{}\t{}{}{}",
+                     unitig_num, unitig_seq, depth_tag, colour_tag).unwrap();
             writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), circ).unwrap();
             writeln!(fasta_file, "{}", unitig_seq).unwrap();
         }

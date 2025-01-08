@@ -86,8 +86,6 @@ impl UnitigGraph {
                 }
             }
         }
-        quit_with_error("could not find a valid k-mer tag (e.g. KM:i:51) in the GFA header line.\n\
-                         Are you sure this is an Autocycler-generated GFA file?");
     }
 
     fn build_links_from_gfa(&mut self, link_lines: &[&str]) {

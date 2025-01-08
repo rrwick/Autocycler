@@ -50,7 +50,7 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
     apply_unique_message();
     apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
     unitig_graph.save_gfa(&bridged_gfa, &vec![]).unwrap();
-    merge_after_bridging(&mut unitig_graph, bridge_depth);
+    merge_after_bridging(&mut unitig_graph);
     unitig_graph.save_gfa(&merged_gfa, &vec![]).unwrap();
 
     let cull_count = cull_ambiguity(&mut bridges, verbose);
@@ -58,7 +58,7 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
         (unitig_graph, _) = load_graph(&gfa_lines, false, Some(&anchors));
         apply_final_message();
         apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
-        merge_after_bridging(&mut unitig_graph, bridge_depth);
+        merge_after_bridging(&mut unitig_graph);
     } else {
         eprintln!("All bridges were unique, no culling necessary.\n");
     }
@@ -237,8 +237,8 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
 }
 
 
-fn merge_after_bridging(graph: &mut UnitigGraph, bridge_depth: f64) {
-    merge_linear_paths(graph, &vec![], Some(bridge_depth));
+fn merge_after_bridging(graph: &mut UnitigGraph) {
+    merge_linear_paths(graph, &vec![], true);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
 }

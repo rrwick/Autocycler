@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand, crate_version};
 
+mod clean;
 mod cluster;
 mod combine;
 mod compress;
@@ -62,6 +63,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+
+    /// Remove specified tigs and then merge linear paths
+    Clean {
+        /// Autocycler GFA file (required)
+        #[clap(short = 'i', long = "in_gfa", required = true)]
+        in_gfa: PathBuf,
+
+        /// Output GFA file (required)
+        #[clap(short = 'o', long = "out_gfa", required = true)]
+        out_gfa: PathBuf,
+
+        /// Tig numbers to remove from the input graph
+        #[clap(short = 'r', long = "remove")]
+        remove: Option<String>,
+    },
 
     /// cluster contigs in the unitig graph based on similarity
     Cluster {
@@ -245,6 +261,9 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Clean { in_gfa, out_gfa, remove }) => {
+            clean::clean(in_gfa, out_gfa, remove);
+        },
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);
         },
