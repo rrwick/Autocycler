@@ -109,7 +109,8 @@ fn parse_remove_tigs(remove: Option<String>) -> Vec<u32> {
     if remove.is_none() {
         return Vec::new();
     }
-    let mut remove_tigs: Vec<_> = remove.unwrap().split(',')
+    let remove = remove.unwrap().replace(' ', "");
+    let mut remove_tigs: Vec<_> = remove.split(',')
             .map(|s| s.parse::<u32>().unwrap_or_else(|_| quit_with_error(
                 &format!("failed to parse '{}' as a node number", s)))).collect();
     remove_tigs.sort();

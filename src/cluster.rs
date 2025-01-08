@@ -653,7 +653,8 @@ fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
     if manual_clusters.is_none() {
         return Vec::new();
     }
-    let mut clusters: Vec<_> = manual_clusters.unwrap().split(',')
+    let manual_clusters = manual_clusters.unwrap().replace(' ', "");
+    let mut clusters: Vec<_> = manual_clusters.split(',')
             .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
                 &format!("failed to parse '{}' as a node number", s)))).collect();
     clusters.sort();
