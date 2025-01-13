@@ -64,7 +64,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
 
-    /// Remove specified tigs and then merge linear paths
+    /// manual manipulation of the final consensus assebly graph
     Clean {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
