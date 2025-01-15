@@ -286,6 +286,13 @@ impl Unitig {
         self.anchor = true;
         self.bridge = true;
     }
+
+    pub fn clear_all_links(&mut self) {
+        self.forward_next.clear();
+        self.forward_prev.clear();
+        self.reverse_next.clear();
+        self.reverse_prev.clear();
+    }
 }
 
 impl fmt::Display for Unitig {

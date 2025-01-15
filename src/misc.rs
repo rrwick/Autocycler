@@ -488,6 +488,15 @@ fn first_non_empty_char<R: BufRead>(reader: R) -> io::Result<char> {
 }
 
 
+pub fn find_replace_i32_tuple(tuple: (i32, i32), find: i32, replace: i32) -> (i32, i32) {
+    let (x, y) = tuple;
+    (
+        if x.abs() == find { replace * x.signum() } else { x },
+        if y.abs() == find { replace * y.signum() } else { y },
+    )
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,5 +731,15 @@ mod tests {
 
         make_test_file(&filename, "x");
         assert!(!is_file_empty(&filename));
+    }
+
+    #[test]
+    fn test_find_replace_i32_tuple() {
+        assert_eq!(find_replace_i32_tuple((1, 2), 1, 8), (8, 2));
+        assert_eq!(find_replace_i32_tuple((1, 2), 2, 8), (1, 8));
+        assert_eq!(find_replace_i32_tuple((-1, 2), 1, 8), (-8, 2));
+        assert_eq!(find_replace_i32_tuple((-1, 2), 2, 8), (-1, 8));
+        assert_eq!(find_replace_i32_tuple((1, -2), 1, 8), (8, -2));
+        assert_eq!(find_replace_i32_tuple((1, -2), 2, 8), (1, -8));
     }
 }

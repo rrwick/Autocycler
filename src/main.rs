@@ -77,6 +77,10 @@ enum Commands {
         /// Tig numbers to remove from the input graph
         #[clap(short = 'r', long = "remove")]
         remove: Option<String>,
+
+        /// Tig numbers to duplication in the input graph
+        #[clap(short = 'd', long = "duplicate")]
+        duplicate: Option<String>,
     },
 
     /// cluster contigs in the unitig graph based on similarity
@@ -261,8 +265,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Clean { in_gfa, out_gfa, remove }) => {
-            clean::clean(in_gfa, out_gfa, remove);
+        Some(Commands::Clean { in_gfa, out_gfa, remove, duplicate }) => {
+            clean::clean(in_gfa, out_gfa, remove, duplicate);
         },
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);

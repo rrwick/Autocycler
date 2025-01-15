@@ -22,7 +22,7 @@ use crate::kmer_graph::KmerGraph;
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
-use crate::misc::{quit_with_error, strand, load_file_lines};
+use crate::misc::{quit_with_error, strand, load_file_lines, find_replace_i32_tuple};
 
 
 #[derive(Default)]
@@ -574,6 +574,84 @@ impl UnitigGraph {
         self.unitigs.retain(|u| !to_remove.contains(&u.borrow().number));
         self.delete_dangling_links();
         self.build_unitig_index();
+    }
+
+    pub fn duplicate_unitig_by_number(&mut self, unitig_num: &u32) {
+        // This method duplicates the specified unitig. It is a requirement that the unitig has
+        // exactly two non-self links, because each copy of the unitig will keep one of these links.
+        self.check_if_unitig_can_be_duplicated(unitig_num);
+
+        // Create two copies of the target unitig.
+        let u = self.unitig_index.get(unitig_num).unwrap().clone();
+        let target = u.borrow();
+        let target_num = target.number;
+        let mut copy_a = target.clone();
+        let mut copy_b = target.clone();
+        let a_num = self.max_unitig_number() + 1;
+        let b_num = a_num + 1;
+        copy_a.number = a_num;
+        copy_b.number = b_num;
+        copy_a.clear_all_links();
+        copy_b.clear_all_links();
+        self.unitigs.push(Rc::new(RefCell::new(copy_a)));
+        self.unitigs.push(Rc::new(RefCell::new(copy_b)));
+        self.build_unitig_index();
+
+        // Add self-links (loops and hairpins) to the copies
+        for link in &target.forward_next {
+            if link.number() == *unitig_num {
+                self.create_link(a_num as i32, a_num as i32 * if link.strand { 1 } else { -1 });
+                self.create_link(b_num as i32, b_num as i32 * if link.strand { 1 } else { -1 });
+            }
+        }
+        for link in &target.reverse_next {
+            if link.number() == *unitig_num {
+                self.create_link(-(a_num as i32),
+                                   a_num as i32 * if link.strand { 1 } else { -1 });
+                self.create_link(-(b_num as i32),
+                                   b_num as i32 * if link.strand { 1 } else { -1 });
+            }
+        }
+
+        // Distribute non-self links to the copies.
+        let mut non_self_links = Vec::new();
+        for link in &target.forward_next {
+            if link.number() != target_num {
+                non_self_links.push((target_num as i32, link.signed_number()));
+            }
+        }
+        for link in &target.reverse_next {
+            if link.number() != target_num {
+                non_self_links.push((-(target_num as i32), link.signed_number()));
+            }
+        }
+        assert!(non_self_links.len() == 2);
+        let new_link_a = find_replace_i32_tuple(non_self_links[0], target_num as i32, a_num as i32);
+        let new_link_b = find_replace_i32_tuple(non_self_links[1], target_num as i32, b_num as i32);
+        self.create_link(new_link_a.0, new_link_a.1);
+        self.create_link(new_link_b.0, new_link_b.1);
+
+        // Remove the original unitig.
+        self.remove_unitigs_by_number(std::iter::once(*unitig_num).collect());
+        self.delete_dangling_links();
+        self.build_unitig_index();
+        self.check_links();
+    }
+
+    fn check_if_unitig_can_be_duplicated(&self, unitig_num: &u32) {
+        let unitig = self.unitig_index.get(unitig_num).unwrap().borrow();
+        let unitig_num = unitig.number;
+        let mut links = Vec::new();
+        for link in &unitig.forward_next {
+            if unitig_num != link.number() { links.push(link); }
+        }
+        for link in &unitig.reverse_next {
+            if unitig_num != link.number() { links.push(link); }
+        }
+        if links.len() != 2 {
+            quit_with_error(&format!("unitig {} does not contain exactly two non-self links",
+                                     unitig_num));
+        }
     }
 
     pub fn link_exists(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
