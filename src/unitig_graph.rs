@@ -587,6 +587,8 @@ impl UnitigGraph {
         let target_num = target.number;
         let mut copy_a = target.clone();
         let mut copy_b = target.clone();
+        copy_a.depth /= 2.0;
+        copy_b.depth /= 2.0;
         let a_num = self.max_unitig_number() + 1;
         let b_num = a_num + 1;
         copy_a.number = a_num;
@@ -595,6 +597,10 @@ impl UnitigGraph {
         copy_b.clear_all_links();
         self.unitigs.push(Rc::new(RefCell::new(copy_a)));
         self.unitigs.push(Rc::new(RefCell::new(copy_b)));
+
+        // Remove the original unitig.
+        self.remove_unitigs_by_number(std::iter::once(*unitig_num).collect());
+        self.delete_dangling_links();
         self.build_unitig_index();
 
         // Add self-links (loops and hairpins) to the copies
@@ -606,14 +612,12 @@ impl UnitigGraph {
         }
         for link in &target.reverse_next {
             if link.number() == *unitig_num {
-                self.create_link(-(a_num as i32),
-                                   a_num as i32 * if link.strand { 1 } else { -1 });
-                self.create_link(-(b_num as i32),
-                                   b_num as i32 * if link.strand { 1 } else { -1 });
+                self.create_link(-(a_num as i32), a_num as i32 * if link.strand { 1 } else { -1 });
+                self.create_link(-(b_num as i32), b_num as i32 * if link.strand { 1 } else { -1 });
             }
         }
 
-        // Distribute non-self links to the copies.
+        // Distribute the two non-self links to the copies.
         let mut non_self_links = Vec::new();
         for link in &target.forward_next {
             if link.number() != target_num {
@@ -630,11 +634,6 @@ impl UnitigGraph {
         let new_link_b = find_replace_i32_tuple(non_self_links[1], target_num as i32, b_num as i32);
         self.create_link(new_link_a.0, new_link_a.1);
         self.create_link(new_link_b.0, new_link_b.1);
-
-        // Remove the original unitig.
-        self.remove_unitigs_by_number(std::iter::once(*unitig_num).collect());
-        self.delete_dangling_links();
-        self.build_unitig_index();
         self.check_links();
     }
 
@@ -1357,5 +1356,26 @@ mod tests {
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
         assert_eq!(graph.topology(), "other".to_string());
+    }
+
+    #[test]
+    fn test_duplicate_unitig_by_number() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_4());
+        assert_eq!(graph.unitigs.len(), 5);
+        assert_eq!(graph.total_length(), 43);
+        assert_eq!(graph.link_count(), (10, 5));
+        graph.duplicate_unitig_by_number(&5);
+        assert_eq!(graph.unitigs.len(), 6);
+        assert_eq!(graph.total_length(), 46);
+        assert_eq!(graph.link_count(), (10, 5));
+
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        assert_eq!(graph.unitigs.len(), 6);
+        assert_eq!(graph.total_length(), 60);
+        assert_eq!(graph.link_count(), (8, 4));
+        graph.duplicate_unitig_by_number(&1);
+        assert_eq!(graph.unitigs.len(), 7);
+        assert_eq!(graph.total_length(), 79);
+        assert_eq!(graph.link_count(), (8, 4));
     }
 }
