@@ -47,7 +47,7 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     let sequences = choose_trim_type(start_end_results, hairpin_results, &mut graph, &sequences);
     let sequences = exclude_outliers_in_length(&mut graph, &sequences, mad);
     clean_up_graph(&mut graph, &sequences);
-    graph.save_gfa(&trimmed_gfa, &sequences).unwrap();
+    graph.save_gfa(&trimmed_gfa, &sequences, false).unwrap();
     save_metrics(&trimmed_yaml, &sequences);
     finished_message(&trimmed_gfa);
 }

@@ -314,11 +314,12 @@ impl UnitigGraph {
         self.build_unitig_index();
     }
 
-    pub fn save_gfa(&self, gfa_filename: &Path, sequences: &Vec<Sequence>) -> io::Result<()> {
+    pub fn save_gfa(&self, gfa_filename: &Path, sequences: &Vec<Sequence>,
+                    use_other_colour: bool) -> io::Result<()> {
         let mut file = File::create(gfa_filename)?;
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
         for unitig in &self.unitigs {
-            writeln!(file, "{}", unitig.borrow().gfa_segment_line())?;
+            writeln!(file, "{}", unitig.borrow().gfa_segment_line(use_other_colour))?;
         }
         for (a, a_strand, b, b_strand) in self.get_links_for_gfa(0) {
             writeln!(file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand)?;

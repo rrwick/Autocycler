@@ -36,7 +36,7 @@ pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicat
         duplicate_tigs(&mut graph, &duplicate);
     }
     merge_graph(&mut graph);
-    graph.save_gfa(&out_gfa, &vec![]).unwrap();
+    graph.save_gfa(&out_gfa, &vec![], true).unwrap();
     finished_message(&out_gfa);
 }
 

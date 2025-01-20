@@ -24,6 +24,7 @@ use crate::position::Position;
 static ANCHOR_COLOUR: &str = "forestgreen";
 static BRIDGE_COLOUR: &str = "pink";
 static CONSENTIG_COLOUR: &str = "steelblue";
+static OTHER_COLOUR: &str = "orangered";
 
 
 #[derive(Clone, Default)]
@@ -34,12 +35,7 @@ pub struct Unitig {
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
-
-    // TODO: I might want to drop anchor and bridge and instead create a unitig-type enum that
-    //       can cover all options: anchor, bridge, consentig, etc.
-    pub anchor: bool,
-    pub bridge: bool,
-
+    pub unitig_type: UnitigType,  // anchor, bridge, consentig or other
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,
     pub forward_next: Vec<UnitigStrand>,
@@ -79,12 +75,17 @@ impl Unitig {
                 quit_with_error("Could not find a depth tag (e.g. DP:f:10.00) in the GFA segment \
                                  line.\nAre you sure this is an Autocycler-generated GFA file?");
             });
-        let anchor = parts.iter().any(|p| *p == format!("CL:z:{}", ANCHOR_COLOUR)) ||
-                     parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
-        let bridge = parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) ||
-                     parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR));
+        let unitig_type = if parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR)) {
+            UnitigType::Consentig
+        } else if parts.iter().any(|p| *p == format!("CL:z:{}", ANCHOR_COLOUR)) {
+            UnitigType::Anchor
+        } else if parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) {
+            UnitigType::Bridge
+        } else {
+            UnitigType::Other
+        };
         Unitig {
-            number, forward_seq, reverse_seq, depth, anchor, bridge,
+            number, forward_seq, reverse_seq, depth, unitig_type,
             ..Default::default()
         }
     }
@@ -93,7 +94,7 @@ impl Unitig {
         // This constructor is for manually building a Unitig object when creating bridges.
         let reverse_seq = reverse_complement(&forward_seq);
         Unitig {
-            number, forward_seq, reverse_seq, depth, bridge: true,
+            number, forward_seq, reverse_seq, depth, unitig_type: UnitigType::Bridge,
             ..Default::default()
         }
     }
@@ -163,16 +164,20 @@ impl Unitig {
         assert!(!self.forward_seq.is_empty());
     }
 
-    pub fn gfa_segment_line(&self) -> String {
+    pub fn gfa_segment_line(&self, use_other_colour: bool) -> String {
         let seq_str = String::from_utf8_lossy(&self.forward_seq);
-        format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth, self.colour_tag())
+        format!("S\t{}\t{}\tDP:f:{:.2}{}", self.number, seq_str, self.depth,
+                                           self.colour_tag(use_other_colour))
     }
 
-    pub fn colour_tag(&self) -> String {
-        if self.is_consentig() { format!("\tCL:z:{}", CONSENTIG_COLOUR) }
-        else if self.anchor    { format!("\tCL:z:{}", ANCHOR_COLOUR) }
-        else if self.bridge    { format!("\tCL:z:{}", BRIDGE_COLOUR) }
-        else                   { String::new() }
+    pub fn colour_tag(&self, use_other_colour: bool) -> String {
+        match self.unitig_type {
+            UnitigType::Consentig => format!("\tCL:z:{}", CONSENTIG_COLOUR),
+            UnitigType::Anchor => format!("\tCL:z:{}", ANCHOR_COLOUR),
+            UnitigType::Bridge => format!("\tCL:z:{}", BRIDGE_COLOUR),
+            UnitigType::Other => { if use_other_colour { format!("\tCL:z:{}", OTHER_COLOUR) }
+                                                  else { String::new() } }
+        }
     }
 
     pub fn length(&self) -> u32 {
@@ -277,16 +282,6 @@ impl Unitig {
         next.number() == self.number && next.strand && prev.number() == self.number && prev.strand
     }
 
-    fn is_consentig(&self) -> bool {
-        // A unitig is labelled as consentig by having both the anchor and bridge flags set.
-        self.anchor && self.bridge
-    }
-
-    pub fn set_as_consentig(&mut self) {
-        self.anchor = true;
-        self.bridge = true;
-    }
-
     pub fn clear_all_links(&mut self) {
         self.forward_next.clear();
         self.forward_prev.clear();
@@ -353,8 +348,12 @@ impl UnitigStrand {
         self.unitig.borrow().get_seq(self.strand)
     }
 
-    pub fn anchor(&self) -> bool {
-        self.unitig.borrow().anchor
+    pub fn is_anchor(&self) -> bool {
+        self.unitig.borrow().unitig_type == UnitigType::Anchor
+    }
+
+    pub fn is_consentig(&self) -> bool {
+        self.unitig.borrow().unitig_type == UnitigType::Consentig
     }
 }
 
@@ -366,6 +365,16 @@ impl fmt::Display for UnitigStrand {
 
 impl fmt::Debug for UnitigStrand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnitigType {
+    Anchor,
+    Bridge,
+    Consentig,
+    #[default]
+    Other,
 }
 
 

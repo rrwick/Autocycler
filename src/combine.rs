@@ -107,7 +107,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
             let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
                                                        else { "".to_string() };
             let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
-            let mut colour_tag = unitig.colour_tag();
+            let mut colour_tag = unitig.colour_tag(true);
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:z:orangered".to_string();
             }

@@ -104,12 +104,12 @@ fn test_high_level(seq_a: &str, seq_b: &str, seq_c: &str, seq_d: &str, seq_e: &s
     let mut unitig_graph = UnitigGraph::from_kmer_graph(&kmer_graph);
     simplify_structure(&mut unitig_graph, &sequences);
     let gfa_1 = graph_dir.path().join("graph_1.gfa");
-    unitig_graph.save_gfa(&gfa_1, &sequences).unwrap();
+    unitig_graph.save_gfa(&gfa_1, &sequences, false).unwrap();
 
     // Load the unitig graph from file, save it back to file and ensure the files are the same.
     let gfa_2 = graph_dir.path().join("graph_2.gfa");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(&gfa_1);
-    unitig_graph.save_gfa(&gfa_2, &sequences).unwrap();
+    unitig_graph.save_gfa(&gfa_2, &sequences, false).unwrap();
     assert_same_content(&gfa_1, &gfa_2);
 
     // Reconstruct the sequences from the unitig graph.

@@ -24,7 +24,7 @@ use crate::log::{section_header, explanation};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, reverse_path, load_file_lines,
                   sign_at_end, sign_at_end_vec};
 use crate::sequence::Sequence;
-use crate::unitig::Unitig;
+use crate::unitig::{Unitig, UnitigType};
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -49,9 +49,9 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
 
     apply_unique_message();
     apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
-    unitig_graph.save_gfa(&bridged_gfa, &vec![]).unwrap();
+    unitig_graph.save_gfa(&bridged_gfa, &vec![], false).unwrap();
     merge_after_bridging(&mut unitig_graph);
-    unitig_graph.save_gfa(&merged_gfa, &vec![]).unwrap();
+    unitig_graph.save_gfa(&merged_gfa, &vec![], false).unwrap();
 
     let cull_count = cull_ambiguity(&mut bridges, verbose);
     if cull_count > 0 {
@@ -62,7 +62,7 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
     } else {
         eprintln!("All bridges were unique, no culling necessary.\n");
     }
-    unitig_graph.save_gfa(&final_gfa, &vec![]).unwrap();
+    unitig_graph.save_gfa(&final_gfa, &vec![], true).unwrap();
     finished_message(&final_gfa);
 }
 
@@ -118,7 +118,8 @@ fn load_graph(gfa_lines: &Vec<String>, print_info: bool,
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_lines(gfa_lines);
     if let Some(anchors) = anchors {
         for num in anchors {
-            unitig_graph.unitig_index.get(num).unwrap().borrow_mut().anchor = true;
+            unitig_graph.unitig_index.get(num).unwrap()
+                        .borrow_mut().unitig_type = UnitigType::Anchor;
         }
     }
     if print_info {
@@ -141,7 +142,7 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &[Sequence]) -> Vec<u
         let mut forward_seq_ids: Vec<_> = unitig.forward_positions.iter().map(|p| p.seq_id()).collect();
         forward_seq_ids.sort();
         if forward_seq_ids == all_seq_ids {
-            unitig.anchor = true;
+            unitig.unitig_type = UnitigType::Anchor;
             anchor_ids.push(unitig.number);
         }
     }
@@ -260,7 +261,8 @@ fn reduce_depths(graph: &mut UnitigGraph, bridge: &Bridge) {
 fn delete_unitigs_not_connected_to_anchor(graph: &mut UnitigGraph) {
     let to_delete: HashSet<u32> = graph.connected_components().into_iter()
         .filter_map(|component| {
-            if component.iter().all(|&num| !graph.unitig_index.get(&num).unwrap().borrow().anchor) { Some(component) }
+            if component.iter().all(|&num| graph.unitig_index.get(&num).unwrap().borrow()
+                               .unitig_type != UnitigType::Anchor) { Some(component) }
             else { None } })
         .flat_map(|component| component.into_iter())
         .collect();

@@ -19,7 +19,7 @@ use std::rc::Rc;
 use crate::misc::{reverse_complement, strand};
 use crate::position::Position;
 use crate::sequence::Sequence;
-use crate::unitig::{Unitig, UnitigStrand};
+use crate::unitig::{Unitig, UnitigStrand, UnitigType};
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -438,8 +438,8 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
         ..Default::default()
     };
 
-    if path.iter().any(|p| p.anchor()) {
-        unitig.set_as_consentig();
+    if path.iter().any(|p| p.is_anchor() || p.is_consentig()) {
+        unitig.unitig_type = UnitigType::Consentig;
     }
 
     let unitig_rc = Rc::new(RefCell::new(unitig));
@@ -508,7 +508,7 @@ fn get_merge_path_depth(path: &Vec<UnitigStrand>, forward_positions: &[Position]
 
     // If the path contains an anchor unitig, set the merged depth to the anchor's depth.
     for u in path {
-        if u.anchor() {
+        if u.is_anchor() {
             return u.depth();
         }
     }

@@ -43,7 +43,7 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, t
     simplify_unitig_graph(&mut unitig_graph, &sequences);
     let out_gfa = autocycler_dir.join("input_assemblies.gfa");
     let out_yaml = autocycler_dir.join("input_assemblies.yaml");
-    unitig_graph.save_gfa(&out_gfa, &sequences).unwrap();
+    unitig_graph.save_gfa(&out_gfa, &sequences, false).unwrap();
     save_metrics(&mut metrics, assembly_count, &sequences, &unitig_graph, &out_yaml);
     finished_message(start_time, out_gfa, out_yaml);
 }

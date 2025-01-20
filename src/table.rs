@@ -132,7 +132,7 @@ fn visit_dirs_for_yaml_files(dir: &Path, yaml_files: &mut Vec<PathBuf>) {
             let path = entry.path();
             if path.is_dir() {
                 visit_dirs_for_yaml_files(&path, yaml_files);
-            } else if path.extension().map_or(false, |ext| ext == "yaml") {
+            } else if path.extension().is_some_and(|ext| ext == "yaml") {
                 yaml_files.push(path);
             }
         }
@@ -144,7 +144,7 @@ fn get_one_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Option<PathBuf> 
     // Returns the YAML file in the given path with a matching filename. No match is okay and one
     // match is okay, but multiple matches will result in an error.
     let found_files = yaml_files.iter()
-        .filter(|path| path.file_name().map_or(false, |name| name == filename)).collect::<Vec<_>>();
+        .filter(|path| path.file_name().is_some_and(|name| name == filename)).collect::<Vec<_>>();
     match found_files.len() {
         0 => None,
         1 => Some(found_files[0].clone()),
@@ -157,7 +157,7 @@ fn get_multi_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Vec<PathBuf> {
     // Returns all YAML files in the given path with a matching filename, excluding those that are
     // in a qc_fail directory.
     yaml_files.iter().filter(|path| {
-                         path.file_name().map_or(false, |name| name == filename) &&
+                         path.file_name().is_some_and(|name| name == filename) &&
                          !path.to_string_lossy().contains("/qc_fail/")
                      }).cloned().collect()
 }
