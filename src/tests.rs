@@ -95,7 +95,7 @@ fn test_high_level(seq_a: &str, seq_b: &str, seq_c: &str, seq_d: &str, seq_e: &s
     // Build a k-mer graph from the sequences.
     let mut metrics = InputAssemblyMetrics::default();
     let (sequences, assembly_count) = load_sequences(&assembly_dir.path().to_path_buf(),
-                                                        k_size, &mut metrics);
+                                                     k_size, &mut metrics, 25);
     assert_eq!(assembly_count, 5);
     let mut kmer_graph = KmerGraph::new(k_size);
     kmer_graph.add_sequences(&sequences, assembly_count);
@@ -131,11 +131,16 @@ fn test_high_level(seq_a: &str, seq_b: &str, seq_c: &str, seq_d: &str, seq_e: &s
 
 #[test]
 fn test_fixed_seqs() {
-    let seq_a = ">a\nCTTATGAGCAGTCCTTAACGTAGCGGTGTGTGGCTTTGAGAAGTTAGCGGTGGCGAGCTACATCCTGGCTCCAAT\n".to_string();
-    let seq_b = ">b\nACCGTTACGTTAAGGACTGCTCATAAGATTGGAGCCAGGATGTAGCTCGCCACGGCTAACTTCTCAAAGCGGCAC\n".to_string();
-    let seq_c = ">c\nCATCCTGGCTCCAATCTTATGAGCAGTCCTTAACGTAACGGTGTGTGGCTTTGAGAAGTTAGCCGTGGCGAGATA\n".to_string();
-    let seq_d = ">d\nGGACTGCTCATAAGATTGGAGCCAGGATGTAGCTCGCCACGGCTAACTTCTCAAAGCCACACACCGTTACGTTAA\n".to_string();
-    let seq_e = ">e\nTTGAGAAGTTAGCCGTGGCGAGCTACATCCTGGCTCCAATCTTATGAGCAGTCCTTAACGTAACGGTGTGTGGCC\n".to_string();
+    let seq_a = ">a\nCTTATGAGCAGTCCTTAACGTAGCGGTGTGTGGCTTTGAGAA\
+                     GTTAGCGGTGGCGAGCTACATCCTGGCTCCAAT\n".to_string();
+    let seq_b = ">b\nACCGTTACGTTAAGGACTGCTCATAAGATTGGAGCCAGGATG\
+                     TAGCTCGCCACGGCTAACTTCTCAAAGCGGCAC\n".to_string();
+    let seq_c = ">c\nCATCCTGGCTCCAATCTTATGAGCAGTCCTTAACGTAACGGT\
+                     GTGTGGCTTTGAGAAGTTAGCCGTGGCGAGATA\n".to_string();
+    let seq_d = ">d\nGGACTGCTCATAAGATTGGAGCCAGGATGTAGCTCGCCACGG\
+                     CTAACTTCTCAAAGCCACACACCGTTACGTTAA\n".to_string();
+    let seq_e = ">e\nTTGAGAAGTTAGCCGTGGCGAGCTACATCCTGGCTCCAATCT\
+                     TATGAGCAGTCCTTAACGTAACGGTGTGTGGCC\n".to_string();
     test_high_level(&seq_a, &seq_b, &seq_c, &seq_d, &seq_e, 1);
     test_high_level(&seq_a, &seq_b, &seq_c, &seq_d, &seq_e, 5);
     test_high_level(&seq_a, &seq_b, &seq_c, &seq_d, &seq_e, 9);
@@ -174,12 +179,12 @@ fn test_whitespace() {
     let k_size = 11;
     let mut metrics = InputAssemblyMetrics::default();
     let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), k_size,
-                                                        &mut metrics);
+                                                     &mut metrics, 25);
     assert_eq!(assembly_count, 1);
     let sequence = sequences.first().unwrap();
     assert_eq!(sequence.filename, "assembly.fasta");
     assert_eq!(sequence.contig_name(), "name");
     assert_eq!(sequence.contig_header, "name abc def ghi");
-    assert_eq!(sequence.forward_seq, String::from(".....CTTATGAGCAGTCCTTAACGTAGCGGT.....").into_bytes());
+    assert_eq!(sequence.forward_seq,
+               String::from(".....CTTATGAGCAGTCCTTAACGTAGCGGT.....").into_bytes());
 }
-

@@ -30,14 +30,16 @@ use crate::unitig_graph::UnitigGraph;
 
 
 
-pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, threads: usize) {
+pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, max_contigs: u32,
+                threads: usize) {
     let start_time = Instant::now();
     check_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     starting_message();
     print_settings(&assemblies_dir, &autocycler_dir, k_size, threads);
     create_dir(&autocycler_dir);
     let mut metrics = InputAssemblyMetrics::default();
-    let (sequences, assembly_count) = load_sequences(&assemblies_dir, k_size, &mut metrics);
+    let (sequences, assembly_count) =
+        load_sequences(&assemblies_dir, k_size, &mut metrics, max_contigs);
     let kmer_graph = build_kmer_graph(k_size, assembly_count, &sequences);
     let mut unitig_graph = build_unitig_graph(kmer_graph);
     simplify_unitig_graph(&mut unitig_graph, &sequences);
@@ -79,8 +81,23 @@ fn print_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, thr
 }
 
 
-pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAssemblyMetrics)
-        -> (Vec<Sequence>, usize) {
+fn check_sequence_count(sequences: &[Sequence], assembly_count: usize, max_contigs: u32) {
+    let sequence_count = sequences.len() as f64;
+    if sequence_count == 0.0 {
+        quit_with_error("no sequences found in input assemblies")
+    }
+    let mean_seqs_per_assembly = sequence_count / (assembly_count as f64);
+    if mean_seqs_per_assembly > max_contigs as f64 {
+        let e = format!("the mean number of contigs per input assembly ({:.1}) exceeds the allowed \
+                         threshold ({}). Are your input assemblies fragmented or contaminated?",
+                        mean_seqs_per_assembly, max_contigs);
+        quit_with_error(&e);
+    }
+}
+
+
+pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAssemblyMetrics,
+                      max_contigs: u32) -> (Vec<Sequence>, usize) {
     section_header("Loading input assemblies");
     explanation("Input assemblies are now loaded and each contig is given a unique ID.");
     let assemblies = find_all_assemblies(assemblies_dir);
@@ -106,6 +123,7 @@ pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAss
         metrics.input_assembly_details.push(assembly_details);
     }
     eprintln!();
+    check_sequence_count(&sequences, assemblies.len(), max_contigs);
     let pb = spinner("repairing sequence ends...");
     sequence_end_repair(&mut sequences, k_size);
     pb.finish_and_clear();
@@ -330,7 +348,7 @@ mod tests {
         make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c2\nACGT\n>c3\nACGT\n");
         let mut metrics = InputAssemblyMetrics::default();
-        let (sequences, count) = load_sequences(&assembly_dir.into_path(), 3, &mut metrics);
+        let (sequences, count) = load_sequences(&assembly_dir.into_path(), 3, &mut metrics, 25);
         assert_eq!(sequences.len(), 6);
         assert_eq!(count, 3);
     }
@@ -344,7 +362,7 @@ mod tests {
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c1\nACGT\n>c3\nACGT\n");
         assert!(panic::catch_unwind(|| {
             let mut metrics = InputAssemblyMetrics::default();
-            load_sequences(&assembly_dir.into_path(), 3, &mut metrics);
+            load_sequences(&assembly_dir.into_path(), 3, &mut metrics, 25);
         }).is_err());
     }
 }

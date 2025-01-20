@@ -133,6 +133,10 @@ enum Commands {
         #[clap(long = "kmer", default_value = "51")]
         kmer: u32,
 
+        /// refuse to run if mean contigs per assembly exceeds this value
+        #[clap(long = "max_contigs", default_value = "25")]
+        max_contigs: u32,
+
         /// Number of CPU threads
         #[clap(short = 't', long = "threads", default_value = "8")]
         threads: usize,
@@ -274,8 +278,8 @@ fn main() {
         Some(Commands::Combine { autocycler_dir, in_gfas }) => {
             combine::combine(autocycler_dir, in_gfas);
         },
-        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, threads }) => {
-            compress::compress(assemblies_dir, autocycler_dir, kmer, threads);
+        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, max_contigs, threads }) => {
+            compress::compress(assemblies_dir, autocycler_dir, kmer, max_contigs, threads);
         },
         Some(Commands::Decompress { in_gfa, out_dir, out_file }) => {
             decompress::decompress(in_gfa, out_dir, out_file);
