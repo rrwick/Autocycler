@@ -13,6 +13,9 @@
 
 #![allow(clippy::needless_range_loop)]
 
+use liblrge::estimate::{LOWER_QUANTILE, UPPER_QUANTILE};
+use liblrge::twoset::{DEFAULT_QUERY_NUM_READS, DEFAULT_TARGET_NUM_READS};
+use liblrge::Estimate;
 use rand::{rngs::StdRng, SeedableRng};
 use rand::seq::SliceRandom;
 use seq_io::fastq::Record;
@@ -26,10 +29,24 @@ use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, fas
                   format_float, quit_with_error, spinner};
 
 
-pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
-                 subset_count: usize, min_read_depth: f64, seed: u64) {
+pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: Option<String>,
+                 subset_count: usize, min_read_depth: f64, seed: u64, threads: usize) {
     let subsample_yaml = out_dir.join("subsample.yaml");
-    let genome_size = parse_genome_size(&genome_size_str);
+    let genome_size = if let Some(str) = genome_size_str {
+        parse_genome_size(&str)
+    } else {
+        let mut strategy = liblrge::twoset::Builder::new().target_num_reads(DEFAULT_TARGET_NUM_READS).query_num_reads(DEFAULT_QUERY_NUM_READS).threads(threads)
+        .build(&fastq_file);
+        let est_result = strategy.estimate(true, Some(LOWER_QUANTILE), Some(UPPER_QUANTILE));
+        let Ok(result) = est_result else {
+            quit_with_error(&format!("Failed to generate estimate for {}", &fastq_file.display()));
+        };
+        let Some(value) = result.estimate else {
+            quit_with_error(&format!("Could not generate finite estimate for {}", &fastq_file.display()));
+        };
+        value as u64
+    };
+    // let genome_size = parse_genome_size(&genome_size_str);
     check_settings(&fastq_file, &out_dir, genome_size, subset_count, min_read_depth);
     create_dir(&out_dir);
     starting_message();
