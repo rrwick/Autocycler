@@ -197,9 +197,9 @@ enum Commands {
         #[clap(short = 'o', long = "out_dir")]
         out_dir: PathBuf,
 
-        /// Estimated genome size (required)
+        /// Estimated genome size. If not provided, LRGE is used to make an estimate
         #[clap(short = 'g', long = "genome_size")]
-        genome_size: String,
+        genome_size: Option<String>,
 
         /// Number of subsampled read sets to output
         #[clap(short = 'c', long = "count", default_value = "4")]
@@ -212,6 +212,10 @@ enum Commands {
         /// Seed for random number generator
         #[clap(short = 's', long = "seed", default_value = "0")]
         seed: u64,
+
+        /// Number of CPU threads
+        #[clap(short = 't', long = "threads", default_value = "8")]
+        threads: usize, 
     },
 
     /// create TSV line from YAML files
@@ -290,8 +294,8 @@ fn main() {
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
         },
-        Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed }) => {
-            subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed);
+        Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed, threads }) => {
+            subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed, threads);
         },
         Some(Commands::Table { autocycler_dir, name, fields, sigfigs }) => {
             table::table(autocycler_dir, name, fields, sigfigs);
