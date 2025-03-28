@@ -75,11 +75,11 @@ impl Unitig {
                 quit_with_error("Could not find a depth tag (e.g. DP:f:10.00) in the GFA segment \
                                  line.\nAre you sure this is an Autocycler-generated GFA file?");
             });
-        let unitig_type = if parts.iter().any(|p| *p == format!("CL:z:{}", CONSENTIG_COLOUR)) {
+        let unitig_type = if parts.iter().any(|p| *p == format!("CL:Z:{}", CONSENTIG_COLOUR)) {
             UnitigType::Consentig
-        } else if parts.iter().any(|p| *p == format!("CL:z:{}", ANCHOR_COLOUR)) {
+        } else if parts.iter().any(|p| *p == format!("CL:Z:{}", ANCHOR_COLOUR)) {
             UnitigType::Anchor
-        } else if parts.iter().any(|p| *p == format!("CL:z:{}", BRIDGE_COLOUR)) {
+        } else if parts.iter().any(|p| *p == format!("CL:Z:{}", BRIDGE_COLOUR)) {
             UnitigType::Bridge
         } else {
             UnitigType::Other
@@ -172,10 +172,10 @@ impl Unitig {
 
     pub fn colour_tag(&self, use_other_colour: bool) -> String {
         match self.unitig_type {
-            UnitigType::Consentig => format!("\tCL:z:{}", CONSENTIG_COLOUR),
-            UnitigType::Anchor => format!("\tCL:z:{}", ANCHOR_COLOUR),
-            UnitigType::Bridge => format!("\tCL:z:{}", BRIDGE_COLOUR),
-            UnitigType::Other => { if use_other_colour { format!("\tCL:z:{}", OTHER_COLOUR) }
+            UnitigType::Consentig => format!("\tCL:Z:{}", CONSENTIG_COLOUR),
+            UnitigType::Anchor => format!("\tCL:Z:{}", ANCHOR_COLOUR),
+            UnitigType::Bridge => format!("\tCL:Z:{}", BRIDGE_COLOUR),
+            UnitigType::Other => { if use_other_colour { format!("\tCL:Z:{}", OTHER_COLOUR) }
                                                   else { String::new() } }
         }
     }

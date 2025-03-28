@@ -109,7 +109,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
             let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
             let mut colour_tag = unitig.colour_tag(true);
             if colour_tag.is_empty() {
-                colour_tag = "\tCL:z:orangered".to_string();
+                colour_tag = "\tCL:Z:orangered".to_string();
             }
             writeln!(gfa_file, "S\t{}\t{}{}{}",
                      unitig_num, unitig_seq, depth_tag, colour_tag).unwrap();
