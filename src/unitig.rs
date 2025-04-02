@@ -193,11 +193,11 @@ impl Unitig {
         }
     }
 
-    pub fn blunt_start(&self) -> bool {
+    pub fn open_start(&self) -> bool {
         self.reverse_next.is_empty()
     }
 
-    pub fn blunt_end(&self) -> bool {
+    pub fn open_end(&self) -> bool {
         self.forward_next.is_empty()
     }
 

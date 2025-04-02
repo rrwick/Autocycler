@@ -235,7 +235,7 @@ fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f
     delete_unitigs_not_connected_to_anchor(graph);
     graph.remove_zero_depth_unitigs();
 
-    // TODO: add logic for removing non-anchor tips to handle blunt ends?
+    // TODO: add logic for removing non-anchor tips to handle open ends?
 }
 
 
