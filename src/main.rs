@@ -21,6 +21,7 @@ mod combine;
 mod compress;
 mod decompress;
 mod dotplot;
+mod gfa2fasta;
 mod graph_simplification;
 mod kmer_graph;
 mod log;
@@ -176,6 +177,17 @@ enum Commands {
         kmer: u32,
     },
 
+    /// convert an Autocycler GFA file to FASTA format
+    Gfa2fasta {
+        /// Input Autocycler GFA file (required)
+        #[clap(short = 'i', long = "in_gfa", required = true)]
+        in_gfa: PathBuf,
+
+        /// Output FASTA file (required)
+        #[clap(short = 'o', long = "out_fasta", required = true)]
+        out_fasta: PathBuf,
+    },
+
     /// resolve repeats in the the unitig graph
     Resolve {
         /// Autocycler directory (required)
@@ -286,6 +298,9 @@ fn main() {
         },
         Some(Commands::Dotplot { input, out_png, res, kmer }) => {
             dotplot::dotplot(input, out_png, res, kmer);
+        },
+        Some(Commands::Gfa2fasta { in_gfa, out_fasta }) => {
+            gfa2fasta::gfa2fasta(in_gfa, out_fasta);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
