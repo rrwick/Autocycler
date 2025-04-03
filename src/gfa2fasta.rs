@@ -61,6 +61,7 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
     for unitig in &graph.unitigs {
         let unitig = unitig.borrow();
         let seq = String::from_utf8_lossy(&unitig.forward_seq);
+        if seq.is_empty() { continue; }
         let circ = if unitig.is_isolated_and_circular() {
             circ_count += 1;
             " circular=true".to_string()
@@ -75,4 +76,71 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
     eprintln!("{} non-circular sequence{}", non_circ_count,
               if non_circ_count == 1 { "" } else { "s" });
     eprintln!();
+}
+
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+    use crate::test_gfa::*;
+    use super::*;
+
+    #[test]
+    fn test_gfa2fasta_1() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=22\nTTCGCTGCGCTCGCTTCGCTTT\n\
+                              >2 length=18\nTGCCGTCGTCGCTGTGCA\n\
+                              >3 length=15\nTGCCTGAATCGCCTA\n\
+                              >4 length=10\nGCTCGGCTCG\n\
+                              >5 length=8\nCGAACCAT\n\
+                              >6 length=7\nTACTTGT\n\
+                              >7 length=5\nGCCTT\n\
+                              >8 length=4\nATCT\n\
+                              >9 length=2\nGC\n\
+                              >10 length=1\nT\n");
+    }
+
+
+    #[test]
+    fn test_gfa2fasta_2() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=22\nACCGCTGCGCTCGCTTCGCTCT\n\
+                              >2 length=5\nATGAT\n\
+                              >3 length=4\nGCGC\n");
+    }
+
+
+    #[test]
+    fn test_gfa2fasta_5() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=19\nAGCATCGACATCGACTACG\n\
+                              >2 length=15\nAGCATCAGCATCAGC\n\
+                              >3 length=9\nGTCGCATTT\n\
+                              >4 length=7 circular=true\nTCGCGAA\n\
+                              >5 length=6\nTTAAAC\n\
+                              >6 length=4\nCACA\n");
+    }
+
+
+    #[test]
+    fn test_gfa2fasta_8() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=19 circular=true\nAGCATCGACATCGACTACG\n");
+    }
 }
