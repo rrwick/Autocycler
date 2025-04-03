@@ -41,9 +41,7 @@ sed -i 's/margin: 5px 0px;/margin: 20px 0px 5px 0px;/' book/css/general.css
 # Set up for easier distribution:
 mv book autocycler_docs
 mv autocycler_docs/index.html autocycler_docs.html
-sed -i 's|href="|href="autocycler_docs/|g' autocycler_docs.html
-sed -i 's|src="|src="autocycler_docs/|g' autocycler_docs.html
-sed -i 's|var path_to_root = "";|var path_to_root = "autocycler_docs/";|' autocycler_docs.html
+sed -i '/<head>/a<base href="autocycler_docs/">' autocycler_docs.html
 tar -zcvf autocycler_docs.tar.gz --owner=0 --group=0 autocycler_docs.html autocycler_docs/
 
 # Clean up:
