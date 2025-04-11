@@ -519,12 +519,9 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
                cluster_nodes: &Vec<u16>, manual_clusters: &[u16], cutoff: f64,
                min_assemblies: usize) -> HashMap<u16, ClusterQC> {
     // Given a set of node numbers for the tree which define clusters, this function returns the
-    // QC-results HashMap.
-
-    // TODO: I could add some additional logic input assembly preferences. For example, I could use
-    //       Plassembler as one of the input assemblies, and any cluster which contains a
-    //       Plassembler contig should not fail QC due to low contig count. Could do this via
-    //       string matching on assembly names, e.g. 'plassembler'.
+    // QC-results HashMap which defines which clusters pass and fail QC. Input contigs can be
+    // flagged as trusted (by containing 'Autocycler trusted' in their header), and any cluster with
+    // a trusted contig will always pass QC.
 
     // Create the ClusterQC object for each cluster. If using manual clustering, the clusters will
     // fail if they aren't included in the user-supplied clusters. If using automatic clustering,
@@ -556,13 +553,14 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
     qc_results = reordered_qc_results;
 
     // If using automatic clustering, clusters are now failed for being contained in other clusters
-    // or appearing in too few input assemblies.
+    // or appearing in too few input assemblies. If a cluster contains a trusted contig, it will
+    // not fail QC for any reason.
     if manual_clusters.is_empty() {
         let max_cluster = get_max_cluster(sequences);
         for c in 1..=max_cluster {
             let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c)
                                                   .map(|s| s.filename.clone()).collect();
-            if assemblies.len() < min_assemblies {
+            if assemblies.len() < min_assemblies && !cluster_is_trusted(sequences, c) {
                 let fail_reason = "present in too few assemblies".to_string();
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
@@ -570,13 +568,20 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
         for c in 1..=max_cluster {
             let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
                                                             &qc_results);
-            if container > 0 {
+            if container > 0 && !cluster_is_trusted(sequences, c) {
                 let fail_reason = format!("contained within cluster {}", container);
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
         }
     }
     qc_results
+}
+
+
+fn cluster_is_trusted(sequences: &[Sequence], c: u16) -> bool {
+    // This function checks if the cluster is trusted, i.e. it contains at least one sequence with
+    // "Autocyler_trusted" in its contig header.
+    sequences.iter().any(|s| s.cluster == c && s.is_trusted())
 }
 
 

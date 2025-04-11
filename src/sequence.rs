@@ -85,11 +85,19 @@ impl Sequence {
     pub fn string_for_newick(&self) -> String {
         format!("{}__{}__{}__{}_bp", self.id, self.filename, self.contig_name(), self.length)
     }
+
+    pub fn is_trusted(&self) -> bool {
+        self.contig_header.to_lowercase().contains("autocycler_trusted")
+    }
 }
 
 impl fmt::Display for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {} ({} bp)", self.filename, self.contig_name(), self.length)
+        if self.is_trusted() {
+            write!(f, "{} {} ({} bp) [trusted]", self.filename, self.contig_name(), self.length)
+        } else {
+            write!(f, "{} {} ({} bp)", self.filename, self.contig_name(), self.length)
+        }
     }
 }
 

@@ -106,17 +106,17 @@ pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAss
     let mut sequences = Vec::new();
     for assembly in &assemblies {
         let mut assembly_details = InputAssemblyDetails::new(assembly);
-        for (name, header, seq) in load_fasta(assembly) {
+        for (_, header, seq) in load_fasta(assembly) {
             let seq_len = seq.len();
             if seq_len < k_size as usize { continue; }
             seq_id += 1;
-            eprintln!(" {:>3}: {} {} ({} bp)", seq_id, assembly.display(), name, seq_len);
             if seq_id > 32767 {
                 quit_with_error("no more than 32767 input sequences are allowed");
             }
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
             let seq = Sequence::new_with_seq(seq_id, seq, filename, contig_header, seq_len, half_k);
+            eprintln!(" {:>3}: {}", seq_id, seq);
             assembly_details.contigs.push(InputContigDetails::new(&seq));
             sequences.push(seq);
         }
