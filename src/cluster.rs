@@ -520,8 +520,8 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
                min_assemblies: usize) -> HashMap<u16, ClusterQC> {
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // QC-results HashMap which defines which clusters pass and fail QC. Input contigs can be
-    // flagged as trusted (by containing 'Autocycler trusted' in their header), and any cluster with
-    // a trusted contig will always pass QC.
+    // flagged as trusted (by containing 'Autocycler trusted' in their header), which will prevent
+    // their cluster from failing QC for appearing in too few input assemblies.
 
     // Create the ClusterQC object for each cluster. If using manual clustering, the clusters will
     // fail if they aren't included in the user-supplied clusters. If using automatic clustering,
@@ -554,7 +554,7 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
 
     // If using automatic clustering, clusters are now failed for being contained in other clusters
     // or appearing in too few input assemblies. If a cluster contains a trusted contig, it will
-    // not fail QC for any reason.
+    // not fail QC for appearing in too few input assemblies.
     if manual_clusters.is_empty() {
         let max_cluster = get_max_cluster(sequences);
         for c in 1..=max_cluster {
@@ -568,7 +568,7 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
         for c in 1..=max_cluster {
             let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
                                                             &qc_results);
-            if container > 0 && !cluster_is_trusted(sequences, c) {
+            if container > 0 {
                 let fail_reason = format!("contained within cluster {}", container);
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }

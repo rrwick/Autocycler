@@ -1,6 +1,6 @@
 # Automated Autocycler Bash script (by Ryan Wick)
 
-This Bash script runs a complete Autocycler assembly workflow from start to finish. It's minimalistic by design, with no frills or read quality control – just a straightforward way to go from reads to consensus assembly.
+This `autocycler_full.sh` Bash script runs a complete Autocycler assembly workflow from start to finish. It's minimalistic by design, with no frills or read quality control – just a straightforward way to go from reads to consensus assembly.
 
 I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it in April 2025 for v0.3.1. I’ll try to keep it in sync with future Autocycler versions, but no guarantees.
 
@@ -16,7 +16,7 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 * Uses eight assemblers in this order: Raven, miniasm, Flye, MetaMDBG, NECAT, NextDenovo, Plassembler and Canu. Faster assemblers come first so you can preview results early in a run.
 * Assemblies are launched via the [Autocycler helper scripts](https://github.com/rrwick/Autocycler/wiki/Generating-input-assemblies#assembly-helper-scripts).
 * With 4 read subsets × 8 assemblers, the script generates 32 input assemblies.
-* Plassembler is included to help recover small plasmids that other long-read assemblers may miss. Its helper script ([`plassembler.sh`](https://github.com/rrwick/Autocycler/blob/main/scripts/plassembler.sh)) tags circular contigs with `Autocycler_trusted` to ensure their clusters pass QC.
+* [Plassembler](github.com/gbouras13/plassembler) is included to help recover small plasmids that other long-read assemblers may miss. Its helper script ([`plassembler.sh`](https://github.com/rrwick/Autocycler/blob/main/scripts/plassembler.sh)) tags circular contigs with `Autocycler_trusted` to help their clusters pass QC.
 * Plassembler requires a reference database. Its helper script will look for it via the `PLASSEMBLER_DB` environment variable, or else in a `plassembler_db` directory inside the active conda environment.
 
 
@@ -26,8 +26,8 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 This script assumes the following are available in your `$PATH`:
 * `autocycler`
 * [Autocycler's helper scripts](https://github.com/rrwick/Autocycler/tree/main/scripts): `raven.sh`, `flye.sh`, etc.
-* [GNU Parallel](https://www.gnu.org/software/parallel)
-* All assemblers and supporting tools: `any2fasta`, `canu`, `flye`, `metaMDBG`, `miniasm`, `minimap2`, `minipolish`, `necat`, `nextDenovo`, `nextPolish`, `plassembler`, `racon`, `raven`, `seqtk`
+* [GNU Parallel](https://www.gnu.org/software/parallel): `parallel`
+* Long-read assemblers and supporting tools: `any2fasta`, `canu`, `flye`, `metaMDBG`, `miniasm`, `minimap2`, `minipolish`, `necat`, `nextDenovo`, `nextPolish`, `plassembler`, `racon`, `raven`, `seqtk`
 
 The last point is often the trickiest, especially if you want everything installed in a single conda environment. It can be done, but may require some fiddling – see [Autocycler's installation instructions](https://github.com/rrwick/Autocycler/wiki/Software-requirements-and-installation) for guidance.
 
