@@ -89,6 +89,20 @@ impl Sequence {
     pub fn is_trusted(&self) -> bool {
         self.contig_header.to_lowercase().contains("autocycler_trusted")
     }
+
+    pub fn cluster_weight(&self) -> f64 {
+        self.contig_header.to_lowercase().split_whitespace()
+            .find_map(|token| { token.strip_prefix("autocycler_cluster_weight=")
+                                     .and_then(|s| s.parse::<f64>().ok()) })
+            .unwrap_or(1.0)
+    }
+
+    pub fn consensus_weight(&self) -> usize {
+        self.contig_header.to_lowercase().split_whitespace()
+            .find_map(|token| { token.strip_prefix("autocycler_consensus_weight=")
+                                     .and_then(|s| s.parse::<usize>().ok()) })
+            .unwrap_or(1)
+    }
 }
 
 impl fmt::Display for Sequence {
@@ -103,4 +117,95 @@ impl fmt::Display for Sequence {
 
 impl fmt::Debug for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_trusted() {
+        let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
+                                       "c123".to_string(), 1, 1);
+        assert!(!s.is_trusted());
+
+        s.contig_header = "c123 other stuff".to_string();
+        assert!(!s.is_trusted());
+
+        s.contig_header = "c123 Autocycler_trusted".to_string();
+        assert!(s.is_trusted());
+
+        s.contig_header = "c123 other stuff autocycler_trusted".to_string();
+        assert!(s.is_trusted());
+
+        s.contig_header = "c123 AUTOCYCLER_TRUSTED other stuff".to_string();
+        assert!(s.is_trusted());
+    }
+
+    #[test]
+    fn test_cluster_weight() {
+        let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
+                                       "c123".to_string(), 1, 1);
+        assert_eq!(s.cluster_weight(), 1.0);
+
+        s.contig_header = "c123 other stuff".to_string();
+        assert_eq!(s.cluster_weight(), 1.0);
+
+        s.contig_header = "c123 Autocycler_cluster_weight=1.0".to_string();
+        assert_eq!(s.cluster_weight(), 1.0);
+
+        s.contig_header = "c123 Autocycler_cluster_weight=2.0".to_string();
+        assert_eq!(s.cluster_weight(), 2.0);
+
+        s.contig_header = "c123 AUTOCYCLER_CLUSTER_WEIGHT=5".to_string();
+        assert_eq!(s.cluster_weight(), 5.0);
+
+        s.contig_header = "c123 Autocycler_cluster_weight=0".to_string();
+        assert_eq!(s.cluster_weight(), 0.0);
+
+        s.contig_header = "c123 autocycler_cluster_weight=1234".to_string();
+        assert_eq!(s.cluster_weight(), 1234.0);
+
+        s.contig_header = "c123 Autocycler_cluster_weight=0.1".to_string();
+        assert_eq!(s.cluster_weight(), 0.1);
+
+        // Non-numeric values result in 1.0
+        s.contig_header = "c123 Autocycler_cluster_weight=abc".to_string();
+        assert_eq!(s.cluster_weight(), 1.0);
+    }
+
+    #[test]
+    fn test_consensus_weight() {
+        let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
+                                       "c123".to_string(), 1, 1);
+        assert_eq!(s.consensus_weight(), 1);
+
+        s.contig_header = "c123 other stuff".to_string();
+        assert_eq!(s.consensus_weight(), 1);
+
+        s.contig_header = "c123 Autocycler_consensus_weight=1".to_string();
+        assert_eq!(s.consensus_weight(), 1);
+
+        s.contig_header = "c123 AUTOCYCLER_CONSENSUS_WEIGHT=2".to_string();
+        assert_eq!(s.consensus_weight(), 2);
+
+        s.contig_header = "c123 Autocycler_consensus_weight=0".to_string();
+        assert_eq!(s.consensus_weight(), 0);
+
+        s.contig_header = "c123 autocycler_consensus_weight=1234".to_string();
+        assert_eq!(s.consensus_weight(), 1234);
+
+        // Non-integer values result in 1
+        s.contig_header = "c123 Autocycler_consensus_weight=23.456".to_string();
+        assert_eq!(s.consensus_weight(), 1);
+
+        // Negative values result in 1
+        s.contig_header = "c123 Autocycler_consensus_weight=-1".to_string();
+        assert_eq!(s.consensus_weight(), 1);
+
+        // Non-numeric values result in 1
+        s.contig_header = "c123 Autocycler_consensus_weight=abc".to_string();
+        assert_eq!(s.consensus_weight(), 1);
+    }
 }

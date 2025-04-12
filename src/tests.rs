@@ -94,8 +94,7 @@ fn test_high_level(seq_a: &str, seq_b: &str, seq_c: &str, seq_d: &str, seq_e: &s
 
     // Build a k-mer graph from the sequences.
     let mut metrics = InputAssemblyMetrics::default();
-    let (sequences, assembly_count) = load_sequences(&assembly_dir.path().to_path_buf(),
-                                                     k_size, &mut metrics, 25);
+    let (sequences, assembly_count) = load_sequences(assembly_dir.path(), k_size, &mut metrics, 25);
     assert_eq!(assembly_count, 5);
     let mut kmer_graph = KmerGraph::new(k_size);
     kmer_graph.add_sequences(&sequences, assembly_count);
@@ -178,8 +177,7 @@ fn test_whitespace() {
     make_test_file(&temp_file, &fasta);
     let k_size = 11;
     let mut metrics = InputAssemblyMetrics::default();
-    let (sequences, assembly_count) = load_sequences(&temp_dir.path().to_path_buf(), k_size,
-                                                     &mut metrics, 25);
+    let (sequences, assembly_count) = load_sequences(temp_dir.path(), k_size, &mut metrics, 25);
     assert_eq!(assembly_count, 1);
     let sequence = sequences.first().unwrap();
     assert_eq!(sequence.filename, "assembly.fasta");

@@ -42,7 +42,8 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
     let (mut unitig_graph, sequences) = load_graph(&gfa_lines, true, None);
 
     let anchors = find_anchor_unitigs(&mut unitig_graph, &sequences);
-    let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors);
+    let mut bridges = create_bridges(&unitig_graph, &sequences, &anchors, verbose);
+    let bridge_count = bridges.len();
     let bridge_depth = sequences.len() as f64;
     determine_ambiguity(&mut bridges);
     print_bridges(&bridges, verbose);
@@ -59,9 +60,10 @@ pub fn resolve(cluster_dir: PathBuf, verbose: bool) {
         apply_final_message();
         apply_bridges(&mut unitig_graph, &bridges, bridge_depth);
         merge_after_bridging(&mut unitig_graph);
-    } else {
+    } else if bridge_count > 0 {
         eprintln!("All bridges were unique, no culling necessary.\n");
     }
+
     unitig_graph.save_gfa(&final_gfa, &vec![], true).unwrap();
     finished_message(&final_gfa);
 }
@@ -161,11 +163,21 @@ fn find_anchor_unitigs(graph: &mut UnitigGraph, sequences: &[Sequence]) -> Vec<u
 }
 
 
-fn create_bridges(graph: &UnitigGraph, sequences: &[Sequence], anchors: &[u32]) -> Vec<Bridge> {
+fn create_bridges(graph: &UnitigGraph, sequences: &[Sequence], anchors: &[u32], verbose: bool)
+        -> Vec<Bridge> {
     section_header("Building bridges");
     explanation("Bridges connect one anchor unitig to the next.");
     let anchor_set: HashSet<u32> = anchors.iter().cloned().collect();
-    let sequence_paths: Vec<_> = sequences.iter().map(|s| graph.get_unitig_path_for_sequence_i32(s)).collect();
+
+    // Usually, each sequence contributes its path once, but it if it has a consensus weight set,
+    // it can contribute its path multiple times to give more weight in the consensus sequence.
+    let sequence_paths: Vec<_> = sequences.iter().flat_map(|s| {
+        let weight = s.consensus_weight();
+        if verbose { eprintln!("{} consensus weight = {}", s, weight); }
+        (0..weight).map(move |_| graph.get_unitig_path_for_sequence_i32(s))
+    }).collect();
+    if verbose { eprintln!(); }
+
     let anchor_to_anchor_paths = get_anchor_to_anchor_paths(&sequence_paths, &anchor_set);
     let grouped_paths = group_paths_by_start_end(anchor_to_anchor_paths);
     let mut bridges = Vec::new();
@@ -329,7 +341,8 @@ fn print_bridges(bridges: &Vec<Bridge>, verbose: bool) {
 }
 
 
-fn get_anchor_to_anchor_paths(sequence_paths: &Vec<Vec<i32>>, anchor_set: &HashSet<u32>) -> Vec<Vec<i32>> {
+fn get_anchor_to_anchor_paths(sequence_paths: &Vec<Vec<i32>>, anchor_set: &HashSet<u32>)
+        -> Vec<Vec<i32>> {
     let mut anchor_to_anchor_paths = Vec::new();
     for path in sequence_paths {
         let mut last_anchor_i: Option<usize> = None;
@@ -352,7 +365,8 @@ fn get_anchor_to_anchor_paths(sequence_paths: &Vec<Vec<i32>>, anchor_set: &HashS
 }
 
 
-fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>) -> HashMap<(i32, i32), Vec<Vec<i32>>> {
+fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>)
+        -> HashMap<(i32, i32), Vec<Vec<i32>>> {
     let mut grouped_paths: HashMap<(i32, i32), Vec<Vec<i32>>> = HashMap::new();
     for path in anchor_to_anchor_paths {
         if let (Some(&start), Some(&end)) = (path.first(), path.last()) {

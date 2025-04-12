@@ -520,8 +520,8 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
                min_assemblies: usize) -> HashMap<u16, ClusterQC> {
     // Given a set of node numbers for the tree which define clusters, this function returns the
     // QC-results HashMap which defines which clusters pass and fail QC. Input contigs can be
-    // flagged as trusted (by containing 'Autocycler trusted' in their header), which will prevent
-    // their cluster from failing QC for appearing in too few input assemblies.
+    // flagged as trusted (by containing 'Autocycler_trusted' in their header), and any cluster with
+    // a trusted contig will always pass QC.
 
     // Create the ClusterQC object for each cluster. If using manual clustering, the clusters will
     // fail if they aren't included in the user-supplied clusters. If using automatic clustering,
@@ -554,13 +554,12 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
 
     // If using automatic clustering, clusters are now failed for being contained in other clusters
     // or appearing in too few input assemblies. If a cluster contains a trusted contig, it will
-    // not fail QC for appearing in too few input assemblies.
+    // not fail QC for any reason.
     if manual_clusters.is_empty() {
         let max_cluster = get_max_cluster(sequences);
         for c in 1..=max_cluster {
-            let assemblies: HashSet<_> = sequences.iter().filter(|s| s.cluster == c)
-                                                  .map(|s| s.filename.clone()).collect();
-            if assemblies.len() < min_assemblies && !cluster_is_trusted(sequences, c) {
+            let assembly_count = cluster_assembly_count(sequences, c);
+            if assembly_count < min_assemblies as f64 && !cluster_is_trusted(sequences, c) {
                 let fail_reason = "present in too few assemblies".to_string();
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
@@ -568,13 +567,28 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
         for c in 1..=max_cluster {
             let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
                                                             &qc_results);
-            if container > 0 {
+            if container > 0 && !cluster_is_trusted(sequences, c) {
                 let fail_reason = format!("contained within cluster {}", container);
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
         }
     }
     qc_results
+}
+
+
+fn cluster_assembly_count(sequences: &[Sequence], c: u16) -> f64 {
+    // For a given cluster, this function counts the number of assemblies that have a sequence in
+    // that cluster. If 'Autocycler_cluster_weight' is in the sequence header, then that value will
+    // scale the assembly count.
+    let mut assembly_weights: HashMap<String, f64> = HashMap::new();
+    for seq in sequences.iter().filter(|s| s.cluster == c) {
+        let weight = seq.cluster_weight();
+        assembly_weights.entry(seq.filename.clone()).and_modify(|existing| {
+                if weight > *existing { *existing = weight; }
+            }).or_insert(weight);
+    }
+    assembly_weights.values().sum()
 }
 
 
@@ -1209,5 +1223,47 @@ mod tests {
         assert!(panic::catch_unwind(|| {
             parse_manual_clusters(Some("^&%^*".to_string()));
         }).is_err());
+    }
+
+
+    #[test]
+    fn test_cluster_assembly_count_1() {
+        // Simple case without any weights
+        let mut seq_1 = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1".to_string(), 1, 1); seq_1.cluster = 1;
+        let mut seq_2 = Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1, 1); seq_2.cluster = 2;
+        let mut seq_3 = Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1, 1); seq_3.cluster = 3;
+        let mut seq_4 = Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1); seq_4.cluster = 1;
+        let mut seq_5 = Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2".to_string(), 1, 1); seq_5.cluster = 3;
+        let sequences = vec![seq_1, seq_2, seq_3, seq_4, seq_5];
+        assert_eq!(cluster_assembly_count(&sequences, 1), 2.0);
+        assert_eq!(cluster_assembly_count(&sequences, 2), 1.0);
+        assert_eq!(cluster_assembly_count(&sequences, 3), 2.0);
+    }
+
+    #[test]
+    fn test_cluster_assembly_count_2() {
+        // Various weights
+        let mut seq_1 = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1 Autocycler_cluster_weight=2.5 other stuff".to_string(), 1, 1); seq_1.cluster = 1;
+        let mut seq_2 = Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2 other stuff autocycler_cluster_weight=6.0".to_string(), 1, 1); seq_2.cluster = 2;
+        let mut seq_3 = Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3".to_string(), 1, 1); seq_3.cluster = 3;
+        let mut seq_4 = Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1); seq_4.cluster = 1;
+        let mut seq_5 = Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2 AuToCyCleR_cluster_weight=0.5".to_string(), 1, 1); seq_5.cluster = 3;
+        let sequences = vec![seq_1, seq_2, seq_3, seq_4, seq_5];
+        assert_eq!(cluster_assembly_count(&sequences, 1), 3.5);
+        assert_eq!(cluster_assembly_count(&sequences, 2), 6.0);
+        assert_eq!(cluster_assembly_count(&sequences, 3), 1.5);
+    }
+
+    #[test]
+    fn test_cluster_assembly_count_3() {
+        // Multiple different weights for the same assembly
+        let mut seq_1 = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(), "contig_1 Autocycler_cluster_weight=3.0".to_string(), 1, 1); seq_1.cluster = 1;
+        let mut seq_2 = Sequence::new_with_seq(2, "A".to_string(), "assembly_1.fasta".to_string(), "contig_2".to_string(), 1, 1); seq_2.cluster = 1;
+        let mut seq_3 = Sequence::new_with_seq(3, "A".to_string(), "assembly_1.fasta".to_string(), "contig_3 other stuff Autocycler_cluster_weight=2.0".to_string(), 1, 1); seq_3.cluster = 1;
+        let mut seq_4 = Sequence::new_with_seq(4, "A".to_string(), "assembly_2.fasta".to_string(), "contig_1".to_string(), 1, 1); seq_4.cluster = 2;
+        let mut seq_5 = Sequence::new_with_seq(5, "A".to_string(), "assembly_2.fasta".to_string(), "contig_2 Autocycler_cluster_weight=0.5 other stuff".to_string(), 1, 1); seq_5.cluster = 2;
+        let sequences = vec![seq_1, seq_2, seq_3, seq_4, seq_5];
+        assert_eq!(cluster_assembly_count(&sequences, 1), 3.0);
+        assert_eq!(cluster_assembly_count(&sequences, 2), 1.0);
     }
 }
