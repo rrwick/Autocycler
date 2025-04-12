@@ -1,20 +1,50 @@
 # Automated Autocycler Bash script (by Ryan Wick)
 
-This is a simple Bash script that automates running a full Autocycler assembly workflow. The script is designed to be minimalistic, without many frills and assumes that the input reads are ready for assembly.
+This Bash script runs a complete Autocycler assembly workflow from start to finish. It's minimalistic by design, with no frills or read quality control – just a straightforward way to go from reads to consensus assembly.
 
-I wrote this script in January 2025 for Autocycler v0.2.1. I'll do my best to update it if future Autocycler versions break compatibility, but I can't make any promises.
+I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it in April 2025 for v0.3.1. I’ll try to keep it in sync with future Autocycler versions, but no guarantees.
 
 
 
-## Key Features
+## Notes and key features
 
-* Does not perform any quality control on the input reads before starting the assembly.
-* Uses Raven to [estimate the genome size](https://github.com/rrwick/Autocycler/wiki/Genome-size-estimation).
-* Hard-codes the use of four read subsets for the assembly process.
-* Uses [GNU Parallel](https://github.com/rrwick/Autocycler/wiki/Parallelising-input-assemblies#gnu-parallel) to run multiple assembly jobs at once.
-* Runs assemblies with `nice -n 19` to give them lower priority with the operating system.
-* Uses seven different assemblers (in this order): Raven, miniasm, Flye, MetaMDBG, NECAT, NextDenovo and Canu. This order was chosen to put the faster assemblers first and slower assemblers last, in case you want to check a run in progress to see if the assemblies look okay.
-* 4 read subsets × 7 assemblers = 28 total input assemblies (assume all are successful).
+* No quality control is performed on the input reads – they must be ready for assembly.
+* Genome size is estimated using Raven ([details](https://github.com/rrwick/Autocycler/wiki/Genome-size-estimation)).
+* Uses four hard-coded read subsets for the input assemblies.
+* Runs multiple assemblies in parallel using [GNU Parallel](https://github.com/rrwick/Autocycler/wiki/Parallelising-input-assemblies#gnu-parallel).
+* Assemblies are run with `nice -n 19` to reduce their impact on other system processes.
+* Uses eight assemblers in this order: Raven, miniasm, Flye, MetaMDBG, NECAT, NextDenovo, Plassembler and Canu. Faster assemblers come first so you can preview results early in a run.
+* Assemblies are launched via the [Autocycler helper scripts](https://github.com/rrwick/Autocycler/wiki/Generating-input-assemblies#assembly-helper-scripts).
+* With 4 read subsets × 8 assemblers, the script generates 32 input assemblies.
+* Plassembler is included to help recover small plasmids that other long-read assemblers may miss. Its helper script ([`plassembler.sh`](https://github.com/rrwick/Autocycler/blob/main/scripts/plassembler.sh)) tags circular contigs with `Autocycler_trusted` to ensure their clusters pass QC.
+* Plassembler requires a reference database. Its helper script will look for it via the `PLASSEMBLER_DB` environment variable, or else in a `plassembler_db` directory inside the active conda environment.
+
+
+
+## Dependencies
+
+This script assumes the following are available in your `$PATH`:
+* `autocycler`
+* [Autocycler's helper scripts](https://github.com/rrwick/Autocycler/tree/main/scripts): `raven.sh`, `flye.sh`, etc.
+* [GNU Parallel](https://www.gnu.org/software/parallel)
+* All assemblers and supporting tools: `any2fasta`, `canu`, `flye`, `metaMDBG`, `miniasm`, `minimap2`, `minipolish`, `necat`, `nextDenovo`, `nextPolish`, `plassembler`, `racon`, `raven`, `seqtk`
+
+The last point is often the trickiest, especially if you want everything installed in a single conda environment. It can be done, but may require some fiddling – see [Autocycler's installation instructions](https://github.com/rrwick/Autocycler/wiki/Software-requirements-and-installation) for guidance.
+
+If you prefer to use separate conda environments (or can't get all dependencies into one), you'll need to modify the `Step 2: assemble each subsampled file` section of the script to activate/deactivate the appropriate conda environment for each assembler. For example:
+```bash
+for i in 01 02 03 04; do
+    conda activate canu
+    canu.sh subsampled_reads/sample_"$i".fastq assemblies/canu_"$i" $threads $genome_size
+    conda deactivate
+
+    conda activate flye
+    flye.sh subsampled_reads/sample_"$i".fastq assemblies/flye_"$i" $threads $genome_size
+    conda deactivate
+
+    # and so on...
+done
+```
 
 
 
@@ -22,19 +52,23 @@ I wrote this script in January 2025 for Autocycler v0.2.1. I'll do my best to up
 
 The script takes the following three arguments:
 1. **Read filename**: Path to the input FASTQ file (can be gzipped).
-2. **Thread count**: Number of threads per assembly.
-3. **Job count**: Number of simultaneous assemblies to run. Note: Each assembly will use up to the given thread count, so the maximum total threads in use will be threads × jobs.
+2. **Thread count**: Number of threads to use per assembly.
+3. **Job count**: Number of assemblies to run in parallel.
 
+Note: each assembly will use up to the specified thread count, so the maximum total threads in use is `threads × jobs`. A job count of 4 works well, matching the four read subsets. This keeps each batch of parallel jobs within the same assembler, avoiding situations where one slow job delays everything else.
 
-**Example command:** `./autocycler_full.sh reads.fastq.gz 16 4`
+**Example command:**
+```bash
+autocycler_full.sh reads.fastq.gz 16 4
+```
 
 
 
 ## Output
 
-When run, the script will create the following directories and files in the working directory:
+The script creates the following outputs in the working directory:
 
-* **`subsampled_reads/`**: Directory containing the read subsets for assembly. The actual FASTQ files will be deleted after the assemblies are complete (to save disk space), but the directory and its YAML file will remain.
-* **`assemblies/`**: Directory containing the input assemblies for Autocycler. The logs for each assembler can be found in the `assemblies/logs` directory.
-* **`autocycler_out/`**: Autocycler output directory which will include the final combined assembly as `consensus_assembly.gfa` and `consensus_assembly.fasta`.
-* **`autocycler.stderr`**: File containing all `stderr` output from Autocycler across all steps.
+* **`subsampled_reads/`**: Contains the read subsets used for assembly. The FASTQ files are deleted after assembly to save space, but the directory (and its [YAML file](https://github.com/rrwick/Autocycler/wiki/Metrics#read-subsampling-metrics)) remains.
+* **`assemblies/`**: Contains the input assemblies for Autocycler. Logs from each assembler are saved in `assemblies/logs/`.
+* **`autocycler_out/`**: Output directory for Autocycler. Final results are saved as `consensus_assembly.gfa` and `consensus_assembly.fasta`.
+* **`autocycler.stderr`**: Contains `stderr` output from all Autocycler steps.

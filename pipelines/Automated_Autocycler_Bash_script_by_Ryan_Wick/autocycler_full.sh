@@ -19,11 +19,11 @@ jobs=$3     # number of simultaneous jobs
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$threads" || -z "$jobs" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <threads> <jobs>"
+    echo "Usage: $0 <read_fastq> <threads> <jobs>" 1>&2
     exit 1
 fi
 if [[ ! -f "$reads" ]]; then
-    >&2 echo "Error: Input file '$reads' does not exist."
+    echo "Error: Input file '$reads' does not exist." 1>&2
     exit 1
 fi
 
@@ -35,13 +35,13 @@ autocycler subsample --reads "$reads" --out_dir subsampled_reads --genome_size "
 # Step 2: assemble each subsampled file
 mkdir -p assemblies
 rm -f assemblies/jobs.txt
-for assembler in raven miniasm flye metamdbg necat nextdenovo canu; do
+for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; do
     for i in 01 02 03 04; do
-        echo "nice -n 19 $assembler.sh subsampled_reads/sample_$i.fastq assemblies/${assembler}_$i $threads $genome_size" >> assemblies/jobs.txt
+        echo "$assembler.sh subsampled_reads/sample_$i.fastq assemblies/${assembler}_$i $threads $genome_size" >> assemblies/jobs.txt
     done
 done
 set +e
-parallel --jobs "$jobs" --joblog assemblies/joblog.txt --results assemblies/logs < assemblies/jobs.txt
+nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.txt --results assemblies/logs < assemblies/jobs.txt
 set -e
 find assemblies/ -maxdepth 1 -type f -name "*.fasta" -empty -delete
 
