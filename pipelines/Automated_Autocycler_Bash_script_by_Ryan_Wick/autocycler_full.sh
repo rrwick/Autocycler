@@ -47,7 +47,7 @@ find assemblies/ -maxdepth 1 -type f -name "*.fasta" -empty -delete
 
 # Give circular contigs from Plassembler extra clustering weight
 for f in assemblies/plassembler*.fasta; do
-    sed -i 's/circular=True/circular=True Autocycler_cluster_weight=3/' "$f"
+    sed -i 's/circular=True/circular=True Autocycler_cluster_weight=2/' "$f"
 done
 
 # Give contigs from Canu and Flye extra consensus weight
