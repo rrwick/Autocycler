@@ -90,11 +90,11 @@ impl Sequence {
         self.contig_header.to_lowercase().contains("autocycler_trusted")
     }
 
-    pub fn cluster_weight(&self) -> f64 {
+    pub fn cluster_weight(&self) -> usize {
         self.contig_header.to_lowercase().split_whitespace()
             .find_map(|token| { token.strip_prefix("autocycler_cluster_weight=")
-                                     .and_then(|s| s.parse::<f64>().ok()) })
-            .unwrap_or(1.0)
+                                     .and_then(|s| s.parse::<usize>().ok()) })
+            .unwrap_or(1)
     }
 
     pub fn consensus_weight(&self) -> usize {
@@ -147,32 +147,33 @@ mod tests {
     fn test_cluster_weight() {
         let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
                                        "c123".to_string(), 1, 1);
-        assert_eq!(s.cluster_weight(), 1.0);
+        assert_eq!(s.cluster_weight(), 1);
 
         s.contig_header = "c123 other stuff".to_string();
-        assert_eq!(s.cluster_weight(), 1.0);
+        assert_eq!(s.cluster_weight(), 1);
 
-        s.contig_header = "c123 Autocycler_cluster_weight=1.0".to_string();
-        assert_eq!(s.cluster_weight(), 1.0);
+        s.contig_header = "c123 Autocycler_cluster_weight=1".to_string();
+        assert_eq!(s.cluster_weight(), 1);
 
-        s.contig_header = "c123 Autocycler_cluster_weight=2.0".to_string();
-        assert_eq!(s.cluster_weight(), 2.0);
+        s.contig_header = "c123 Autocycler_cluster_weight=2".to_string();
+        assert_eq!(s.cluster_weight(), 2);
 
         s.contig_header = "c123 AUTOCYCLER_CLUSTER_WEIGHT=5".to_string();
-        assert_eq!(s.cluster_weight(), 5.0);
+        assert_eq!(s.cluster_weight(), 5);
 
         s.contig_header = "c123 Autocycler_cluster_weight=0".to_string();
-        assert_eq!(s.cluster_weight(), 0.0);
+        assert_eq!(s.cluster_weight(), 0);
 
         s.contig_header = "c123 autocycler_cluster_weight=1234".to_string();
-        assert_eq!(s.cluster_weight(), 1234.0);
+        assert_eq!(s.cluster_weight(), 1234);
 
+        // Non-integer values result in 1
         s.contig_header = "c123 Autocycler_cluster_weight=0.1".to_string();
-        assert_eq!(s.cluster_weight(), 0.1);
+        assert_eq!(s.cluster_weight(), 1);
 
-        // Non-numeric values result in 1.0
+        // Non-numeric values result in 1
         s.contig_header = "c123 Autocycler_cluster_weight=abc".to_string();
-        assert_eq!(s.cluster_weight(), 1.0);
+        assert_eq!(s.cluster_weight(), 1);
     }
 
     #[test]
