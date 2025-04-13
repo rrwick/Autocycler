@@ -16,8 +16,11 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 * Uses eight assemblers in this order: Raven, miniasm, Flye, MetaMDBG, NECAT, NextDenovo, Plassembler and Canu. Faster assemblers come first so you can preview results early in a run.
 * Assemblies are launched via the [Autocycler helper scripts](https://github.com/rrwick/Autocycler/wiki/Generating-input-assemblies#assembly-helper-scripts).
 * With 4 read subsets × 8 assemblers, the script generates 32 input assemblies.
-* [Plassembler](github.com/gbouras13/plassembler) is included to help recover small plasmids that other long-read assemblers may miss. Its helper script ([`plassembler.sh`](https://github.com/rrwick/Autocycler/blob/main/scripts/plassembler.sh)) tags circular contigs with `Autocycler_trusted` to help their clusters pass QC.
+* [Plassembler](github.com/gbouras13/plassembler) is included to help recover small plasmids that other long-read assemblers may miss.
 * Plassembler requires a reference database. Its helper script will look for it via the `PLASSEMBLER_DB` environment variable, or else in a `plassembler_db` directory inside the active conda environment.
+* Circular Plassembler contigs are given extra clustering weight to help small plasmids (which may only be assembled by Plassembler) be included in the final assembly.
+* Canu and Flye contigs are given extra consensus weight, since those two assemblers often produce the most accurate sequence.
+* This script uses GNU sed syntax. On macOS (BSD sed), the `sed` commands may need adjustment.
 
 
 

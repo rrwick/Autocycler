@@ -103,6 +103,3 @@ seqtk seq "$temp_dir"/out/plassembler_plasmids.fasta | paste - - | awk 'BEGIN {F
   }
   print $1; print $2;
 }' > "$assembly".fasta
-
-# Label circular contigs as trusted for Autocycler clustering.
-sed -i 's/circular=True/circular=True Autocycler_trusted/' "$assembly".fasta

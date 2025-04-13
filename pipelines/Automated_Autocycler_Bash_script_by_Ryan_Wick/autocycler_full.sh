@@ -45,7 +45,17 @@ nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.txt --results asse
 set -e
 find assemblies/ -maxdepth 1 -type f -name "*.fasta" -empty -delete
 
-# Optional step: remove the subsampled reads to save space
+# Give circular contigs from Plassembler extra clustering weight
+for f in assemblies/plassembler*.fasta; do
+    sed -i 's/circular=True/circular=True Autocycler_cluster_weight=3/' "$f"
+done
+
+# Give contigs from Canu and Flye extra consensus weight
+for f in assemblies/canu*.fasta assemblies/flye*.fasta; do
+    sed -i 's/^>.*$/& Autocycler_consensus_weight=2/' "$f"
+done
+
+# Remove the subsampled reads to save space
 rm subsampled_reads/*.fastq
 
 # Step 3: compress the input assemblies into a unitig graph
