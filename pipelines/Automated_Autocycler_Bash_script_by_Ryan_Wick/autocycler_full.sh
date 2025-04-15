@@ -26,6 +26,7 @@ if [[ ! -f "$reads" ]]; then
     echo "Error: Input file '$reads' does not exist." 1>&2
     exit 1
 fi
+if (( threads > 128 )); then threads=128; fi  # Flye won't work with more than 128 threads
 
 genome_size=$(genome_size_raven.sh "$reads" "$threads")
 
