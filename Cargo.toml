@@ -1,6 +1,6 @@
 [package]
 name = "autocycler"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Ryan Wick <rrwick@gmail.com>"]
 edition = "2021"
 description = "consensus bacterial genome assemblies"
