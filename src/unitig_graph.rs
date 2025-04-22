@@ -510,23 +510,32 @@ impl UnitigGraph {
         eprintln!();
     }
 
+    pub fn print_basic_graph_info_with_topology(&self) {
+        let link_count = self.link_count().1;
+        eprintln!("{} unitig{}, {} link{} ({})",
+                  self.unitigs.len(), match self.unitigs.len() { 1 => "", _ => "s" },
+                  link_count, match link_count { 1 => "", _ => "s" }, self.topology());
+        eprintln!("total length: {} bp", self.total_length());
+        eprintln!();
+    }
+
     pub fn topology(&self) -> String {
         // Returns one of the following:
         // * circular: the graph contains one unitig with a simple circularising link
-        // * linear_open_open: the graph contains one unitig with no link (both ends are open)
-        // * linear_hairpin_hairpin: the graph contains one unitig with hairpin links on both ends
-        // * linear_open_hairpin: the graph contains one unitig with a hairpin link on one end
+        // * linear-open-open: the graph contains one unitig with no link (both ends are open)
+        // * linear-hairpin-hairpin: the graph contains one unitig with hairpin links on both ends
+        // * linear-open-hairpin: the graph contains one unitig with a hairpin link on one end
         // * fragmented: the graph contains multiple unitigs
         // * empty: the graph contains no unitigs
         // * other: none of the above (e.g. a circularising link and a hairpin link, should be rare)
         if self.unitigs.is_empty() { return "empty".to_string(); }
         if self.unitigs.len() > 1 { return "fragmented".to_string(); }
         let u = self.unitigs[0].borrow();  // the only unitig in the graph
-        if self.link_count().0 == 0 { return "linear_open_open".to_string(); }
+        if self.link_count().0 == 0 { return "linear-open-open".to_string(); }
         if u.is_isolated_and_circular() { return "circular".to_string(); }
-        if u.hairpin_start() && u.hairpin_end() { return "linear_hairpin_hairpin".to_string(); }
-        if u.hairpin_start() && u.open_end() { return "linear_open_hairpin".to_string(); }
-        if u.open_start() && u.hairpin_end() { return "linear_open_hairpin".to_string(); }
+        if u.hairpin_start() && u.hairpin_end() { return "linear-hairpin-hairpin".to_string(); }
+        if u.hairpin_start() && u.open_end() { return "linear-open-hairpin".to_string(); }
+        if u.open_start() && u.hairpin_end() { return "linear-open-hairpin".to_string(); }
         "other".to_string()
     }
 
@@ -1344,16 +1353,16 @@ mod tests {
         assert_eq!(graph.topology(), "circular".to_string());
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
-        assert_eq!(graph.topology(), "linear_open_open".to_string());
+        assert_eq!(graph.topology(), "linear-open-open".to_string());
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_10());
-        assert_eq!(graph.topology(), "linear_hairpin_hairpin".to_string());
+        assert_eq!(graph.topology(), "linear-hairpin-hairpin".to_string());
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_11());
-        assert_eq!(graph.topology(), "linear_open_hairpin".to_string());
+        assert_eq!(graph.topology(), "linear-open-hairpin".to_string());
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_12());
-        assert_eq!(graph.topology(), "linear_open_hairpin".to_string());
+        assert_eq!(graph.topology(), "linear-open-hairpin".to_string());
 
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
         assert_eq!(graph.topology(), "other".to_string());

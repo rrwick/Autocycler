@@ -99,7 +99,7 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
     for gfa in in_gfas {
         eprintln!("{}", gfa.display());
         let (graph, _) = UnitigGraph::from_gfa_file(gfa);
-        graph.print_basic_graph_info();
+        graph.print_basic_graph_info_with_topology();
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();
             let unitig_num = unitig.number + offset;
