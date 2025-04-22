@@ -105,15 +105,28 @@ impl Sequence {
     }
 }
 
+
 impl fmt::Display for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut extras = Vec::new();
         if self.is_trusted() {
-            write!(f, "{} {} ({} bp) [trusted]", self.filename, self.contig_name(), self.length)
-        } else {
+            extras.push("trusted".to_string());
+        }
+        if self.cluster_weight() != 1 {
+            extras.push(format!("cluster weight = {}", self.cluster_weight()));
+        }
+        if self.consensus_weight() != 1 {
+            extras.push(format!("consensus weight = {}", self.consensus_weight()));
+        }
+        if extras.is_empty() {
             write!(f, "{} {} ({} bp)", self.filename, self.contig_name(), self.length)
+        } else {
+            write!(f, "{} {} ({} bp) [{}]", self.filename, self.contig_name(), self.length,
+                   extras.join(", "))
         }
     }
 }
+
 
 impl fmt::Debug for Sequence {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { fmt::Display::fmt(self, f) }
@@ -127,7 +140,7 @@ mod tests {
     #[test]
     fn test_is_trusted() {
         let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
-                                       "c123".to_string(), 1, 1);
+                                           "c123".to_string(), 1, 1);
         assert!(!s.is_trusted());
 
         s.contig_header = "c123 other stuff".to_string();
@@ -146,7 +159,7 @@ mod tests {
     #[test]
     fn test_cluster_weight() {
         let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
-                                       "c123".to_string(), 1, 1);
+                                           "c123".to_string(), 1, 1);
         assert_eq!(s.cluster_weight(), 1);
 
         s.contig_header = "c123 other stuff".to_string();
@@ -155,7 +168,7 @@ mod tests {
         s.contig_header = "c123 Autocycler_cluster_weight=1".to_string();
         assert_eq!(s.cluster_weight(), 1);
 
-        s.contig_header = "c123 Autocycler_cluster_weight=2".to_string();
+        s.contig_header = "c123 other stuff Autocycler_cluster_weight=2 other stuff".to_string();
         assert_eq!(s.cluster_weight(), 2);
 
         s.contig_header = "c123 AUTOCYCLER_CLUSTER_WEIGHT=5".to_string();
@@ -179,7 +192,7 @@ mod tests {
     #[test]
     fn test_consensus_weight() {
         let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
-                                       "c123".to_string(), 1, 1);
+                                           "c123".to_string(), 1, 1);
         assert_eq!(s.consensus_weight(), 1);
 
         s.contig_header = "c123 other stuff".to_string();
@@ -191,7 +204,7 @@ mod tests {
         s.contig_header = "c123 AUTOCYCLER_CONSENSUS_WEIGHT=2".to_string();
         assert_eq!(s.consensus_weight(), 2);
 
-        s.contig_header = "c123 Autocycler_consensus_weight=0".to_string();
+        s.contig_header = "c123 other stuff Autocycler_consensus_weight=0 other stuff".to_string();
         assert_eq!(s.consensus_weight(), 0);
 
         s.contig_header = "c123 autocycler_consensus_weight=1234".to_string();
@@ -208,5 +221,35 @@ mod tests {
         // Non-numeric values result in 1
         s.contig_header = "c123 Autocycler_consensus_weight=abc".to_string();
         assert_eq!(s.consensus_weight(), 1);
+    }
+
+    #[test]
+    fn test_sequence_display() {
+        let mut s = Sequence::new_with_seq(1, "A".to_string(), "assembly_1.fasta".to_string(),
+                                           "c123".to_string(), 1, 1);
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp)");
+
+        s.contig_header = "c123 other stuff".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp)");
+
+        s.contig_header = "c123 Autocycler_trusted".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [trusted]");
+
+        s.contig_header = "c123 Autocycler_cluster_weight=2".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [cluster weight = 2]");
+
+        s.contig_header = "c123 Autocycler_consensus_weight=2".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [consensus weight = 2]");
+
+        s.contig_header = "c123 Autocycler_trusted Autocycler_cluster_weight=2".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [trusted, cluster weight = 2]");
+
+        s.contig_header = "c123 Autocycler_trusted Autocycler_consensus_weight=2".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [trusted, consensus weight = 2]");
+
+        s.contig_header = "c123 Autocycler_consensus_weight=0 \
+                           Autocycler_cluster_weight=0".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [cluster weight = 0, \
+                                   consensus weight = 0]");
     }
 }
