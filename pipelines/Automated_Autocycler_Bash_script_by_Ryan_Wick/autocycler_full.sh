@@ -47,6 +47,7 @@ set -e
 find assemblies/ -maxdepth 1 -type f -name "*.fasta" -empty -delete
 
 # Give circular contigs from Plassembler extra clustering weight
+shopt -s nullglob
 for f in assemblies/plassembler*.fasta; do
     sed -i 's/circular=True/circular=True Autocycler_cluster_weight=2/' "$f"
 done
@@ -55,6 +56,7 @@ done
 for f in assemblies/canu*.fasta assemblies/flye*.fasta; do
     sed -i 's/^>.*$/& Autocycler_consensus_weight=2/' "$f"
 done
+shopt -u nullglob
 
 # Remove the subsampled reads to save space
 rm subsampled_reads/*.fastq
