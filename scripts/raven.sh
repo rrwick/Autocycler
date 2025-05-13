@@ -27,6 +27,7 @@ set -e
 reads=$1        # input reads FASTQ
 assembly=$2     # output assembly prefix (not including file extension)
 threads=$3      # thread count
+read_type=$5    # ont or pb read type
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
@@ -61,8 +62,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_preset=""
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_preset="-k 29 -w 9"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Run Raven.
-raven --threads "$threads" --disable-checkpoints --graphical-fragment-assembly "$assembly".gfa "$reads" > "$assembly".fasta
+raven --threads "$threads" "$read_type_preset"  --disable-checkpoints --graphical-fragment-assembly "$assembly".gfa "$reads" > "$assembly".fasta
 
 # Check if Raven ran successfully.
 if [[ ! -s "$assembly".fasta ]]; then

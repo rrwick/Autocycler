@@ -29,6 +29,7 @@ reads=$1        # input reads FASTQ
 assembly=$2     # output assembly prefix (not including file extension)
 threads=$3      # thread count
 genome_size=$4  # estimated genome size
+read_type=$5    # ont or pb read type
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
@@ -69,6 +70,16 @@ trap cleanup EXIT
 # Work from the temp directory.
 pushd "$temp_dir"
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_preset="ont"
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_preset="hifi"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Create the NextDenovo config and read list files.
 cat <<EOF > nextdenovo_run.cfg
 [General]
@@ -79,7 +90,7 @@ rewrite = yes
 deltmp = yes
 parallel_jobs = 1
 input_type = raw
-read_type = ont
+read_type = $read_type_preset
 input_fofn = input.fofn
 workdir = nextdenovo
 
@@ -106,6 +117,16 @@ if [[ ! -s nextdenovo/03.ctg_graph/nd.asm.fasta ]]; then
     exit 1
 fi
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_mapping_preset="map-ont"
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_mapping_preset="map-hifi"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Create the NextPolish config and read list files.
 cat <<EOF > nextpolish_run.cfg
 [General]
@@ -125,7 +146,7 @@ polish_options = -p $threads
 [lgs_option]
 lgs_fofn = lgs.fofn
 lgs_options = -min_read_len 1k -max_depth 100
-lgs_minimap2_options = -x map-ont -t $threads
+lgs_minimap2_options = -x $read_type_mapping_preset -t $threads
 EOF
 echo "$reads_abs" > lgs.fofn
 

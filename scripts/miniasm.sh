@@ -31,6 +31,7 @@ set -e
 reads=$1        # input reads FASTQ
 assembly=$2     # output assembly prefix (not including file extension)
 threads=$3      # thread count
+read_type=$5    # ont or pb read type
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
@@ -65,8 +66,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_preset="ava-ont"
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_preset="ava-pb"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Find read overlaps with minimap2.
-minimap2 -x ava-ont -t "$threads" "$reads" "$reads" > "$temp_dir"/overlap.paf
+minimap2 -x "$read_type_preset" -t "$threads" "$reads" "$reads" > "$temp_dir"/overlap.paf
 
 # Run miniasm to make an unpolished assembly.
 miniasm -f "$reads" "$temp_dir"/overlap.paf > "$temp_dir"/unpolished.gfa

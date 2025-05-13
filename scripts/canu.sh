@@ -29,6 +29,7 @@ reads=$1        # input reads FASTQ
 assembly=$2     # output assembly prefix (not including file extension)
 threads=$3      # thread count
 genome_size=$4  # estimated genome size
+read_type=$5	# ont or pb read type
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
@@ -63,8 +64,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_preset="-nanopore"
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_preset="-pacbio-hifi"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Run Canu.
-canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThreads="$threads" -nanopore "$reads"
+canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThreads="$threads" "$read_type_preset" "$reads"
 
 # Check if Canu ran successfully.
 if [[ ! -s "$temp_dir"/canu.contigs.fasta ]]; then

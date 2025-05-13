@@ -27,6 +27,7 @@ set -e
 reads=$1        # input reads FASTQ
 assembly=$2     # output assembly prefix (not including file extension)
 threads=$3      # thread count
+read_type=$5    # ont or pb read type
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
@@ -61,8 +62,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_preset="--nano-hq"
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_preset="--pacbio-hifi"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Run Flye.
-flye --nano-hq "$reads" --threads "$threads" --out-dir "$temp_dir"
+flye "$read_type_preset" "$reads" --threads "$threads" --out-dir "$temp_dir"
 
 # Check if Flye ran successfully.
 if [[ ! -s "$temp_dir"/assembly.fasta ]]; then
