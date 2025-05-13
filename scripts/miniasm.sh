@@ -88,8 +88,18 @@ if [[ ! -s "$temp_dir"/unpolished.gfa ]]; then
     exit 1
 fi
 
+# Select read type preset
+if [[ "$read_type"  == "ont" ]]; then
+    read_type_polishing_preset=""
+elif [[ "$read_type" == "pb" ]]; then
+    read_type_polishing_preset="--pacbio"
+else
+    >&2 echo "Error: $read_type is not supported"
+    exit 1
+fi
+
 # Polish the assembly with Minipolish, outputting the result to stdout.
-minipolish --threads "$threads" "$reads" "$temp_dir"/unpolished.gfa > "$assembly".gfa
+minipolish --threads "$threads" "$read_type_polishing_preset"  "$reads" "$temp_dir"/unpolished.gfa > "$assembly".gfa
 
 # Check if Minipolish ran successfully.
 if [[ ! -s "$assembly".gfa ]]; then
