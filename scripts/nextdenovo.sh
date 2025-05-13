@@ -119,9 +119,17 @@ fi
 
 # Select read type preset
 if [[ "$read_type"  == "ont" ]]; then
-    read_type_mapping_preset="map-ont"
+    read_type_polishing_preset="[lgs option]
+    lgs_fofn = lgs.fofn
+    lgs_options = -min_read_len 1k -max_depth 100
+    lgs_minimap2_options = -x map-ont -t $threads"
+    reads_fofn="lgs.fofn"
 elif [[ "$read_type" == "pb" ]]; then
-    read_type_mapping_preset="map-hifi"
+    read_type_polishing_preset="[hifi_option]
+    hifi_fofn = ./hifi.fofn
+    hifi_options = -min_read_len 1k -max_depth 100
+    hifi_minimap2_options = -x map-pb -t $threads"
+    reads_fofn="hifi.fofn"
 else
     >&2 echo "Error: $read_type is not supported"
     exit 1
@@ -143,12 +151,9 @@ genome_size = auto
 workdir = nextpolish
 polish_options = -p $threads
 
-[lgs_option]
-lgs_fofn = lgs.fofn
-lgs_options = -min_read_len 1k -max_depth 100
-lgs_minimap2_options = -x $read_type_mapping_preset -t $threads
+$read_type_polishing_preset
 EOF
-echo "$reads_abs" > lgs.fofn
+echo "$reads_abs" > "$reads_fofn"
 
 # Run NextPolish.
 nextPolish nextpolish_run.cfg
