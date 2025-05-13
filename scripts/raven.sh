@@ -73,7 +73,7 @@ else
 fi
 
 # Run Raven.
-raven --threads "$threads" "$read_type_preset"  --disable-checkpoints --graphical-fragment-assembly "$assembly".gfa "$reads" > "$assembly".fasta
+raven --threads "$threads" $read_type_preset --disable-checkpoints --graphical-fragment-assembly "$assembly".gfa "$reads" > "$assembly".fasta
 
 # Check if Raven ran successfully.
 if [[ ! -s "$assembly".fasta ]]; then

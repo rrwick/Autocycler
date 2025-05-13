@@ -99,7 +99,7 @@ else
 fi
 
 # Polish the assembly with Minipolish, outputting the result to stdout.
-minipolish --threads "$threads" "$read_type_polishing_preset"  "$reads" "$temp_dir"/unpolished.gfa > "$assembly".gfa
+minipolish $read_type_polishing_preset --threads "$threads" "$reads" "$temp_dir"/unpolished.gfa > "$assembly".gfa
 
 # Check if Minipolish ran successfully.
 if [[ ! -s "$assembly".gfa ]]; then
