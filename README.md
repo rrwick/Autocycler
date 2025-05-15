@@ -6,5 +6,5 @@ Autocycler is a tool for generating consensus long-read assemblies for bacterial
 
 For installation instructions, usage, deeper explanations and more, head over to the [Autocycler wiki](https://github.com/rrwick/Autocycler/wiki)!
 
-Autocycler does not (yet) have a publication. If you use it in your research, please cite the following:<br>
-Wick RR. Autocycler. https://github.com/rrwick/Autocycler. 2025. doi:[10.5281/zenodo.14642607](https://doi.org/10.5281/zenodo.14642607).
+If you use Autocycler in your research, please cite the following preprint:<br>
+[Wick RR, Howden BP, Stinear TP. _Autocycler: long-read consensus assembly for bacterial genomes._ bioRxiv. 2025. doi:10.1101/2025.05.12.653612v1.](https://www.biorxiv.org/content/10.1101/2025.05.12.653612v1)
