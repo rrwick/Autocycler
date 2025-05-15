@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated preprint listed below."
+title: "Autocycler"
+authors:
+  - family-names: "Wick"
+    given-names: "Ryan R"
+    orcid: "https://orcid.org/0000-0001-8349-0778"
+url: "https://github.com/rrwick/Autocycler"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Wick"
+      given-names: "Ryan R"
+      orcid: "https://orcid.org/0000-0001-8349-0778"
+    - family-names: "Howden"
+      given-names: "Benjamin P"
+      orcid: "https://orcid.org/0000-0003-0237-1473"
+    - family-names: "Stinear"
+      given-names: "Timothy P"
+      orcid: "https://orcid.org/0000-0003-0150-123X"
+  title: "Autocycler: long-read consensus assembly for bacterial genomes"
+  journal: "bioRxiv"
+  year: 2025
+  month: 5
+  doi: "10.1101/2025.05.12.653612"
