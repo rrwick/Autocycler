@@ -23,6 +23,12 @@
 # Ensure script exits on error.
 set -e
 
+MICROMAMBA_ENV="metamdbg"
+if command -v micromamba &> /dev/null && micromamba env list | grep -qw "$MICROMAMBA_ENV"; then
+    echo "Activating micromamba env '$MICROMAMBA_ENV'."
+    micromamba activate $MICROMAMBA_ENV
+fi
+
 # The minimum contig depth is hard-coded here.
 min_cov=10
 
