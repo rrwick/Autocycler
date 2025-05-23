@@ -76,14 +76,11 @@ RUN curl -L -o autocycler.tar.gz $(curl -s https://api.github.com/repos/rrwick/A
 COPY --from=docker.io/staphb/seqtk /usr/local/bin/seqtk /usr/local/bin/seqtk
 COPY --from=docker.io/staphb/minimap2 /usr/local/bin/minimap2 /usr/local/bin/minimap2
 COPY --from=docker.io/troder/lja /opt/LJA/bin/lja /usr/local/bin/lja
-# Canu from staphb/canu is a much leaner install than from conda
-# Todo: update to canu 2.3 (https://github.com/StaPH-B/docker-builds/issues/1321)
-COPY --from=docker.io/staphb/canu:2.2 /canu-2.2/ /canu-2.2/
-ENV PATH=$PATH:/canu-2.2/bin
 
 # Copy the installed tools from each builder stage
 COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_raven /opt/conda/envs/raven /opt/conda/envs/raven
 COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_flye /opt/conda/envs/flye /opt/conda/envs/flye
+COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_canu /opt/conda/envs/canu /opt/conda/envs/canu
 COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_metamdbg /opt/conda/envs/metamdbg /opt/conda/envs/metamdbg
 COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_necat /opt/conda/envs/necat /opt/conda/envs/necat
 COPY --chown=$MAMBA_USER_ID:$MAMBA_USER_GID --chmod=755 --from=builder_minipolish /opt/conda/envs/minipolish /opt/conda/envs/minipolish
