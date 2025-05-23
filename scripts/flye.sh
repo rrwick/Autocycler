@@ -3,7 +3,8 @@
 # This script is a wrapper for running Flye in a single command.
 
 # Usage:
-#   flye.sh <read_fastq> <assembly_prefix> <threads>
+#   flye.sh <read_fastq> <assembly_prefix> <threads> [read_type]
+#   read_type can be ONT (default) or PB_HIFI
 
 # Requirements:
 #   Flye: https://github.com/mikolmogorov/Flye
@@ -24,13 +25,15 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+read_type=${4:-ONT} # ONT or PB_HIFI, defaults to ONT if not provided
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> [read_type]"
+    >&2 echo "  read_type can be ONT (default) or PB_HIFI"
     exit 1
 fi
 
@@ -62,7 +65,14 @@ cleanup() {
 trap cleanup EXIT
 
 # Run Flye.
-flye --nano-hq "$reads" --threads "$threads" --out-dir "$temp_dir"
+if [[ "$read_type" == "ONT" ]]; then
+    flye --nano-hq "$reads" --threads "$threads" --out-dir "$temp_dir"
+elif [[ "$read_type" == "PB_HIFI" ]]; then
+    flye --pacbio-hifi "$reads" --threads "$threads" --out-dir "$temp_dir"
+else
+    >&2 echo "Error: Invalid read_type: $read_type. Must be 'ONT' or 'PB_HIFI'."
+    exit 1
+fi
 
 # Check if Flye ran successfully.
 if [[ ! -s "$temp_dir"/assembly.fasta ]]; then

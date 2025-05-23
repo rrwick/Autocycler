@@ -3,7 +3,8 @@
 # This script is a wrapper for running Raven in a single command.
 
 # Usage:
-#   raven.sh <read_fastq> <assembly_prefix> <threads>
+#   raven.sh <read_fastq> <assembly_prefix> <threads> [read_type]
+#   read_type is ignored, as raven does not have read-specific options
 
 # Requirements:
 #   Raven: https://github.com/lbcb-sci/raven
@@ -24,13 +25,15 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+read_type=${4:-ONT} # ignored, raven does not have read-specific options
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> [read_type]"
+    >&2 echo "  read_type is ignored, as raven does not have read-specific options."
     exit 1
 fi
 

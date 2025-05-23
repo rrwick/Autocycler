@@ -3,11 +3,13 @@
 # This script is a wrapper for running NextDenovo and NextPolish in a single command.
 
 # Usage:
-#   nextdenovo.sh <read_fastq> <assembly_prefix> <threads> <genome_size>
+#   nextdenovo.sh <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]
+#   read_type can be ONT (default). PB_HIFI/hifi support is planned.
 
 # Requirements:
 #   NextDenovo: https://github.com/Nextomics/NextDenovo
 #   NextPolish: https://github.com/Nextomics/NextPolish
+#   (NextPolish2 will be required for hifi reads in the future)
 
 # Copyright 2024 Ryan Wick (rrwick@gmail.com)
 # https://github.com/rrwick/Autocycler
@@ -25,16 +27,27 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
-genome_size=$4  # estimated genome size
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+genome_size=$4      # estimated genome size
+read_type=${5:-ONT} # ONT (default). hifi support is planned.
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]"
+    >&2 echo "  read_type can be ONT (default). PB_HIFI/hifi support is planned."
     exit 1
 fi
+
+# Check read_type (temporary: only ONT is supported until hifi/nextpolish2 integration)
+if [[ "$read_type" != "ONT" ]]; then
+    >&2 echo "Error: Invalid read_type: $read_type."
+    >&2 echo "Currently, only 'ONT' is supported by this script."
+    >&2 echo "Support for 'hifi' reads (using NextPolish2) is planned."
+    exit 1
+fi
+
 assembly_abs=$(realpath "$assembly")
 
 # Check that the reads file exists.

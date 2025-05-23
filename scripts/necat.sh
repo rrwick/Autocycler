@@ -3,7 +3,8 @@
 # This script is a wrapper for running NECAT in a single command.
 
 # Usage:
-#   necat.sh <read_fastq> <assembly_prefix> <threads> <genome_size>
+#   necat.sh <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]
+#   read_type can be ONT (default). PB_HIFI is not supported by NECAT.
 
 # Requirements:
 #   NECAT: https://github.com/xiaochuanle/NECAT
@@ -24,16 +25,25 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
-genome_size=$4  # estimated genome size
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+genome_size=$4      # estimated genome size
+read_type=${5:-ONT} # ONT (default). PB_HIFI is not supported.
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]"
+    >&2 echo "  read_type can be ONT (default). PB_HIFI is not supported by NECAT."
     exit 1
 fi
+
+# Check read_type and exit if PB_HIFI
+if [[ "$read_type" != "ONT" ]]; then
+    >&2 echo "Error: Invalid read_type: $read_type. Only 'ONT' is supported by NECAT."
+    exit 1
+fi
+
 assembly_abs=$(realpath "$assembly")
 
 # Check that the reads file exists.
