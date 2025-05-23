@@ -3,7 +3,8 @@
 # This script is a wrapper for running Canu in a single command.
 
 # Usage:
-#   canu.sh <read_fastq> <assembly_prefix> <threads> <genome_size>
+#   canu.sh <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]
+#   read_type can be ONT (default) or PB_HIFI
 
 # Requirements:
 #   Canu: https://github.com/marbl/canu
@@ -25,14 +26,16 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
-genome_size=$4  # estimated genome size
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+genome_size=$4      # estimated genome size
+read_type=${5:-ONT} # ONT or PB_HIFI, defaults to ONT if not provided
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]"
+    >&2 echo "  read_type can be ONT (default) or PB_HIFI"
     exit 1
 fi
 
@@ -64,7 +67,14 @@ cleanup() {
 trap cleanup EXIT
 
 # Run Canu.
-canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThreads="$threads" -nanopore "$reads"
+if [[ "$read_type" == "ONT" ]]; then
+    canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThreads="$threads" -nanopore "$reads"
+elif [[ "$read_type" == "PB_HIFI" ]]; then
+    canu -p canu -d "$temp_dir" -fast genomeSize="$genome_size" useGrid=false maxThreads="$threads" -pacbio-hifi "$reads"
+else
+    >&2 echo "Error: Invalid read_type: $read_type. Must be 'ONT' or 'PB_HIFI'."
+    exit 1
+fi
 
 # Check if Canu ran successfully.
 if [[ ! -s "$temp_dir"/canu.contigs.fasta ]]; then

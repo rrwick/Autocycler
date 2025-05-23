@@ -3,7 +3,8 @@
 # This script is a wrapper for running Redbean (wtdbg2) in a single command.
 
 # Usage:
-#   redbean.sh <read_fastq> <assembly_prefix> <threads> <genome_size>
+#   redbean.sh <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]
+#   read_type can be ONT (default) or PB_HIFI
 
 # Requirements:
 #   Redbean: https://github.com/ruanjue/wtdbg2
@@ -24,16 +25,29 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
-genome_size=$4  # estimated genome size
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+genome_size=$4      # estimated genome size
+read_type=${5:-ONT} # ONT or PB_HIFI, defaults to ONT if not provided
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" || -z "$genome_size" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> <genome_size> [read_type]"
+    >&2 echo "  read_type can be ONT (default) or PB_HIFI"
     exit 1
 fi
+
+# Validate read_type and determine wtdbg2 preset
+if [[ "$read_type" == "ONT" ]]; then
+    wtdbg2_preset="ont"
+elif [[ "$read_type" == "PB_HIFI" ]]; then
+    wtdbg2_preset="ccs"
+else
+    >&2 echo "Error: Invalid read_type: $read_type. Must be 'ONT' or 'PB_HIFI'."
+    exit 1
+fi
+
 sort_threads=$(( threads < 4 ? threads : 4 ))
 
 # Check that the reads file exists.
@@ -64,7 +78,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Run Redbean.
-wtdbg2 -x ont -g "$genome_size" -i "$reads" -t "$threads" -fo "$temp_dir"/dbg
+wtdbg2 -x "$wtdbg2_preset" -g "$genome_size" -i "$reads" -t "$threads" -fo "$temp_dir"/dbg
 wtpoa-cns -t 16 -i "$temp_dir"/dbg.ctg.lay.gz -fo "$temp_dir"/dbg.raw.fa
 
 # Check if Redbean ran successfully.

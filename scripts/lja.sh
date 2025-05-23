@@ -3,7 +3,8 @@
 # This script is a wrapper for running La Jolla Assembler in a single command.
 
 # Usage:
-#   lja.sh <read_fastq> <assembly_prefix> <threads>
+#   lja.sh <read_fastq> <assembly_prefix> <threads> [read_type]
+#   read_type is ignored, as LJA does not have read-specific options
 
 # Requirements:
 #   La Jolla Assembler: https://github.com/AntonBankevich/LJA
@@ -24,13 +25,15 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+read_type=${4:-ONT} # ignored, LJA does not have read-specific options
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> [read_type]"
+    >&2 echo "  read_type is ignored, as LJA does not have read-specific options."
     exit 1
 fi
 

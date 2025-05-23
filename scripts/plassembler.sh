@@ -3,7 +3,8 @@
 # This script is a wrapper for running Plassembler in a single command.
 
 # Usage:
-#   plassembler.sh <read_fastq> <assembly_prefix> <threads>
+#   plassembler.sh <read_fastq> <assembly_prefix> <threads> [read_type]
+#   read_type can be ONT (default) or PB_HIFI
 
 # Requirements:
 #   Plassembler: https://github.com/gbouras13/plassembler
@@ -26,13 +27,21 @@
 set -e
 
 # Get arguments.
-reads=$1        # input reads FASTQ
-assembly=$2     # output assembly prefix (not including file extension)
-threads=$3      # thread count
+reads=$1            # input reads FASTQ
+assembly=$2         # output assembly prefix (not including file extension)
+threads=$3          # thread count
+read_type=${4:-ONT} # ONT or PB_HIFI, defaults to ONT if not provided
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$assembly" || -z "$threads" ]]; then
-    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads>"
+    >&2 echo "Usage: $0 <read_fastq> <assembly_prefix> <threads> [read_type]"
+    >&2 echo "  read_type can be ONT (default) or PB_HIFI"
+    exit 1
+fi
+
+# Validate read_type
+if [[ "$read_type" != "ONT" && "$read_type" != "PB_HIFI" ]]; then
+    >&2 echo "Error: Invalid read_type: $read_type. Must be 'ONT' or 'PB_HIFI'."
     exit 1
 fi
 
@@ -43,7 +52,7 @@ if [[ ! -f "$reads" ]]; then
 fi
 
 # Ensure the requirements are met.
-for cmd in plassembler; do
+for cmd in plassembler seqtk; do
     if ! command -v "$cmd" &> /dev/null; then
         >&2 echo "Error: $cmd not found in PATH"
         exit 1
@@ -82,8 +91,14 @@ else
     gzipped_reads="$temp_dir/reads.fastq.gz"
 fi
 
+# Determine additional Plassembler options based on read_type
+plassembler_extra_opts=()
+if [[ "$read_type" == "PB_HIFI" ]]; then
+    plassembler_extra_opts+=(--pacbio_model pacbio-hifi)
+fi
+
 # Run Plassembler.
-plassembler long -d "$database" -l "$gzipped_reads" -o "$temp_dir"/out -t "$threads" --skip_qc
+plassembler long "${plassembler_extra_opts[@]}" -d "$database" -l "$gzipped_reads" -o "$temp_dir"/out -t "$threads" --skip_qc
 
 # Check if Plassembler ran successfully.
 if [[ ! -s "$temp_dir"/out/plassembler_plasmids.fasta ]]; then
