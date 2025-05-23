@@ -19,6 +19,11 @@
 # Public License for more details. You should have received a copy of the GNU General Public
 # License along with Autocycler. If not, see <https://www.gnu.org/licenses/>.
 
+MICROMAMBA_ENV="necat"
+if command -v micromamba &> /dev/null && micromamba env list | grep -qw "$MICROMAMBA_ENV"; then
+    echo "Activating micromamba env '$MICROMAMBA_ENV'."
+    micromamba activate $MICROMAMBA_ENV
+fi
 
 # Ensure script exits on error.
 set -e

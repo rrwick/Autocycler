@@ -24,6 +24,12 @@
 # Ensure script exits on error.
 set -e
 
+MICROMAMBA_ENV="raven"
+if command -v micromamba &> /dev/null && micromamba env list | grep -qw "$MICROMAMBA_ENV"; then
+    echo "Activating micromamba env '$MICROMAMBA_ENV'."
+    micromamba activate $MICROMAMBA_ENV
+fi
+
 # Get arguments.
 reads=$1        # input reads FASTQ
 threads=$2      # thread count
