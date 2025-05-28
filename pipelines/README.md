@@ -1,26 +1,29 @@
-# Full Autocycler pipelines
+# Autocycler pipelines and setup scripts
 
-This directory contains scripts, wrappers and pipelines contributed by the community for running full Autocycler assemblies. Since everyone's needs differ, there is no one-size-fits-all way to automate Autocycler. These contributions aim to provide examples and inspiration for automating workflows.
+This directory contains pipelines, scripts and environment setups to help run Autocycler end-to-end or install its dependencies. Some were contributed by users, others are mine, and I'm happy to include them all.
+
+Because there's no single best approach (e.g. Conda, Docker, Bash, Snakemake, Nextflow, etc), and I can't personally maintain every method, these resources are provided as-is. They may serve as useful starting points but could be outdated or incompatible with your system.
 
 
 
 ## Usage
 
-Feel free to use one of these pipelines as-is, modify it for your needs or write your own pipeline from scratch. If you create a pipeline that you think others might find useful, you are welcome to contribute it to this directory by submitting a [pull request](https://github.com/rrwick/Autocycler/pulls).
+Feel free to use one of these resources as-is, modify it for your needs or write your own from scratch. If you build something that might help others, you're welcome to contribute it to this directory by submitting a [pull request](https://github.com/rrwick/Autocycler/pulls).
 
 
 
 ## Contributing
 
-If you'd like to add your pipeline to this directory, please follow these basic submission guidelines:
+If you'd like to add a pipeline or setup, please follow these basic submission guidelines:
 
-* Place your pipeline in its own directory. Include all required files within this directory.
-* Provide some documentation. This can be in the form of a `README.md` file within the pipeline's directory or inline documentation in the file(s).
-* Include a license with your pipeline (either as a license file or in the comments at the top of the file) to specify how it can be used, modified or redistributed.
-* If you make changes to your pipeline in the future, feel free to submit a PR to update it in the repository.
+* Place your contribution in its own directory. Include all required files within this directory.
+* Provide documentation: either a `README.md` in the subdirectory or inline comments in your scripts.
+* State which Autocycler version you used, as this can help others assess compatibility if and when Autocycler changes in future.
+* Add a license (a file or comment block) to clarify reuse terms.
+* If you update your contribution in the future, feel free to submit another pull request to keep it current.
 
 
 
 ## Disclaimer
 
-These pipelines are contributed by the community and are not officially maintained or supported. They may become outdated or non-functional with future versions of Autocycler. Use them at your own risk!
+These resources are not officially maintained or supported. Use at your own risk!

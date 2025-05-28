@@ -1,24 +1,3 @@
-# -----------------------------------------------------------------------------
-# Autocycler Dockerfile
-#
-# This Dockerfile builds an image for Autocycler. It uses micromamba to create
-# a dedicated Conda environment (named "autocycler") for Autocycler and various
-# long-read assemblers. Installation is done one package at a time, tolerating
-# failures, since not all assemblers may be available on all platforms.
-#
-# Usage:
-#   Build the image (from the same directory as this file):
-#     docker build -t autocycler .
-#
-#   Run the container (to show Autocycler help and which tools are installed):
-#     docker run --rm autocycler
-#
-#   Run an interactive session with host files mounted (e.g. mounting
-#   local directory /path/to/data to /data in the container):
-#     docker run --rm -it -v /path/to/data:/data autocycler bash
-#
-# -----------------------------------------------------------------------------
-
 FROM mambaorg/micromamba:latest
 
 # Create an "autocycler" environment with long-read assemblers.
