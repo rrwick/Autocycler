@@ -828,19 +828,18 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
                     file_path: &Path) {
     let mut file = File::create(file_path).unwrap();
     writeln!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
-                  file_name\tcontig_name\tlength").unwrap();
+                    file_name\tcontig_name\tlength\ttrusted\tcluster_weight\t\
+                    consensus_weight").unwrap();
     for seq in sequences {
         assert!(seq.cluster != 0);
         let qc = qc_results.get(&seq.cluster).unwrap();
         let all_cluster = format!("{}", seq.cluster);
-        let pass_cluster = if qc.pass() {
-            "none".to_string()
-        } else {
-            format!("{}", seq.cluster)
-        };
-        writeln!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}", seq.string_for_newick(),
-               pass_cluster, all_cluster, seq.id, seq.filename, seq.contig_name(),
-               seq.length).unwrap();
+        let pass_cluster = if qc.pass() { format!("{}", seq.cluster) }
+                                   else { "none".to_string() };
+        writeln!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 seq.string_for_newick(), pass_cluster, all_cluster, seq.id, seq.filename,
+                 seq.contig_name(), seq.length, seq.is_trusted(), seq.cluster_weight(),
+                 seq.consensus_weight()).unwrap();
     }
 }
 
