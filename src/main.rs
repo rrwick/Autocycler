@@ -23,6 +23,7 @@ mod decompress;
 mod dotplot;
 mod gfa2fasta;
 mod graph_simplification;
+mod helper;
 mod kmer_graph;
 mod log;
 mod metrics;
@@ -94,18 +95,16 @@ enum Commands {
         #[clap(long = "cutoff", default_value = "0.2")]
         cutoff: f64,
 
-        /// exclude clusters with fewer than this many assemblies
-        #[clap(long = "min_assemblies", hide_default_value = true,
-               help = "exclude clusters with fewer than this many assemblies [default: automatic]")]
+        /// exclude clusters with fewer than this many assemblies [default: automatic]
+        #[clap(long = "min_assemblies", hide_default_value = true)]
         min_assemblies: Option<usize>,
 
         /// refuse to run if mean contigs per assembly exceeds this value
         #[clap(long = "max_contigs", default_value = "25")]
         max_contigs: u32,
 
-        /// manually define clusters using tree node numbers
-        #[clap(long = "manual", hide_default_value = true,
-               help = "manually define clusters using tree node numbers [default: automatic]")]
+        /// manually define clusters using tree node numbers [default: automatic]
+        #[clap(long = "manual", hide_default_value = true)]
         manual: Option<String>,
     },
 
@@ -188,6 +187,41 @@ enum Commands {
         out_fasta: PathBuf,
     },
 
+    /// helper commands for long-read assemblers
+    Helper {
+        /// Task (required positional)
+        #[arg(value_enum)]
+        task: helper::Task,
+
+        /// Input long reads in FASTQ format (required)
+        #[clap(short = 'r', long = "reads", required = true)]
+        reads: PathBuf,
+
+        /// Output prefix (required for all tasks except genomesize)
+        #[clap(short = 'o', long = "out_prefix")]
+        out_prefix: Option<PathBuf>,
+
+        /// Estimated genome size (required for some tasks)
+        #[clap(short = 'g', long = "genome_size")]
+        genome_size: Option<String>,
+
+        /// Number of CPU threads
+        #[clap(short = 't', long = "threads", default_value = "8")]
+        threads: usize,
+
+        /// Working directory [default: use a temporary directory]
+        #[clap(short = 'd', long = "dir")]
+        dir: Option<PathBuf>,
+
+        // TODO: add a read type option: ont, ont_hq, pacbio_clr, pacbio_hifi
+
+        // TODO: add a depth filter option?
+
+        /// Additional arguments for the task
+        #[clap(long = "args", default_value = "", hide_default_value = true)]
+        args: String,
+    },
+
     /// resolve repeats in the the unitig graph
     Resolve {
         /// Autocycler directory (required)
@@ -206,11 +240,11 @@ enum Commands {
         reads: PathBuf,
 
         /// Output directory (required)
-        #[clap(short = 'o', long = "out_dir")]
+        #[clap(short = 'o', long = "out_dir", required = true)]
         out_dir: PathBuf,
 
         /// Estimated genome size (required)
-        #[clap(short = 'g', long = "genome_size")]
+        #[clap(short = 'g', long = "genome_size", required = true)]
         genome_size: String,
 
         /// Number of subsampled read sets to output
@@ -232,9 +266,8 @@ enum Commands {
         #[clap(short = 'a', long = "autocycler_dir")]
         autocycler_dir: Option<PathBuf>,
 
-        /// Sample name
-        #[clap(short = 'n', long = "name", default_value = "", hide_default_value = true,
-               help = "Sample name [default: blank]")]
+        /// Sample name [default: blank]
+        #[clap(short = 'n', long = "name", default_value = "", hide_default_value = true)]
         name: String,
 
         /// Comma-delimited list of YAML fields to include
@@ -301,6 +334,9 @@ fn main() {
         },
         Some(Commands::Gfa2fasta { in_gfa, out_fasta }) => {
             gfa2fasta::gfa2fasta(in_gfa, out_fasta);
+        },
+        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, args }) => {
+            helper::helper(task, reads, out_prefix, genome_size, threads, dir, args);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);

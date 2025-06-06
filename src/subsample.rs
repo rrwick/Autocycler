@@ -74,7 +74,7 @@ fn print_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_co
 }
 
 
-fn parse_genome_size(genome_size_str: &str) -> u64 {
+pub fn parse_genome_size(genome_size_str: &str) -> u64 {
     let genome_size_str = genome_size_str.trim().to_lowercase();
     if let Ok(size) = genome_size_str.parse::<f64>() {
         return size.round() as u64;
