@@ -32,3 +32,8 @@ pub fn explanation(text: &str) {
     eprintln!("{}", textwrap::fill(&indented_text, term_width).dimmed());
     eprintln!();
 }
+
+
+pub fn bold(text: &str) {
+    eprintln!("{}", text.bold());
+}

@@ -13,14 +13,16 @@
 
 use clap::ValueEnum;
 use ctrlc::set_handler;
-use std::fs::{OpenOptions, remove_file, create_dir_all, remove_dir_all};
+use seq_io::fasta;
+use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Once;
 use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
-use xshell::{Shell, cmd};
 
+use crate::log::bold;
 use crate::misc::{check_if_file_exists, quit_with_error};
 use crate::subsample::parse_genome_size;
 
@@ -63,7 +65,7 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
             plassembler(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Raven => {
-            raven(reads, out_prefix, threads, dir, extra_args);
+            raven(reads, out_prefix, threads, extra_args);
         }
         Task::Redbean => {
             redbean(reads, out_prefix, genome_size, threads, dir, read_type, extra_args);
@@ -90,25 +92,46 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
         threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["flye"]);
+
+    // Output files
+    let fasta = out_prefix.with_extension("fasta");
+    let gfa = out_prefix.with_extension("gfa");
+    let log = out_prefix.with_extension("log");
+
+    // Choose the input read type flag
     let flag = match read_type {
         ReadType::OntR9      => "--nano-raw",
         ReadType::OntR10     => "--nano-hq",
         ReadType::PacbioClr  => "--pacbio-raw",
         ReadType::PacbioHifi => "--pacbio-hifi",
     };
-    let sh = Shell::new().unwrap();
 
-    let mut cmd = cmd!(sh, "flye {flag} {reads} --threads {threads} --out-dir {dir}");
-    for token in extra_args { cmd = cmd.arg(token); }
-    cmd.run().unwrap();
+    // Build the Flye command
+    let mut cmd = Command::new("flye");
+    cmd.arg(flag).arg(&reads)
+        .arg("--threads").arg(&threads)
+        .arg("--out-dir").arg(&dir);
+    for token in extra_args { cmd.arg(token); }
 
-    if !dir.join("assembly.fasta").exists() {
-        quit_with_error("Flye finished but assembly.fasta is missing");
+    // Redirect Flye's stdout and stderr to the terminal
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    // Run the command
+    print_command(&cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch flye: {e}"))
+    });
+    if !status.success() {
+        quit_with_error(&format!("flye exited with status {status}"));
     }
+    check_fasta(&dir.join("assembly.fasta"));
 
-    sh.copy_file(&dir.join("assembly.fasta"), out_prefix.with_extension("fasta")).unwrap();
-    sh.copy_file(&dir.join("assembly_graph.gfa"), out_prefix.with_extension("gfa")).unwrap();
-    sh.copy_file(&dir.join("flye.log"), out_prefix.with_extension("log")).unwrap();
+    // Copy the output files
+    copy_or_die(&dir.join("assembly.fasta"), &fasta);
+    copy_or_die(&dir.join("assembly_graph.gfa"), &gfa);
+    copy_or_die(&dir.join("flye.log"), &log);
 }
 
 
@@ -170,10 +193,39 @@ fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
-         threads: String, dir: PathBuf, extra_args: Vec<String>) {
+         threads: String, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["raven"]);
-    // TODO
+
+    // Output files
+    let fasta = out_prefix.with_extension("fasta");
+    let gfa = out_prefix.with_extension("gfa");
+
+    // Build the Raven command
+    let mut cmd = Command::new("raven");
+    cmd.arg("--threads").arg(&threads)
+       .arg("--disable-checkpoints")
+       .arg("--graphical-fragment-assembly").arg(&gfa)
+       .arg(&reads);
+    for token in extra_args { cmd.arg(token); }
+
+    // Redirect Raven's stdout to the FASTA file, stderr to the terminal
+    let out_fasta = File::create(&fasta).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot create {}: {e}", fasta.display()))
+    });
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::from(out_fasta));
+    cmd.stderr(Stdio::inherit());
+
+    // Run the command
+    print_command(&cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch raven: {e}"))
+    });
+    if !status.success() {
+        quit_with_error(&format!("raven exited with status {status}"));
+    }
+    check_fasta(&fasta);
 }
 
 
@@ -303,6 +355,36 @@ fn sigint_cleanup(dir: &Path) {
             std::process::exit(130);
         }).expect("failed to set Ctrl-C handler");
     });
+}
+
+
+fn check_fasta(fasta: &Path) {
+    let ok = std::fs::metadata(&fasta).map(|m| m.len() > 0).unwrap_or(false);
+    if !ok {
+        let _ = remove_file(&fasta);
+        quit_with_error("assembly failed or produced empty output");
+    }
+}
+
+
+fn copy_or_die(src: &Path, dest: &Path) {
+    copy(src, dest).unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to copy {} → {}: {e}", src.display(), dest.display()))
+    });
+}
+
+
+fn print_command(cmd: &Command) {
+    let mut parts = Vec::new();
+    parts.push(cmd.get_program().to_string_lossy().into_owned());
+    for arg in cmd.get_args() {
+        let s = arg.to_string_lossy();
+        if s.contains(' ') { parts.push(format!("\"{s}\"")); }
+                      else { parts.push(s.into_owned()); }
+    }
+    eprintln!();
+    bold(&format!("{}", parts.join(" ")));
+    eprintln!();
 }
 
 
