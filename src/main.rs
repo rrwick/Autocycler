@@ -213,7 +213,9 @@ enum Commands {
         #[clap(short = 'd', long = "dir")]
         dir: Option<PathBuf>,
 
-        // TODO: add a read type option: ont, ont_hq, pacbio_clr, pacbio_hifi
+        /// Read type
+        #[clap(long = "read_type", value_enum, default_value = "ont_r10")]
+        read_type: helper::ReadType,
 
         // TODO: add a depth filter option?
 
@@ -335,8 +337,8 @@ fn main() {
         Some(Commands::Gfa2fasta { in_gfa, out_fasta }) => {
             gfa2fasta::gfa2fasta(in_gfa, out_fasta);
         },
-        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, args }) => {
-            helper::helper(task, reads, out_prefix, genome_size, threads, dir, args);
+        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type, args }) => {
+            helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type, args);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
