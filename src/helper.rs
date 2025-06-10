@@ -16,7 +16,8 @@ use std::fs::{OpenOptions, remove_file, create_dir_all};
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use which::which;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::{tempdir, NamedTempFile, TempDir};
+use xshell::{Shell, cmd};
 
 use crate::misc::{check_if_file_exists, quit_with_error};
 use crate::subsample::parse_genome_size;
@@ -25,7 +26,9 @@ use crate::subsample::parse_genome_size;
 pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: Option<PathBuf>, read_type: ReadType, args: String) {
     check_if_file_exists(&reads);
-    let dir = get_working_dir(dir);
+    let (dir, _guard) = get_working_dir(dir);
+
+    let threads = threads.to_string();
     match task {
         Task::Genomesize => {
             genome_size_raven(reads, threads, dir, args);
@@ -93,13 +96,13 @@ pub enum ReadType {
 }
 
 
-fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, args: String) {
+fn genome_size_raven(reads: PathBuf, threads: String, dir: PathBuf, args: String) {
     // TODO
 }
 
 
 fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-        threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+        threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Canu");
     check_requirements(&["canu"]);
@@ -108,15 +111,31 @@ fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>
 
 
 fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
-        threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+        threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["flye"]);
-    // TODO
+    let flag = match read_type {
+        ReadType::OntR9      => "--nano-raw",
+        ReadType::OntR10     => "--nano-hq",
+        ReadType::PacbioClr  => "--pacbio-raw",
+        ReadType::PacbioHifi => "--pacbio-hifi",
+    };
+    let sh = Shell::new().unwrap();
+
+    cmd!(sh, "flye {flag} {reads} --threads {threads} --out-dir {dir}").run().unwrap();
+
+    if !dir.join("assembly.fasta").exists() {
+        quit_with_error("Flye finished but assembly.fasta is missing");
+    }
+
+    sh.copy_file(&dir.join("assembly.fasta"), out_prefix.with_extension("fasta")).unwrap();
+    sh.copy_file(&dir.join("assembly_graph.gfa"), out_prefix.with_extension("gfa")).unwrap();
+    sh.copy_file(&dir.join("flye.log"), out_prefix.with_extension("log")).unwrap();
 }
 
 
 fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
-       threads: usize, dir: PathBuf, args: String) {
+       threads: String, dir: PathBuf, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["lja"]);
     // TODO
@@ -124,7 +143,7 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
-            threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+            threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["metaMDBG"]);
     // TODO
@@ -132,7 +151,7 @@ fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
     // TODO
@@ -140,14 +159,14 @@ fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     // TODO
 }
 
 
 fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-         threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+         threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NECAT");
     let necat = find_necat();
@@ -156,7 +175,7 @@ fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String
 
 
 fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-              threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+              threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NextDenovo");
     check_requirements(&["nextDenovo", "nextPolish"]);
@@ -165,7 +184,7 @@ fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<S
 
 
 fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
-               threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+               threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["plassembler"]);
     // TODO
@@ -173,7 +192,7 @@ fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
-         threads: usize, dir: PathBuf, args: String) {
+         threads: String, dir: PathBuf, args: String) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["raven"]);
     // TODO
@@ -181,7 +200,7 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-           threads: usize, dir: PathBuf, read_type: ReadType, args: String) {
+           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Redbean");
     check_requirements(&["wtdbg2", "wtpoa-cns"]);
@@ -241,20 +260,24 @@ fn find_necat() -> PathBuf {
 }
 
 
-fn get_working_dir(dir: Option<PathBuf>) -> PathBuf {
-    let dir = dir.unwrap_or_else(|| {
-        tempdir().unwrap().into_path()
+fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
+    let (path, guard) = match dir {
+        Some(p) => (p, None),
+        None => {
+            let temp_dir = tempdir().expect("cannot create temp dir");
+            (temp_dir.path().to_path_buf(), Some(temp_dir))
+        }
+    };
+    create_dir_all(&path).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot create directory {}: {e}", path.display()))
     });
-    create_dir_all(&dir).unwrap_or_else(|e| {
-        quit_with_error(&format!("cannot create directory {}: {e}", dir.display()))
-    });
-    if !dir.is_dir() {
-        quit_with_error(&format!("{} exists but is not a directory", dir.display()));
+    if !path.is_dir() {
+        quit_with_error(&format!("{} exists but is not a directory", path.display()));
     }
-    if NamedTempFile::new_in(&dir).is_err() {
-        quit_with_error(&format!("cannot write inside directory {}", dir.display()));
+    if NamedTempFile::new_in(&path).is_err() {
+        quit_with_error(&format!("cannot write inside directory {}", path.display()));
     }
-    dir
+    (path, guard)
 }
 
 
