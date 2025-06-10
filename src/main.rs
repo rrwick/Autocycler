@@ -220,8 +220,9 @@ enum Commands {
         // TODO: add a depth filter option?
 
         /// Additional arguments for the task
-        #[clap(long = "args", default_value = "", hide_default_value = true)]
-        args: String,
+        #[clap(long = "args", value_parser = clap::builder::NonEmptyStringValueParser::new(),
+               num_args = 1.., action = clap::ArgAction::Append, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// resolve repeats in the the unitig graph

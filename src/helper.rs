@@ -12,9 +12,11 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use clap::ValueEnum;
-use std::fs::{OpenOptions, remove_file, create_dir_all};
+use ctrlc::set_handler;
+use std::fs::{OpenOptions, remove_file, create_dir_all, remove_dir_all};
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Once;
 use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
 use xshell::{Shell, cmd};
@@ -24,49 +26,163 @@ use crate::subsample::parse_genome_size;
 
 
 pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-              threads: usize, dir: Option<PathBuf>, read_type: ReadType, args: String) {
+              threads: usize, dir: Option<PathBuf>, read_type: ReadType, extra_args: Vec<String>) {
     check_if_file_exists(&reads);
     let (dir, _guard) = get_working_dir(dir);
 
     let threads = threads.to_string();
     match task {
         Task::Genomesize => {
-            genome_size_raven(reads, threads, dir, args);
+            genome_size_raven(reads, threads, dir, extra_args);
         }
         Task::Canu => {
-            canu(reads, out_prefix, genome_size, threads, dir, read_type, args);
+            canu(reads, out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
         Task::Flye => {
-            flye(reads, out_prefix, threads, dir, read_type, args);
+            flye(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Lja => {
-            lja(reads, out_prefix, threads, dir, args);
+            lja(reads, out_prefix, threads, dir, extra_args);
         }
         Task::Metamdbg => {
-            metamdbg(reads, out_prefix, threads, dir, read_type, args);
+            metamdbg(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Miniasm => {
-            miniasm(reads, out_prefix, threads, dir, read_type, args);
+            miniasm(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Myloasm => {
-            myloasm(reads, out_prefix, threads, dir, read_type, args);
+            myloasm(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Necat => {
-            necat(reads, out_prefix, genome_size, threads, dir, read_type, args);
+            necat(reads, out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
         Task::Nextdenovo => {
-            nextdenovo(reads, out_prefix, genome_size, threads, dir, read_type, args);
+            nextdenovo(reads, out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
         Task::Plassembler => {
-            plassembler(reads, out_prefix, threads, dir, read_type, args);
+            plassembler(reads, out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Raven => {
-            raven(reads, out_prefix, threads, dir, args);
+            raven(reads, out_prefix, threads, dir, extra_args);
         }
         Task::Redbean => {
-            redbean(reads, out_prefix, genome_size, threads, dir, read_type, args);
+            redbean(reads, out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
     }
+}
+
+
+fn genome_size_raven(reads: PathBuf, threads: String, dir: PathBuf, extra_args: Vec<String>) {
+    // TODO
+}
+
+
+fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
+        threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    let genome_size = get_genome_size(genome_size, "Canu");
+    check_requirements(&["canu"]);
+    // TODO
+}
+
+
+fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
+        threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["flye"]);
+    let flag = match read_type {
+        ReadType::OntR9      => "--nano-raw",
+        ReadType::OntR10     => "--nano-hq",
+        ReadType::PacbioClr  => "--pacbio-raw",
+        ReadType::PacbioHifi => "--pacbio-hifi",
+    };
+    let sh = Shell::new().unwrap();
+
+    let mut cmd = cmd!(sh, "flye {flag} {reads} --threads {threads} --out-dir {dir}");
+    for token in extra_args { cmd = cmd.arg(token); }
+    cmd.run().unwrap();
+
+    if !dir.join("assembly.fasta").exists() {
+        quit_with_error("Flye finished but assembly.fasta is missing");
+    }
+
+    sh.copy_file(&dir.join("assembly.fasta"), out_prefix.with_extension("fasta")).unwrap();
+    sh.copy_file(&dir.join("assembly_graph.gfa"), out_prefix.with_extension("gfa")).unwrap();
+    sh.copy_file(&dir.join("flye.log"), out_prefix.with_extension("log")).unwrap();
+}
+
+
+fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
+       threads: String, dir: PathBuf, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["lja"]);
+    // TODO
+}
+
+
+fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
+            threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["metaMDBG"]);
+    // TODO
+}
+
+
+fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
+           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
+    // TODO
+}
+
+
+fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
+           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    // TODO
+}
+
+
+fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
+         threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    let genome_size = get_genome_size(genome_size, "NECAT");
+    let necat = find_necat();
+    // TODO
+}
+
+
+fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
+              threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    let genome_size = get_genome_size(genome_size, "NextDenovo");
+    check_requirements(&["nextDenovo", "nextPolish"]);
+    // TODO
+}
+
+
+fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
+               threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["plassembler"]);
+    // TODO
+}
+
+
+fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
+         threads: String, dir: PathBuf, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    check_requirements(&["raven"]);
+    // TODO
+}
+
+
+fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
+           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    let out_prefix = check_prefix(out_prefix);
+    let genome_size = get_genome_size(genome_size, "Redbean");
+    check_requirements(&["wtdbg2", "wtpoa-cns"]);
+    // TODO
 }
 
 
@@ -96,119 +212,9 @@ pub enum ReadType {
 }
 
 
-fn genome_size_raven(reads: PathBuf, threads: String, dir: PathBuf, args: String) {
-    // TODO
-}
-
-
-fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-        threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    let genome_size = get_genome_size(genome_size, "Canu");
-    check_requirements(&["canu"]);
-    // TODO
-}
-
-
-fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
-        threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["flye"]);
-    let flag = match read_type {
-        ReadType::OntR9      => "--nano-raw",
-        ReadType::OntR10     => "--nano-hq",
-        ReadType::PacbioClr  => "--pacbio-raw",
-        ReadType::PacbioHifi => "--pacbio-hifi",
-    };
-    let sh = Shell::new().unwrap();
-
-    cmd!(sh, "flye {flag} {reads} --threads {threads} --out-dir {dir}").run().unwrap();
-
-    if !dir.join("assembly.fasta").exists() {
-        quit_with_error("Flye finished but assembly.fasta is missing");
-    }
-
-    sh.copy_file(&dir.join("assembly.fasta"), out_prefix.with_extension("fasta")).unwrap();
-    sh.copy_file(&dir.join("assembly_graph.gfa"), out_prefix.with_extension("gfa")).unwrap();
-    sh.copy_file(&dir.join("flye.log"), out_prefix.with_extension("log")).unwrap();
-}
-
-
-fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
-       threads: String, dir: PathBuf, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["lja"]);
-    // TODO
-}
-
-
-fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
-            threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["metaMDBG"]);
-    // TODO
-}
-
-
-fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
-    // TODO
-}
-
-
-fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    // TODO
-}
-
-
-fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-         threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    let genome_size = get_genome_size(genome_size, "NECAT");
-    let necat = find_necat();
-    // TODO
-}
-
-
-fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-              threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    let genome_size = get_genome_size(genome_size, "NextDenovo");
-    check_requirements(&["nextDenovo", "nextPolish"]);
-    // TODO
-}
-
-
-fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
-               threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["plassembler"]);
-    // TODO
-}
-
-
-fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
-         threads: String, dir: PathBuf, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["raven"]);
-    // TODO
-}
-
-
-fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-           threads: String, dir: PathBuf, read_type: ReadType, args: String) {
-    let out_prefix = check_prefix(out_prefix);
-    let genome_size = get_genome_size(genome_size, "Redbean");
-    check_requirements(&["wtdbg2", "wtpoa-cns"]);
-    // TODO
-}
-
-
 fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
+    // The output prefix will be used to create the output FASTA file (prefix.fasta) and possibly
+    // other files (prefix.gfa, prefix.log). It can contain a directory path, e.g. path/to/prefix.
     let prefix = out_prefix.unwrap_or_else(|| {
         quit_with_error("assembly helper commands require --out_prefix")
     });
@@ -235,6 +241,7 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
 
 
 fn get_genome_size(genome_size: Option<String>, assembler_name: &str) -> u64 {
+    // Some assemblers require a genome size to be specified, others do not.
     if genome_size.is_none() {
         quit_with_error(&format!("assembly with {assembler_name} requires --genome_size"));
     }
@@ -252,6 +259,7 @@ fn check_requirements(reqs: &[&str]) {
 
 
 fn find_necat() -> PathBuf {
+    // Either 'necat' or 'necat.pl' are acceptable commands for running NECAT.
     ["necat", "necat.pl"]
         .into_iter()
         .find_map(|cmd| which(cmd).ok())
@@ -261,11 +269,15 @@ fn find_necat() -> PathBuf {
 
 
 fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
+    // If the user provided a directory, use it. Otherwise, create a temporary directory that will
+    // be cleaned up when Autocycler helper exits.
     let (path, guard) = match dir {
         Some(p) => (p, None),
         None => {
             let temp_dir = tempdir().expect("cannot create temp dir");
-            (temp_dir.path().to_path_buf(), Some(temp_dir))
+            let p = temp_dir.path().to_path_buf();
+            sigint_cleanup(&p);
+            (p, Some(temp_dir))
         }
     };
     create_dir_all(&path).unwrap_or_else(|e| {
@@ -278,6 +290,19 @@ fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
         quit_with_error(&format!("cannot write inside directory {}", path.display()));
     }
     (path, guard)
+}
+
+
+fn sigint_cleanup(dir: &Path) {
+    // Ensures that the temporary directory is removed when the user presses Ctrl-C.
+    static ONCE: Once = Once::new();
+    let dir = dir.to_path_buf();
+    ONCE.call_once(|| {
+        set_handler(move || {
+            let _ = remove_dir_all(&dir);
+            std::process::exit(130);
+        }).expect("failed to set Ctrl-C handler");
+    });
 }
 
 
