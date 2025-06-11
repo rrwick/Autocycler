@@ -85,16 +85,14 @@ fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>
 fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
         threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/mikolmogorov/Flye
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["flye"]);
-
-    // Output files
     let fasta = out_prefix.with_extension("fasta");
     let gfa = out_prefix.with_extension("gfa");
     let log = out_prefix.with_extension("log");
 
-    // Choose the input read type flag
-    let flag = match read_type {
+    let input_flag = match read_type {
         ReadType::OntR9      => "--nano-raw",
         ReadType::OntR10     => "--nano-hq",
         ReadType::PacbioClr  => "--pacbio-raw",
@@ -103,7 +101,7 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
 
     // Build the Flye command
     let mut cmd = Command::new("flye");
-    cmd.arg(flag).arg(&reads)
+    cmd.arg(input_flag).arg(&reads)
        .arg("--threads").arg(threads.to_string())
        .arg("--out-dir").arg(&dir);
     for token in extra_args { cmd.arg(token); }
@@ -113,17 +111,10 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
 
-    // Run the command
-    print_command(&cmd);
-    let status = cmd.status().unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to launch flye: {e}"))
-    });
-    if !status.success() {
-        quit_with_error(&format!("flye exited with status {status}"));
-    }
-    check_fasta(&dir.join("assembly.fasta"));
+    run_command(&mut cmd, "flye");
 
     // Copy the output files
+    check_fasta(&dir.join("assembly.fasta"));
     copy_or_die(&dir.join("assembly.fasta"), &fasta);
     copy_or_die(&dir.join("assembly_graph.gfa"), &gfa);
     copy_or_die(&dir.join("flye.log"), &log);
@@ -133,10 +124,9 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
 fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
        threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     // https://github.com/AntonBankevich/LJA
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["lja"]);
-
-    // Output files
     let fasta = out_prefix.with_extension("fasta");
     let gfa = out_prefix.with_extension("gfa");
     let log = out_prefix.with_extension("log");
@@ -153,14 +143,8 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
 
-    // Run the command
-    print_command(&cmd);
-    let status = cmd.status().unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to launch lja: {e}"))
-    });
-    if !status.success() {
-        quit_with_error(&format!("lja exited with status {status}"));
-    }
+    run_command(&mut cmd, "lja");
+
     check_fasta(&dir.join("assembly.fasta"));
 
     // Copy the output files
@@ -173,6 +157,7 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
 fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
             threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/GaetanBenoitDev/metaMDBG
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["metaMDBG"]);
     // TODO
@@ -182,6 +167,7 @@ fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
 fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/lh3/miniasm https://github.com/rrwick/Minipolish
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
     // TODO
@@ -191,6 +177,7 @@ fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/bluenote-1577/myloasm
+
     let out_prefix = check_prefix(out_prefix);
     // TODO
 }
@@ -199,6 +186,7 @@ fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
          threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/xiaochuanle/NECAT
+
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NECAT");
     let necat = find_necat();
@@ -209,6 +197,7 @@ fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String
 fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/Nextomics/NextDenovo https://github.com/Nextomics/NextPolish
+
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NextDenovo");
     check_requirements(&["nextDenovo", "nextPolish"]);
@@ -219,6 +208,7 @@ fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<S
 fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
                threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/gbouras13/plassembler
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["plassembler"]);
     // TODO
@@ -227,10 +217,9 @@ fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args: Vec<String>) {
     // https://github.com/lbcb-sci/raven
+
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["raven"]);
-
-    // Output files
     let fasta = out_prefix.with_extension("fasta");
     let gfa = out_prefix.with_extension("gfa");
 
@@ -250,22 +239,14 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args
     cmd.stdout(Stdio::from(out_fasta));
     cmd.stderr(Stdio::inherit());
 
-    // Run the command
-    print_command(&cmd);
-    let status = cmd.status().unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to launch raven: {e}"))
-    });
-    if !status.success() {
-        quit_with_error(&format!("raven exited with status {status}"));
-    }
+    run_command(&mut cmd, "raven");
+
     check_fasta(&fasta);
 }
 
 
 fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     check_requirements(&["raven"]);
-
-    // Output files
     let fasta = dir.join("assembly.fasta");
 
     // Build the Raven command
@@ -283,17 +264,10 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     cmd.stdout(Stdio::from(out_fasta));
     cmd.stderr(Stdio::inherit());
 
-    // Run the command
-    print_command(&cmd);
-    let status = cmd.status().unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to launch raven: {e}"))
-    });
-    if !status.success() {
-        quit_with_error(&format!("raven exited with status {status}"));
-    }
-    check_fasta(&fasta);
+    run_command(&mut cmd, "raven");
 
     // Print the genome size to stdout
+    check_fasta(&fasta);
     println!("{}", total_fasta_length(&fasta));
 }
 
@@ -301,10 +275,53 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
 fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/ruanjue/wtdbg2
+
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Redbean");
     check_requirements(&["wtdbg2", "wtpoa-cns"]);
-    // TODO
+    let fasta = out_prefix.with_extension("fasta");
+
+    let preset = match read_type {
+        ReadType::OntR9      => "preset2",
+        ReadType::OntR10     => "preset2",
+        ReadType::PacbioClr  => "preset1",
+        ReadType::PacbioHifi => "preset4",
+    };
+
+    // Build the wtdbg2 command
+    let mut cmd = Command::new("wtdbg2");
+    cmd.arg("-x").arg(preset)
+       .arg("-g").arg(genome_size.to_string())
+       .arg("-i").arg(&reads)
+       .arg("-t").arg(threads.to_string())
+       .arg("-f")
+       .arg("-o").arg(&dir.join("dbg"));
+    for token in extra_args { cmd.arg(token); }
+
+    // Redirect wtdbg2's stdout and stderr to the terminal
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    run_command(&mut cmd, "wtdbg2");
+
+    // Build the wtpoa-cns command
+    let mut cmd = Command::new("wtpoa-cns");
+    cmd.arg("-t").arg(threads.to_string())
+       .arg("-i").arg(&dir.join("dbg.ctg.lay.gz"))
+       .arg("-f")
+       .arg("-o").arg(&dir.join("assembly.fasta"));
+
+    // Redirect wtpoa-cns's stdout and stderr to the terminal
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    run_command(&mut cmd, "wtpoa-cns");
+
+    // Copy the output files
+    check_fasta(&dir.join("assembly.fasta"));
+    copy_or_die(&dir.join("assembly.fasta"), &fasta);
 }
 
 
@@ -455,6 +472,18 @@ fn print_command(cmd: &Command) {
     eprintln!();
     bold(&format!("{}", parts.join(" ")));
     eprintln!();
+}
+
+
+fn run_command(cmd: &mut Command, name: &str) {
+    // Runs a command and checks if it was successful.
+    print_command(&cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch {name}: {e}"))
+    });
+    if !status.success() {
+        quit_with_error(&format!("{name} exited with status {status}"));
+    }
 }
 
 
