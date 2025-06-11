@@ -74,6 +74,7 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
 
 fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
         threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/marbl/canu
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Canu");
     check_requirements(&["canu"]);
@@ -83,6 +84,7 @@ fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>
 
 fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
         threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/mikolmogorov/Flye
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["flye"]);
 
@@ -102,8 +104,8 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
     // Build the Flye command
     let mut cmd = Command::new("flye");
     cmd.arg(flag).arg(&reads)
-        .arg("--threads").arg(threads.to_string())
-        .arg("--out-dir").arg(&dir);
+       .arg("--threads").arg(threads.to_string())
+       .arg("--out-dir").arg(&dir);
     for token in extra_args { cmd.arg(token); }
 
     // Redirect Flye's stdout and stderr to the terminal
@@ -130,14 +132,47 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
        threads: usize, dir: PathBuf, extra_args: Vec<String>) {
+    // https://github.com/AntonBankevich/LJA
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["lja"]);
-    // TODO
+
+    // Output files
+    let fasta = out_prefix.with_extension("fasta");
+    let gfa = out_prefix.with_extension("gfa");
+    let log = out_prefix.with_extension("log");
+
+    // Build the LJA command
+    let mut cmd = Command::new("lja");
+    cmd.arg("--output-dir").arg(&dir)
+       .arg("--reads").arg(&reads)
+       .arg("--threads").arg(threads.to_string());
+    for token in extra_args { cmd.arg(token); }
+
+    // Redirect LJA's stdout and stderr to the terminal
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    // Run the command
+    print_command(&cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch lja: {e}"))
+    });
+    if !status.success() {
+        quit_with_error(&format!("lja exited with status {status}"));
+    }
+    check_fasta(&dir.join("assembly.fasta"));
+
+    // Copy the output files
+    copy_or_die(&dir.join("assembly.fasta"), &fasta);
+    copy_or_die(&dir.join("mdbg.gfa"), &gfa);
+    copy_or_die(&dir.join("dbg.log"), &log);
 }
 
 
 fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
             threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/GaetanBenoitDev/metaMDBG
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["metaMDBG"]);
     // TODO
@@ -146,6 +181,7 @@ fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/lh3/miniasm https://github.com/rrwick/Minipolish
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
     // TODO
@@ -154,6 +190,7 @@ fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/bluenote-1577/myloasm
     let out_prefix = check_prefix(out_prefix);
     // TODO
 }
@@ -161,6 +198,7 @@ fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
          threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/xiaochuanle/NECAT
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NECAT");
     let necat = find_necat();
@@ -170,6 +208,7 @@ fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String
 
 fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/Nextomics/NextDenovo https://github.com/Nextomics/NextPolish
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NextDenovo");
     check_requirements(&["nextDenovo", "nextPolish"]);
@@ -179,14 +218,15 @@ fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<S
 
 fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
                threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/gbouras13/plassembler
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["plassembler"]);
     // TODO
 }
 
 
-fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
-         threads: usize, extra_args: Vec<String>) {
+fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args: Vec<String>) {
+    // https://github.com/lbcb-sci/raven
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["raven"]);
 
@@ -260,6 +300,7 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
 
 fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+    // https://github.com/ruanjue/wtdbg2
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Redbean");
     check_requirements(&["wtdbg2", "wtpoa-cns"]);
