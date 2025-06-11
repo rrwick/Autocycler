@@ -13,7 +13,6 @@
 
 use clap::ValueEnum;
 use ctrlc::set_handler;
-use seq_io::fasta;
 use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -23,7 +22,7 @@ use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
 
 use crate::log::bold;
-use crate::misc::{check_if_file_exists, quit_with_error};
+use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length};
 use crate::subsample::parse_genome_size;
 
 
@@ -32,7 +31,6 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
     check_if_file_exists(&reads);
     let (dir, _guard) = get_working_dir(dir);
 
-    let threads = threads.to_string();
     match task {
         Task::Genomesize => {
             genome_size_raven(reads, threads, dir, extra_args);
@@ -74,13 +72,8 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
 }
 
 
-fn genome_size_raven(reads: PathBuf, threads: String, dir: PathBuf, extra_args: Vec<String>) {
-    // TODO
-}
-
-
 fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-        threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+        threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Canu");
     check_requirements(&["canu"]);
@@ -89,7 +82,7 @@ fn canu(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>
 
 
 fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
-        threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+        threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["flye"]);
 
@@ -109,7 +102,7 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
     // Build the Flye command
     let mut cmd = Command::new("flye");
     cmd.arg(flag).arg(&reads)
-        .arg("--threads").arg(&threads)
+        .arg("--threads").arg(threads.to_string())
         .arg("--out-dir").arg(&dir);
     for token in extra_args { cmd.arg(token); }
 
@@ -136,7 +129,7 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
-       threads: String, dir: PathBuf, extra_args: Vec<String>) {
+       threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["lja"]);
     // TODO
@@ -144,7 +137,7 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
-            threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["metaMDBG"]);
     // TODO
@@ -152,7 +145,7 @@ fn metamdbg(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
     // TODO
@@ -160,14 +153,14 @@ fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
-           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     // TODO
 }
 
 
 fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-         threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+         threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NECAT");
     let necat = find_necat();
@@ -176,7 +169,7 @@ fn necat(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String
 
 
 fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-              threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+              threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "NextDenovo");
     check_requirements(&["nextDenovo", "nextPolish"]);
@@ -185,7 +178,7 @@ fn nextdenovo(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<S
 
 
 fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
-               threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+               threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["plassembler"]);
     // TODO
@@ -193,7 +186,7 @@ fn plassembler(reads: PathBuf, out_prefix: Option<PathBuf>,
 
 
 fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
-         threads: String, extra_args: Vec<String>) {
+         threads: usize, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     check_requirements(&["raven"]);
 
@@ -203,7 +196,7 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
 
     // Build the Raven command
     let mut cmd = Command::new("raven");
-    cmd.arg("--threads").arg(&threads)
+    cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
        .arg("--graphical-fragment-assembly").arg(&gfa)
        .arg(&reads);
@@ -229,8 +222,44 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>,
 }
 
 
+fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: Vec<String>) {
+    check_requirements(&["raven"]);
+
+    // Output files
+    let fasta = dir.join("assembly.fasta");
+
+    // Build the Raven command
+    let mut cmd = Command::new("raven");
+    cmd.arg("--threads").arg(threads.to_string())
+       .arg("--disable-checkpoints")
+       .arg(&reads);
+    for token in extra_args { cmd.arg(token); }
+
+    // Redirect Raven's stdout to the FASTA file, stderr to the terminal
+    let out_fasta = File::create(&fasta).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot create {}: {e}", fasta.display()))
+    });
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::from(out_fasta));
+    cmd.stderr(Stdio::inherit());
+
+    // Run the command
+    print_command(&cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch raven: {e}"))
+    });
+    if !status.success() {
+        quit_with_error(&format!("raven exited with status {status}"));
+    }
+    check_fasta(&fasta);
+
+    // Print the genome size to stdout
+    println!("{}", total_fasta_length(&fasta));
+}
+
+
 fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-           threads: String, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     let out_prefix = check_prefix(out_prefix);
     let genome_size = get_genome_size(genome_size, "Redbean");
     check_requirements(&["wtdbg2", "wtpoa-cns"]);

@@ -206,6 +206,13 @@ fn is_file_empty(filename: &Path) -> bool {
 }
 
 
+pub fn total_fasta_length(filename: &Path) -> usize {
+    // This function returns the total length of all sequences in a FASTA file.
+    let fasta_seqs = load_fasta(filename);
+    fasta_seqs.iter().map(|(_, _, seq)| seq.len()).sum()
+}
+
+
 fn is_file_gzipped(filename: &Path) -> bool {
     // This function returns true if the file appears to be gzipped (based on the first two bytes)
     // and false if not. If it can't open the file or read the first two bytes, it will quit with
@@ -741,5 +748,17 @@ mod tests {
         assert_eq!(find_replace_i32_tuple((-1, 2), 2, 8), (-1, 8));
         assert_eq!(find_replace_i32_tuple((1, -2), 1, 8), (8, -2));
         assert_eq!(find_replace_i32_tuple((1, -2), 2, 8), (1, -8));
+    }
+
+    #[test]
+    fn test_total_fasta_length() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_test_file(&filename, ">a\nACGT\n");
+        assert_eq!(total_fasta_length(&filename), 4);
+
+        make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
+        assert_eq!(total_fasta_length(&filename), 12);
     }
 }
