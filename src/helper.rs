@@ -14,7 +14,7 @@
 use clap::ValueEnum;
 use ctrlc::set_handler;
 use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir};
-use std::io::ErrorKind;
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
@@ -104,8 +104,7 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
        .arg("--threads").arg(threads.to_string())
        .arg("--out-dir").arg(&dir);
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd);
-
+    redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
@@ -130,8 +129,7 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
        .arg("--reads").arg(&reads)
        .arg("--threads").arg(threads.to_string());
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd);
-
+    redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
@@ -156,8 +154,42 @@ fn miniasm(reads: PathBuf, out_prefix: Option<PathBuf>,
     // https://github.com/lh3/miniasm https://github.com/rrwick/Minipolish
 
     let out_prefix = check_prefix(out_prefix);
-    check_requirements(&["miniasm", "minipolish", "minimap2", "racon", "any2fasta"]);
-    // TODO
+    check_requirements(&["miniasm", "minipolish", "minimap2", "racon"]);
+    let paf = dir.join("overlap.paf");
+    let unpolished = dir.join("unpolished.gfa");
+    let fasta = out_prefix.with_extension("fasta");
+    let gfa = out_prefix.with_extension("gfa");
+
+    let ava_preset = match read_type {
+        ReadType::OntR9      => "ava-ont",
+        ReadType::OntR10     => "ava-pb",
+        ReadType::PacbioClr  => "ava-pb",
+        ReadType::PacbioHifi => "ava-pb",
+    };
+
+    let mut cmd = Command::new("minimap2");
+    cmd.arg("-x").arg(ava_preset)
+       .arg("-t").arg(threads.to_string())
+       .arg(&reads).arg(&reads);
+    redirect_stderr_and_stdout(&mut cmd, Some(&paf));
+    run_command(&mut cmd);
+
+    let mut cmd = Command::new("miniasm");
+    cmd.arg("-f").arg(&reads)
+       .arg(&paf);
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd, Some(&unpolished));
+    run_command(&mut cmd);
+
+    let mut cmd = Command::new("minipolish");
+    cmd.arg("--threads").arg(threads.to_string())
+       .arg(&reads)
+       .arg(&unpolished);
+    redirect_stderr_and_stdout(&mut cmd, Some(&gfa));
+    run_command(&mut cmd);
+
+    minpolish_gfa_to_fasta(&gfa, &fasta);
+    check_fasta(&fasta);
 }
 
 
@@ -178,8 +210,7 @@ fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
     if read_type == ReadType::PacbioHifi { cmd.arg("--hifi"); }
     else if read_type == ReadType::OntR10 { cmd.arg("--nano-r10"); }
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd);
-
+    redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly_primary.fa"));
@@ -235,15 +266,7 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args
        .arg("--graphical-fragment-assembly").arg(&gfa)
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
-
-    // Redirect Raven's stdout to the FASTA file, stderr to the terminal
-    let out_fasta = File::create(&fasta).unwrap_or_else(|e| {
-        quit_with_error(&format!("cannot create {}: {e}", fasta.display()))
-    });
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::from(out_fasta));
-    cmd.stderr(Stdio::inherit());
-
+    redirect_stderr_and_stdout(&mut cmd, Some(&fasta));
     run_command(&mut cmd);
 
     check_fasta(&fasta);
@@ -259,18 +282,9 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
        .arg("--disable-checkpoints")
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
-
-    // Redirect Raven's stdout to the FASTA file, stderr to the terminal
-    let out_fasta = File::create(&fasta).unwrap_or_else(|e| {
-        quit_with_error(&format!("cannot create {}: {e}", fasta.display()))
-    });
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::from(out_fasta));
-    cmd.stderr(Stdio::inherit());
-
+    redirect_stderr_and_stdout(&mut cmd, Some(&fasta));
     run_command(&mut cmd);
 
-    // Print the genome size to stdout
     check_fasta(&fasta);
     println!("{}", total_fasta_length(&fasta));
 }
@@ -300,8 +314,7 @@ fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<Stri
        .arg("-f")
        .arg("-o").arg(&dir.join("dbg"));
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd);
-
+    redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     let mut cmd = Command::new("wtpoa-cns");
@@ -309,8 +322,7 @@ fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<Stri
        .arg("-i").arg(&dir.join("dbg.ctg.lay.gz"))
        .arg("-f")
        .arg("-o").arg(&dir.join("assembly.fasta"));
-    redirect_stderr_and_stdout(&mut cmd);
-
+    redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
@@ -480,10 +492,17 @@ fn run_command(cmd: &mut Command) {
 }
 
 
-fn redirect_stderr_and_stdout(cmd: &mut Command) {
+fn redirect_stderr_and_stdout(cmd: &mut Command, stdout_file: Option<&Path>) {
     // Redirects the command's stdout and stderr to the terminal.
     cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
+    if let Some(file) = stdout_file {
+        let out_file = File::create(file).unwrap_or_else(|e| {
+            quit_with_error(&format!("cannot create {}: {e}", file.display()))
+        });
+        cmd.stdout(Stdio::from(out_file));
+    } else {
+        cmd.stdout(Stdio::inherit());
+    }
     cmd.stderr(Stdio::inherit());
 }
 
@@ -495,6 +514,26 @@ fn find_myloasm_log(dir: &Path) -> PathBuf {
              .map_or(false, |name| { name.starts_with("myloasm_") && name.ends_with(".log") })
         })
         .unwrap_or_else(|| quit_with_error("myloasm log file not found"))
+}
+
+
+fn minpolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
+    let reader = BufReader::new(File::open(gfa).unwrap());
+    let mut writer = BufWriter::new(File::create(fasta).unwrap());
+    for line in reader.lines() {
+        let line = line.unwrap();
+        if !line.starts_with('S') { continue; }
+        let mut cols = line.split('\t');
+        cols.next();
+        let name = cols.next().unwrap_or("");
+        let seq  = cols.next().unwrap_or("");
+        let depth = cols.find_map(|field| { if field.starts_with("dp:f:") { Some(&field[5..]) }
+                                                                     else { None } });
+        let mut header = format!(">{name}");
+        if name.ends_with('c') { header.push_str(" circular=true"); }
+        if let Some(d) = depth { header.push_str(&format!(" depth={d}")); }
+        writeln!(writer, "{header}\n{seq}").unwrap();
+    }
 }
 
 
