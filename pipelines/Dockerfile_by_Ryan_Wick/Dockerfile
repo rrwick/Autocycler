@@ -1,7 +1,7 @@
 FROM mambaorg/micromamba:latest
 
 # Create an "autocycler" environment with long-read assemblers.
-RUN micromamba create -y -n autocycler -c conda-forge -c bioconda curl && \
+RUN micromamba create -y -n autocycler python=3.12 -c conda-forge -c bioconda curl && \
     for tool in any2fasta canu flye lja metamdbg miniasm minimap2 minipolish3 necat nextdenovo nextpolish racon raven-assembler seqtk wtdbg; do \
         if micromamba install -y -n autocycler -c conda-forge -c bioconda "$tool"; then \
             printf " $tool" >> /tmp/installed_tools.txt; \
