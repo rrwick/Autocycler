@@ -13,7 +13,7 @@
 
 use clap::ValueEnum;
 use ctrlc::set_handler;
-use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all};
+use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -99,25 +99,19 @@ fn flye(reads: PathBuf, out_prefix: Option<PathBuf>,
         ReadType::PacbioHifi => "--pacbio-hifi",
     };
 
-    // Build the Flye command
     let mut cmd = Command::new("flye");
     cmd.arg(input_flag).arg(&reads)
        .arg("--threads").arg(threads.to_string())
        .arg("--out-dir").arg(&dir);
     for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd);
 
-    // Redirect Flye's stdout and stderr to the terminal
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    run_command(&mut cmd);
 
-    run_command(&mut cmd, "flye");
-
-    // Copy the output files
     check_fasta(&dir.join("assembly.fasta"));
-    copy_or_die(&dir.join("assembly.fasta"), &fasta);
-    copy_or_die(&dir.join("assembly_graph.gfa"), &gfa);
-    copy_or_die(&dir.join("flye.log"), &log);
+    copy_output_file(&dir.join("assembly.fasta"), &fasta);
+    copy_output_file(&dir.join("assembly_graph.gfa"), &gfa);
+    copy_output_file(&dir.join("flye.log"), &log);
 }
 
 
@@ -131,26 +125,19 @@ fn lja(reads: PathBuf, out_prefix: Option<PathBuf>,
     let gfa = out_prefix.with_extension("gfa");
     let log = out_prefix.with_extension("log");
 
-    // Build the LJA command
     let mut cmd = Command::new("lja");
     cmd.arg("--output-dir").arg(&dir)
        .arg("--reads").arg(&reads)
        .arg("--threads").arg(threads.to_string());
     for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd);
 
-    // Redirect LJA's stdout and stderr to the terminal
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
-
-    run_command(&mut cmd, "lja");
+    run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
-
-    // Copy the output files
-    copy_or_die(&dir.join("assembly.fasta"), &fasta);
-    copy_or_die(&dir.join("mdbg.gfa"), &gfa);
-    copy_or_die(&dir.join("dbg.log"), &log);
+    copy_output_file(&dir.join("assembly.fasta"), &fasta);
+    copy_output_file(&dir.join("mdbg.gfa"), &gfa);
+    copy_output_file(&dir.join("dbg.log"), &log);
 }
 
 
@@ -179,7 +166,26 @@ fn myloasm(reads: PathBuf, out_prefix: Option<PathBuf>,
     // https://github.com/bluenote-1577/myloasm
 
     let out_prefix = check_prefix(out_prefix);
-    // TODO
+    check_requirements(&["myloasm"]);
+    let fasta = out_prefix.with_extension("fasta");
+    let gfa = out_prefix.with_extension("gfa");
+    let log = out_prefix.with_extension("log");
+
+    let mut cmd = Command::new("myloasm");
+    cmd.arg("--output-dir").arg(&dir)
+       .arg(&reads)
+       .arg("--threads").arg(threads.to_string());
+    if read_type == ReadType::PacbioHifi { cmd.arg("--hifi"); }
+    else if read_type == ReadType::OntR10 { cmd.arg("--nano-r10"); }
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd);
+
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("assembly_primary.fa"));
+    copy_output_file(&dir.join("assembly_primary.fa"), &fasta);
+    copy_output_file(&dir.join("final_contig_graph.gfa"), &gfa);
+    copy_output_file(&find_myloasm_log(&dir), &log);
 }
 
 
@@ -223,7 +229,6 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args
     let fasta = out_prefix.with_extension("fasta");
     let gfa = out_prefix.with_extension("gfa");
 
-    // Build the Raven command
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
@@ -239,7 +244,7 @@ fn raven(reads: PathBuf, out_prefix: Option<PathBuf>, threads: usize, extra_args
     cmd.stdout(Stdio::from(out_fasta));
     cmd.stderr(Stdio::inherit());
 
-    run_command(&mut cmd, "raven");
+    run_command(&mut cmd);
 
     check_fasta(&fasta);
 }
@@ -249,7 +254,6 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     check_requirements(&["raven"]);
     let fasta = dir.join("assembly.fasta");
 
-    // Build the Raven command
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
@@ -264,7 +268,7 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     cmd.stdout(Stdio::from(out_fasta));
     cmd.stderr(Stdio::inherit());
 
-    run_command(&mut cmd, "raven");
+    run_command(&mut cmd);
 
     // Print the genome size to stdout
     check_fasta(&fasta);
@@ -288,7 +292,6 @@ fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<Stri
         ReadType::PacbioHifi => "preset4",
     };
 
-    // Build the wtdbg2 command
     let mut cmd = Command::new("wtdbg2");
     cmd.arg("-x").arg(preset)
        .arg("-g").arg(genome_size.to_string())
@@ -297,31 +300,21 @@ fn redbean(reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<Stri
        .arg("-f")
        .arg("-o").arg(&dir.join("dbg"));
     for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd);
 
-    // Redirect wtdbg2's stdout and stderr to the terminal
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    run_command(&mut cmd);
 
-    run_command(&mut cmd, "wtdbg2");
-
-    // Build the wtpoa-cns command
     let mut cmd = Command::new("wtpoa-cns");
     cmd.arg("-t").arg(threads.to_string())
        .arg("-i").arg(&dir.join("dbg.ctg.lay.gz"))
        .arg("-f")
        .arg("-o").arg(&dir.join("assembly.fasta"));
+    redirect_stderr_and_stdout(&mut cmd);
 
-    // Redirect wtpoa-cns's stdout and stderr to the terminal
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    run_command(&mut cmd);
 
-    run_command(&mut cmd, "wtpoa-cns");
-
-    // Copy the output files
     check_fasta(&dir.join("assembly.fasta"));
-    copy_or_die(&dir.join("assembly.fasta"), &fasta);
+    copy_output_file(&dir.join("assembly.fasta"), &fasta);
 }
 
 
@@ -341,7 +334,7 @@ pub enum Task {
     Redbean,      // assemble using Redbean (aka wtdbg2)
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 #[value(rename_all = "snake_case")]
 pub enum ReadType {
     OntR9,       // older ONT reads, e.g. R9.4.1
@@ -454,7 +447,7 @@ fn check_fasta(fasta: &Path) {
 }
 
 
-fn copy_or_die(src: &Path, dest: &Path) {
+fn copy_output_file(src: &Path, dest: &Path) {
     copy(src, dest).unwrap_or_else(|e| {
         quit_with_error(&format!("failed to copy {} → {}: {e}", src.display(), dest.display()))
     });
@@ -475,8 +468,8 @@ fn print_command(cmd: &Command) {
 }
 
 
-fn run_command(cmd: &mut Command, name: &str) {
-    // Runs a command and checks if it was successful.
+fn run_command(cmd: &mut Command) {
+    let name = cmd.get_program().to_string_lossy().into_owned();
     print_command(&cmd);
     let status = cmd.status().unwrap_or_else(|e| {
         quit_with_error(&format!("failed to launch {name}: {e}"))
@@ -484,6 +477,24 @@ fn run_command(cmd: &mut Command, name: &str) {
     if !status.success() {
         quit_with_error(&format!("{name} exited with status {status}"));
     }
+}
+
+
+fn redirect_stderr_and_stdout(cmd: &mut Command) {
+    // Redirects the command's stdout and stderr to the terminal.
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+}
+
+
+fn find_myloasm_log(dir: &Path) -> PathBuf {
+    read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| {
+            p.file_name().and_then(|s| s.to_str())
+             .map_or(false, |name| { name.starts_with("myloasm_") && name.ends_with(".log") })
+        })
+        .unwrap_or_else(|| quit_with_error("myloasm log file not found"))
 }
 
 
