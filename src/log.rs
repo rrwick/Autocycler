@@ -37,3 +37,8 @@ pub fn explanation(text: &str) {
 pub fn bold(text: &str) {
     eprintln!("{}", text.bold());
 }
+
+
+pub fn underline(text: &str) {
+    eprintln!("{}", text.underline());
+}

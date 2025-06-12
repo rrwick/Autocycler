@@ -22,7 +22,7 @@ use std::sync::Once;
 use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
 
-use crate::log::bold;
+use crate::log::{bold, underline};
 use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta};
 use crate::subsample::parse_genome_size;
 
@@ -149,7 +149,28 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path,
     // https://github.com/GaetanBenoitDev/metaMDBG
 
     check_requirements(&["metaMDBG"]);
-    // TODO
+    let fasta = out_prefix.with_extension("fasta");
+    let log = out_prefix.with_extension("log");
+
+    let input_flag = match read_type {
+        ReadType::OntR9      => "--in-ont",
+        ReadType::OntR10     => "--in-ont",
+        ReadType::PacbioClr  => "--in-ont",
+        ReadType::PacbioHifi => "--in-hifi",
+    };
+
+    let mut cmd = Command::new("metaMDBG");
+    cmd.arg("asm")
+       .arg("--out-dir").arg(&dir)
+       .arg(input_flag).arg(&reads)
+       .arg("--threads").arg(threads.to_string());
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("contigs.fasta.gz"));
+    gunzip_fasta(&dir.join("contigs.fasta.gz"), &fasta);
+    copy_output_file(&dir.join("metaMDBG.log"), &log);
 }
 
 
@@ -465,6 +486,14 @@ fn copy_output_file(src: &Path, dest: &Path) {
 }
 
 
+fn gunzip_fasta(src: &Path, dest: &Path) {
+    let mut writer = BufWriter::new(File::create(dest).unwrap());
+    for (_, header, seq) in load_fasta(src) {
+        writeln!(writer, ">{header}\n{seq}").unwrap();
+    }
+}
+
+
 fn print_command(cmd: &Command) {
     let mut parts = Vec::new();
     parts.push(cmd.get_program().to_string_lossy().into_owned());
@@ -586,11 +615,13 @@ fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
 
     let mut threshold = min_depth_absolute.unwrap_or(0.0);
     if let Some(r) = min_depth_relative { threshold = threshold.max(r * longest_depth); }
-    eprintln!("\nAutocycler helper depth filter threshold = {:.3}", threshold);
+    eprintln!();
+    underline("Autocycler helper depth filter");
+    eprintln!("threshold = {:.3}", threshold);
 
     let kept: Vec<_> = records.into_iter().filter_map(|(name, header, seq, depth)| {
         let pass = depth >= threshold;
-        eprintln!("  {name}: depth={:.3}, {}", depth, if pass { "PASS" } else { "FAIL" });
+        eprintln!("{name}: depth={:.3}, {}", depth, if pass { "PASS" } else { "FAIL" });
         if pass { Some((header, seq)) } else { None }
     }).collect();
 
