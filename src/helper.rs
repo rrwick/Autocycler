@@ -59,7 +59,7 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
             myloasm(reads, &out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Necat => {
-            necat(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
+            necat(reads, &out_prefix, genome_size, threads, dir, extra_args);
         }
         Task::Nextdenovo => {
             nextdenovo(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
@@ -271,12 +271,27 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
 
 
 fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
-         threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+         threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     // https://github.com/xiaochuanle/NECAT
 
     let genome_size = get_genome_size(genome_size, "NECAT");
-    let necat = find_necat();
-    // TODO
+    let config = dir.join("config.txt");
+    let fasta = out_prefix.with_extension("fasta");
+    {
+        let mut read_list = BufWriter::new(File::create(&dir.join("read_list.txt")).unwrap());
+        writeln!(read_list, "{}", reads.canonicalize().unwrap().display()).unwrap();
+    }
+    make_necat_config_file(&config, genome_size, threads);
+
+    let mut cmd = Command::new(&find_necat());
+    cmd.arg("bridge").arg("config.txt");
+    for token in extra_args { cmd.arg(token); }
+    cmd.current_dir(&dir);
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"));
+    copy_output_file(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"), &fasta);
 }
 
 
@@ -547,7 +562,9 @@ fn run_command(cmd: &mut Command) {
 
 
 fn redirect_stderr_and_stdout(cmd: &mut Command, stdout_file: Option<&Path>) {
-    // Redirects the command's stdout and stderr to the terminal.
+    // Redirects the command's:
+    // * stderr to the terminal
+    // * stdout to a file if stdout_file is provided, otherwise to the terminal
     cmd.stdin(Stdio::null());
     if let Some(file) = stdout_file {
         let out_file = File::create(file).unwrap_or_else(|e| {
@@ -675,6 +692,34 @@ fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
         }
     }
     (header, seq)
+}
+
+
+fn make_necat_config_file(cfg: &Path, genome_size: u64,  threads: usize) {
+    let mut w = BufWriter::new(File::create(cfg).unwrap());
+    writeln!(w, "PROJECT=necat").unwrap();
+    writeln!(w, "ONT_READ_LIST=read_list.txt").unwrap();
+    writeln!(w, "GENOME_SIZE={}", genome_size).unwrap();
+    writeln!(w, "THREADS={threads}").unwrap();
+    writeln!(w, "MIN_READ_LENGTH=3000").unwrap();
+    writeln!(w, "PREP_OUTPUT_COVERAGE=40").unwrap();
+    writeln!(w, "OVLP_FAST_OPTIONS=-n 500 -z 20 -b 2000 -e 0.5 -j 0 -u 1 -a 1000").unwrap();
+    writeln!(w, "OVLP_SENSITIVE_OPTIONS=-n 500 -z 10 -e 0.5 -j 0 -u 1 -a 1000").unwrap();
+    writeln!(w, "CNS_FAST_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0").unwrap();
+    writeln!(w, "CNS_SENSITIVE_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0").unwrap();
+    writeln!(w, "TRIM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 1 -a 400").unwrap();
+    writeln!(w, "ASM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 0 -a 400").unwrap();
+    writeln!(w, "NUM_ITER=2").unwrap();
+    writeln!(w, "CNS_OUTPUT_COVERAGE=30").unwrap();
+    writeln!(w, "CLEANUP=1").unwrap();
+    writeln!(w, "USE_GRID=false").unwrap();
+    writeln!(w, "GRID_NODE=0").unwrap();
+    writeln!(w, "GRID_OPTIONS=").unwrap();
+    writeln!(w, "SMALL_MEMORY=0").unwrap();
+    writeln!(w, "FSA_OL_FILTER_OPTIONS=").unwrap();
+    writeln!(w, "FSA_ASSEMBLE_OPTIONS=").unwrap();
+    writeln!(w, "FSA_CTG_BRIDGE_OPTIONS=").unwrap();
+    writeln!(w, "POLISH_CONTIGS=true").unwrap();
 }
 
 
