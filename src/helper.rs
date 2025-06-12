@@ -13,6 +13,7 @@
 
 use clap::ValueEnum;
 use ctrlc::set_handler;
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir};
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
@@ -86,7 +87,32 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 
     let genome_size = get_genome_size(genome_size, "Canu");
     check_requirements(&["canu"]);
-    // TODO
+    let fasta = out_prefix.with_extension("fasta");
+    let log = out_prefix.with_extension("log");
+
+    let input_flag = match read_type {
+        ReadType::OntR9      => "-nanopore",
+        ReadType::OntR10     => "-nanopore",
+        ReadType::PacbioClr  => "-pacbio",
+        ReadType::PacbioHifi => "-pacbio-hifi",
+    };
+
+    let mut cmd = Command::new("canu");
+    cmd.arg("-p").arg("canu")
+       .arg("-d").arg(&dir)
+       .arg("-fast")
+       .arg(&format!("genomeSize={genome_size}"))
+       .arg("useGrid=false")
+       .arg(&format!("maxThreads={threads}"))
+       .arg(input_flag).arg(&reads);
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("canu.contigs.fasta"));
+    copy_canu_fasta(&dir.join("canu.contigs.fasta"), &dir.join("canu.contigs.layout.tigInfo"),
+                    &fasta);
+    copy_output_file(&dir.join("canu.report"), &log);
 }
 
 
@@ -569,12 +595,12 @@ fn copy_flye_fasta(flye_fasta: &Path, assembly_info: &Path, out_fasta: &Path) {
     let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
     let info = load_flye_assembly_info(assembly_info);
     for (name, _, seq) in load_fasta(flye_fasta) {
-        let mut header = format!(">{name}");
+        let mut header = format!("{name}");
         if let Some((is_circ, depth)) = info.get(&name) {
             if *is_circ { header.push_str(" circular=true"); }
             header.push_str(&format!(" depth={depth}"));
         }
-        writeln!(writer, "{header}\n{seq}").unwrap();
+        writeln!(writer, ">{header}\n{seq}").unwrap();
     }
 }
 
@@ -593,6 +619,62 @@ fn load_flye_assembly_info(assembly_info: &Path) -> HashMap<String, (bool, Strin
         info.insert(name, (circ, depth));
     }
     info
+}
+
+
+fn copy_canu_fasta(flye_fasta: &Path, assembly_info: &Path, out_fasta: &Path) {
+    // Copies the Canu assembly FASTA file, with the following modifications:
+    // * Adds the depth from the assembly_info file to the header.
+    // * Excludes repeat/bubble contigs.
+    // * Trims overlap from circular contigs.
+    let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
+    let depth = load_canu_assembly_depth(assembly_info);
+    for (name, header, seq) in load_fasta(flye_fasta) {
+        if header.contains("suggestRepeat=yes") || header.contains("suggestBubble=yes") {
+            continue;
+        }
+        let (mut header, seq) = trim_canu_contig(header, seq);
+        if let Some(d) = depth.get(&name) {
+            header.push_str(&format!(" depth={d}"));
+        }
+        writeln!(writer, ">{header}\n{seq}").unwrap();
+    }
+}
+
+
+fn load_canu_assembly_depth(assembly_info: &Path) -> HashMap<String, String> {
+    // Loads Canu's *.contigs.layout.tigInfo file, returns a map of contig names to depth.
+    let mut info: HashMap<String, String> = HashMap::new();
+    for line in BufReader::new(File::open(assembly_info).unwrap()).lines() {
+        let line = line.unwrap();
+        if line.starts_with('#') || line.trim().is_empty() { continue; }
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols.len() < 3 { continue; }
+        let id: u64 = match cols[0].parse() { Ok(n) => n, Err(_) => continue };
+        let name = format!("tig{:08}", id);
+        let depth = cols[2].to_string();
+        info.insert(name, depth);
+    }
+    info
+}
+
+
+fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
+    if !header.contains("suggestCircular=yes") {
+        return (header, seq);
+    }
+    let re_trim = Regex::new(r"trim=(\d+)-(\d+)").unwrap();
+    let re_len = Regex::new(r"len=\d+").unwrap();
+    if let Some(cap) = re_trim.captures(&header) {
+        let start: usize = cap[1].parse().unwrap_or(0);
+        let end: usize = cap[2].parse().unwrap_or(seq.len());
+        if start < end && end <= seq.len() {
+            seq = seq[start..end].to_owned();
+            header = re_trim.replace(&header, format!("trim=0-{}", seq.len())).into_owned();
+            header = re_len.replace(&header, format!("len={}", seq.len())).into_owned();
+        }
+    }
+    (header, seq)
 }
 
 
@@ -686,7 +768,6 @@ mod tests {
         assert_eq!(depth_from_header(">ctg15 length=123 coverage=49.70 circular=yes"), Some(49.7));
     }
 
-
     #[test]
     fn test_depth_filter() {
         let dir = tempdir().unwrap();
@@ -724,5 +805,48 @@ mod tests {
         assert!(panic::catch_unwind(|| {
             load_fasta(&fasta).len();
         }).is_err());
+    }
+
+    #[test]
+    fn test_trim_canu_contig_1() {
+        let header = ">tig00000001 len=60 reads=50 class=contig suggestRepeat=no \
+                      suggestBubble=no suggestCircular=no trim=0-60".to_string();
+        let seq = "AGTAGCCAAACTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCAAACAATTATC".to_string();
+        let (new_header, new_seq) = trim_canu_contig(header.clone(), seq.clone());
+        assert_eq!(new_header, header);
+        assert_eq!(new_seq, seq);
+    }
+
+    #[test]
+    fn test_trim_canu_contig_2() {
+        let header = ">tig00000001 len=60 reads=50 class=contig suggestRepeat=no \
+                      suggestBubble=no suggestCircular=yes trim=0-50".to_string();
+        let seq = "AGTAGCCAAACTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCAAACAATTATC".to_string();
+        let (new_header, new_seq) = trim_canu_contig(header, seq);
+        assert_eq!(new_header, ">tig00000001 len=50 reads=50 class=contig suggestRepeat=no \
+                                suggestBubble=no suggestCircular=yes trim=0-50");
+        assert_eq!(new_seq, "AGTAGCCAAACTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCA");
+    }
+
+    #[test]
+    fn test_trim_canu_contig_3() {
+        let header = ">tig00000001 len=60 reads=50 class=contig suggestRepeat=no \
+                      suggestBubble=no suggestCircular=yes trim=10-60".to_string();
+        let seq = "AGTAGCCAAACTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCAAACAATTATC".to_string();
+        let (new_header, new_seq) = trim_canu_contig(header, seq);
+        assert_eq!(new_header, ">tig00000001 len=50 reads=50 class=contig suggestRepeat=no \
+                                suggestBubble=no suggestCircular=yes trim=0-50");
+        assert_eq!(new_seq, "CTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCAAACAATTATC");
+    }
+
+    #[test]
+    fn test_trim_canu_contig_4() {
+        let header = ">tig00000001 len=60 reads=50 class=contig suggestRepeat=no \
+                      suggestBubble=no suggestCircular=yes trim=10-50".to_string();
+        let seq = "AGTAGCCAAACTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCAAACAATTATC".to_string();
+        let (new_header, new_seq) = trim_canu_contig(header, seq);
+        assert_eq!(new_header, ">tig00000001 len=40 reads=50 class=contig suggestRepeat=no \
+                                suggestBubble=no suggestCircular=yes trim=0-40");
+        assert_eq!(new_seq, "CTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCA");
     }
 }
