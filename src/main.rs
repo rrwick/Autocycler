@@ -217,7 +217,13 @@ enum Commands {
         #[clap(long = "read_type", value_enum, default_value = "ont_r10")]
         read_type: helper::ReadType,
 
-        // TODO: add a depth filter option?
+        /// Exclude contigs with a depth below this value
+        #[clap(long = "min_depth_absolute")]
+        min_depth_absolute: Option<f64>,
+
+        /// Exclude contigs with a depth below this fraction of the longet contig's depth
+        #[clap(long = "min_depth_relative")]
+        min_depth_relative: Option<f64>,
 
         /// Additional arguments for the task
         #[clap(long = "args", value_parser = clap::builder::NonEmptyStringValueParser::new(),
@@ -338,8 +344,10 @@ fn main() {
         Some(Commands::Gfa2fasta { in_gfa, out_fasta }) => {
             gfa2fasta::gfa2fasta(in_gfa, out_fasta);
         },
-        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type, args }) => {
-            helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type, args);
+        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type,
+                                min_depth_absolute, min_depth_relative, args }) => {
+            helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type,
+                           min_depth_absolute, min_depth_relative, args);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);
