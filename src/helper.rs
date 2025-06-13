@@ -15,11 +15,13 @@ use clap::ValueEnum;
 use ctrlc::set_handler;
 use regex::Regex;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir};
-use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write};
+use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir,
+              metadata};
+use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Once;
+use std::time::SystemTime;
 use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
 
@@ -300,6 +302,7 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     check_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"));
     copy_output_file(&dir.join("nextpolish/genome.nextpolish.fasta"),
                      &out_prefix.with_extension("fasta"));
+    combine_nextdenovo_logs(&dir, &out_prefix.with_extension("log"));
 }
 
 
@@ -763,6 +766,27 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
     writeln!(c2, "{lgs_or_hifi}_fofn = input.fofn").unwrap();
     writeln!(c2, "{lgs_or_hifi}_options = -min_read_len 1k -max_depth 100").unwrap();
     writeln!(c2, "{lgs_or_hifi}_minimap2_options = -x {map_preset} -t {threads}").unwrap();
+}
+
+
+fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
+    // Combines the two pid*.log.info files from NextDenovo and NextPolish into a single file.
+    let mut logs: Vec<PathBuf> = read_dir(dir).unwrap().filter_map(|e| {
+        let p = e.ok()?.path();
+        let is_log = p.file_name().and_then(|s| s.to_str())
+            .map(|name| name.starts_with("pid") && name.ends_with(".log.info"))
+            .unwrap_or(false);
+        if is_log { Some(p) } else { None }
+    }).collect();
+    if logs.len() < 2 { return; }
+    logs.sort_by_key(|p| {
+        metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+    let mut out = BufWriter::new(File::create(dest).unwrap());
+    for log in logs {
+        let mut rdr = BufReader::new(File::open(&log).unwrap());
+        io_copy(&mut rdr, &mut out).unwrap();   // <- std::io::copy
+    }
 }
 
 
