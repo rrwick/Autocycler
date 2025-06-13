@@ -13,8 +13,11 @@
 
 use clap::ValueEnum;
 use ctrlc::set_handler;
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 use regex::Regex;
 use std::collections::HashMap;
+use std::env;
 use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir,
               metadata};
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
@@ -310,8 +313,30 @@ fn plassembler(reads: PathBuf, out_prefix: &Path,
                threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/gbouras13/plassembler
 
-    check_requirements(&["plassembler"]);
-    // TODO
+    check_requirements(&["plassembler", "chopper", "dnaapler", "fastp", "mash", "minimap2",
+                         "raven", "samtools", "unicycler", "unicycler"]);
+    let db = find_plassembler_db();
+
+    let mut cmd = Command::new("plassembler");
+    cmd.arg("long")
+       .arg("-d").arg(&db)
+       .arg("-l").arg(&reads)
+       .arg("-o").arg(&dir)
+       .arg("-t").arg(threads.to_string())
+       .arg("--force")
+       .arg("--skip_qc");
+    if read_type == ReadType::OntR9      { cmd.arg("--raw_flag"); }
+    if read_type == ReadType::PacbioClr  { cmd.arg("--pacbio_model").arg("pacbio-raw"); }
+    if read_type == ReadType::PacbioHifi { cmd.arg("--pacbio_model").arg("pacbio-hifi"); }
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("plassembler_plasmids.fasta"));
+    copy_output_file(&dir.join("plassembler_plasmids.gfa"), &out_prefix.with_extension("gfa"));
+    rotate_plassembler_contigs(&dir.join("plassembler_plasmids.fasta"),
+                               &out_prefix.with_extension("fasta"));
+    copy_output_file(&find_plassembler_log(&dir), &out_prefix.with_extension("log"));
 }
 
 
@@ -785,8 +810,47 @@ fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
     let mut out = BufWriter::new(File::create(dest).unwrap());
     for log in logs {
         let mut rdr = BufReader::new(File::open(&log).unwrap());
-        io_copy(&mut rdr, &mut out).unwrap();   // <- std::io::copy
+        io_copy(&mut rdr, &mut out).unwrap();
     }
+}
+
+
+fn find_plassembler_db() -> PathBuf {
+    if let Ok(p) = env::var("PLASSEMBLER_DB") {
+        let pb = PathBuf::from(&p);
+        if pb.is_dir() { return pb; }
+    }
+    if let Ok(prefix) = env::var("CONDA_PREFIX") {
+        let pb = Path::new(&prefix).join("plassembler_db");
+        if pb.is_dir() { return pb; }
+    }
+    quit_with_error("No Plassembler database found. \
+                     Set PLASSEMBLER_DB or ensure $CONDA_PREFIX/plassembler_db exists.")
+}
+
+
+fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
+    let mut w = BufWriter::new(File::create(dest).unwrap());
+    let mut rng = StdRng::seed_from_u64(0);
+    for (_name, header, seq) in load_fasta(src) {
+        if header.contains("circular=True") && seq.len() > 1 {
+            let r = rng.gen_range(1..seq.len());
+            let rotated = format!("{}{}", &seq[r..], &seq[..r]);
+            writeln!(w, ">{header}\n{rotated}").unwrap();
+        } else {
+            writeln!(w, ">{header}\n{seq}").unwrap();
+        }
+    }
+}
+
+
+fn find_plassembler_log(dir: &Path) -> PathBuf {
+    read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| {
+            p.file_name().and_then(|s| s.to_str())
+             .map_or(false, |name| { name.starts_with("plassembler_") && name.ends_with(".log") })
+        })
+        .unwrap_or_else(|| quit_with_error("plassembler log file not found"))
 }
 
 
