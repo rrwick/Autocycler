@@ -721,11 +721,11 @@ fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) 
 
 fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: usize,
                          read_type: ReadType) {
-    let (rtag, map_preset) = match read_type {
-            ReadType::OntR9      => ("ont",  "map-ont"),
-            ReadType::OntR10     => ("ont",  "map-ont"),
-            ReadType::PacbioClr  => ("clr",  "map-pb"),
-            ReadType::PacbioHifi => ("hifi", "map-hifi"),
+    let (lgs_or_hifi, ont_clr_or_hifi, map_preset) = match read_type {
+            ReadType::OntR9      => ("lgs",  "ont",  "map-ont"),
+            ReadType::OntR10     => ("lgs",  "ont",  "map-ont"),  // lr:hq breaks NextPolish
+            ReadType::PacbioClr  => ("lgs",  "clr",  "map-pb"),
+            ReadType::PacbioHifi => ("hifi", "hifi", "map-hifi"),
     };
 
     let mut r = BufWriter::new(File::create(&dir.join("input.fofn")).unwrap());
@@ -735,7 +735,7 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
     writeln!(c1, "[General]").unwrap();
     writeln!(c1, "job_type = local\njob_prefix = nextDenovo\ntask = all").unwrap();
     writeln!(c1, "rewrite = yes\ndeltmp = yes\nparallel_jobs = 1\ninput_type = raw").unwrap();
-    writeln!(c1, "read_type = {rtag}").unwrap();
+    writeln!(c1, "read_type = {ont_clr_or_hifi}").unwrap();
     writeln!(c1, "input_fofn = input.fofn\nworkdir = nextdenovo").unwrap();
     writeln!(c1).unwrap();
     writeln!(c1, "[correct_option]").unwrap();
@@ -759,10 +759,10 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
     writeln!(c2, "genome_size = auto\nworkdir = nextpolish").unwrap();
     writeln!(c2, "polish_options = -p {threads}").unwrap();
     writeln!(c2).unwrap();
-    writeln!(c2, "[lgs_option]").unwrap();
-    writeln!(c2, "lgs_fofn = input.fofn").unwrap();
-    writeln!(c2, "lgs_options = -min_read_len 1k -max_depth 100").unwrap();
-    writeln!(c2, "lgs_minimap2_options = -x {map_preset} -t {threads}").unwrap();
+    writeln!(c2, "[{lgs_or_hifi}_option]").unwrap();
+    writeln!(c2, "{lgs_or_hifi}_fofn = input.fofn").unwrap();
+    writeln!(c2, "{lgs_or_hifi}_options = -min_read_len 1k -max_depth 100").unwrap();
+    writeln!(c2, "{lgs_or_hifi}_minimap2_options = -x {map_preset} -t {threads}").unwrap();
 }
 
 
