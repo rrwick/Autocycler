@@ -87,8 +87,6 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 
     let genome_size = get_genome_size(genome_size, "Canu");
     check_requirements(&["canu"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let log = out_prefix.with_extension("log");
 
     let input_flag = match read_type {
         ReadType::OntR9      => "-nanopore",
@@ -111,8 +109,8 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 
     check_fasta(&dir.join("canu.contigs.fasta"));
     copy_canu_fasta(&dir.join("canu.contigs.fasta"), &dir.join("canu.contigs.layout.tigInfo"),
-                    &fasta);
-    copy_output_file(&dir.join("canu.report"), &log);
+                    &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("canu.report"), &out_prefix.with_extension("log"));
 }
 
 
@@ -121,9 +119,6 @@ fn flye(reads: PathBuf, out_prefix: &Path,
     // https://github.com/mikolmogorov/Flye
 
     check_requirements(&["flye"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let gfa = out_prefix.with_extension("gfa");
-    let log = out_prefix.with_extension("log");
 
     let input_flag = match read_type {
         ReadType::OntR9      => "--nano-raw",
@@ -141,9 +136,10 @@ fn flye(reads: PathBuf, out_prefix: &Path,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
-    copy_flye_fasta(&dir.join("assembly.fasta"), &dir.join("assembly_info.txt"), &fasta);
-    copy_output_file(&dir.join("assembly_graph.gfa"), &gfa);
-    copy_output_file(&dir.join("flye.log"), &log);
+    copy_flye_fasta(&dir.join("assembly.fasta"), &dir.join("assembly_info.txt"),
+                    &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("assembly_graph.gfa"), &out_prefix.with_extension("gfa"));
+    copy_output_file(&dir.join("flye.log"), &out_prefix.with_extension("log"));
 }
 
 
@@ -151,9 +147,6 @@ fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_ar
     // https://github.com/AntonBankevich/LJA
 
     check_requirements(&["lja"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let gfa = out_prefix.with_extension("gfa");
-    let log = out_prefix.with_extension("log");
 
     let mut cmd = Command::new("lja");
     cmd.arg("--output-dir").arg(&dir)
@@ -164,9 +157,9 @@ fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_ar
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
-    copy_output_file(&dir.join("assembly.fasta"), &fasta);
-    copy_output_file(&dir.join("mdbg.gfa"), &gfa);
-    copy_output_file(&dir.join("dbg.log"), &log);
+    copy_output_file(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("mdbg.gfa"), &out_prefix.with_extension("gfa"));
+    copy_output_file(&dir.join("dbg.log"), &out_prefix.with_extension("log"));
 }
 
 
@@ -175,8 +168,6 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path,
     // https://github.com/GaetanBenoitDev/metaMDBG
 
     check_requirements(&["metaMDBG"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let log = out_prefix.with_extension("log");
 
     let input_flag = match read_type {
         ReadType::OntR9      => "--in-ont",
@@ -195,8 +186,8 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("contigs.fasta.gz"));
-    gunzip_fasta(&dir.join("contigs.fasta.gz"), &fasta);
-    copy_output_file(&dir.join("metaMDBG.log"), &log);
+    gunzip_fasta(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("metaMDBG.log"), &out_prefix.with_extension("log"));
 }
 
 
@@ -206,10 +197,6 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
     // https://github.com/rrwick/Minipolish
 
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon"]);
-    let paf = dir.join("overlap.paf");
-    let unpolished = dir.join("unpolished.gfa");
-    let fasta = out_prefix.with_extension("fasta");
-    let gfa = out_prefix.with_extension("gfa");
 
     let ava_preset = match read_type {
         ReadType::OntR9      => "ava-ont",
@@ -222,25 +209,25 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
     cmd.arg("-x").arg(ava_preset)
        .arg("-t").arg(threads.to_string())
        .arg(&reads).arg(&reads);
-    redirect_stderr_and_stdout(&mut cmd, Some(&paf));
+    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("overlap.paf")));
     run_command(&mut cmd);
 
     let mut cmd = Command::new("miniasm");
     cmd.arg("-f").arg(&reads)
-       .arg(&paf);
+       .arg(&dir.join("overlap.paf"));
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&unpolished));
+    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("unpolished.gfa")));
     run_command(&mut cmd);
 
     let mut cmd = Command::new("minipolish");
     cmd.arg("--threads").arg(threads.to_string())
        .arg(&reads)
-       .arg(&unpolished);
-    redirect_stderr_and_stdout(&mut cmd, Some(&gfa));
+       .arg(&dir.join("unpolished.gfa"));
+    redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
     run_command(&mut cmd);
 
-    minpolish_gfa_to_fasta(&gfa, &fasta);
-    check_fasta(&fasta);
+    minpolish_gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
+    check_fasta(&out_prefix.with_extension("fasta"));
 }
 
 
@@ -249,9 +236,6 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
     // https://github.com/bluenote-1577/myloasm
 
     check_requirements(&["myloasm"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let gfa = out_prefix.with_extension("gfa");
-    let log = out_prefix.with_extension("log");
 
     let mut cmd = Command::new("myloasm");
     cmd.arg("--output-dir").arg(&dir)
@@ -264,9 +248,9 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly_primary.fa"));
-    copy_output_file(&dir.join("assembly_primary.fa"), &fasta);
-    copy_output_file(&dir.join("final_contig_graph.gfa"), &gfa);
-    copy_output_file(&find_myloasm_log(&dir), &log);
+    copy_output_file(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("final_contig_graph.gfa"), &out_prefix.with_extension("gfa"));
+    copy_output_file(&find_myloasm_log(&dir), &out_prefix.with_extension("log"));
 }
 
 
@@ -275,23 +259,18 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     // https://github.com/xiaochuanle/NECAT
 
     let genome_size = get_genome_size(genome_size, "NECAT");
-    let config = dir.join("config.txt");
-    let fasta = out_prefix.with_extension("fasta");
-    {
-        let mut read_list = BufWriter::new(File::create(&dir.join("read_list.txt")).unwrap());
-        writeln!(read_list, "{}", reads.canonicalize().unwrap().display()).unwrap();
-    }
-    make_necat_config_file(&config, genome_size, threads);
+    make_necat_files(&reads, &dir, genome_size, threads);
 
     let mut cmd = Command::new(&find_necat());
-    cmd.arg("bridge").arg("config.txt");
+    cmd.arg("bridge").arg(dir.join("config.txt"));
     for token in extra_args { cmd.arg(token); }
     cmd.current_dir(&dir);
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     check_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"));
-    copy_output_file(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"), &fasta);
+    copy_output_file(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"),
+                     &out_prefix.with_extension("fasta"));
 }
 
 
@@ -302,7 +281,25 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 
     let genome_size = get_genome_size(genome_size, "NextDenovo");
     check_requirements(&["nextDenovo", "nextPolish"]);
-    // TODO
+    make_nextdenovo_files(&dir, &reads, genome_size, threads, read_type);
+
+    let mut cmd = Command::new("nextDenovo");
+    cmd.arg("nextdenovo_run.cfg");
+    for token in extra_args { cmd.arg(token); }
+    cmd.current_dir(&dir);
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+    check_fasta(&dir.join("nextdenovo/03.ctg_graph/nd.asm.fasta"));
+
+    let mut cmd = Command::new("nextPolish");
+    cmd.arg("nextpolish_run.cfg");
+    cmd.current_dir(&dir);
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    check_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"));
+    copy_output_file(&dir.join("nextpolish/genome.nextpolish.fasta"),
+                     &out_prefix.with_extension("fasta"));
 }
 
 
@@ -319,36 +316,33 @@ fn raven(reads: PathBuf, out_prefix: &Path, threads: usize, extra_args: Vec<Stri
     // https://github.com/lbcb-sci/raven
 
     check_requirements(&["raven"]);
-    let fasta = out_prefix.with_extension("fasta");
-    let gfa = out_prefix.with_extension("gfa");
 
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
-       .arg("--graphical-fragment-assembly").arg(&gfa)
+       .arg("--graphical-fragment-assembly").arg(&out_prefix.with_extension("gfa"))
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&fasta));
+    redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("fasta")));
     run_command(&mut cmd);
 
-    check_fasta(&fasta);
+    check_fasta(&out_prefix.with_extension("fasta"));
 }
 
 
 fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     check_requirements(&["raven"]);
-    let fasta = dir.join("assembly.fasta");
 
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&fasta));
+    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("assembly.fasta")));
     run_command(&mut cmd);
 
-    check_fasta(&fasta);
-    println!("{}", total_fasta_length(&fasta));
+    check_fasta(&dir.join("assembly.fasta"));
+    println!("{}", total_fasta_length(&dir.join("assembly.fasta")));
 }
 
 
@@ -358,7 +352,6 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 
     let genome_size = get_genome_size(genome_size, "Redbean");
     check_requirements(&["wtdbg2", "wtpoa-cns"]);
-    let fasta = out_prefix.with_extension("fasta");
 
     let preset = match read_type {
         ReadType::OntR9      => "preset2",
@@ -387,7 +380,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
-    copy_output_file(&dir.join("assembly.fasta"), &fasta);
+    copy_output_file(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
 }
 
 
@@ -695,8 +688,11 @@ fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
 }
 
 
-fn make_necat_config_file(cfg: &Path, genome_size: u64,  threads: usize) {
-    let mut w = BufWriter::new(File::create(cfg).unwrap());
+fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) {
+    let mut r = BufWriter::new(File::create(&dir.join("read_list.txt")).unwrap());
+    writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
+
+    let mut w = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
     writeln!(w, "PROJECT=necat").unwrap();
     writeln!(w, "ONT_READ_LIST=read_list.txt").unwrap();
     writeln!(w, "GENOME_SIZE={}", genome_size).unwrap();
@@ -720,6 +716,53 @@ fn make_necat_config_file(cfg: &Path, genome_size: u64,  threads: usize) {
     writeln!(w, "FSA_ASSEMBLE_OPTIONS=").unwrap();
     writeln!(w, "FSA_CTG_BRIDGE_OPTIONS=").unwrap();
     writeln!(w, "POLISH_CONTIGS=true").unwrap();
+}
+
+
+fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: usize,
+                         read_type: ReadType) {
+    let (rtag, map_preset) = match read_type {
+            ReadType::OntR9      => ("ont",  "map-ont"),
+            ReadType::OntR10     => ("ont",  "map-ont"),
+            ReadType::PacbioClr  => ("clr",  "map-pb"),
+            ReadType::PacbioHifi => ("hifi", "map-hifi"),
+    };
+
+    let mut r = BufWriter::new(File::create(&dir.join("input.fofn")).unwrap());
+    writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
+
+    let mut c1 = BufWriter::new(File::create(&dir.join("nextdenovo_run.cfg")).unwrap());
+    writeln!(c1, "[General]").unwrap();
+    writeln!(c1, "job_type = local\njob_prefix = nextDenovo\ntask = all").unwrap();
+    writeln!(c1, "rewrite = yes\ndeltmp = yes\nparallel_jobs = 1\ninput_type = raw").unwrap();
+    writeln!(c1, "read_type = {rtag}").unwrap();
+    writeln!(c1, "input_fofn = input.fofn\nworkdir = nextdenovo").unwrap();
+    writeln!(c1).unwrap();
+    writeln!(c1, "[correct_option]").unwrap();
+    writeln!(c1, "read_cutoff = 1k").unwrap();
+    writeln!(c1, "genome_size = {genome_size}").unwrap();
+    writeln!(c1, "sort_options = -m 20g -t {threads}").unwrap();
+    writeln!(c1, "minimap2_options_raw = -t {threads}").unwrap();
+    writeln!(c1, "pa_correction = 1").unwrap();
+    writeln!(c1, "correction_options = -p {threads}").unwrap();
+    writeln!(c1).unwrap();
+    writeln!(c1, "[assemble_option]").unwrap();
+    writeln!(c1, "minimap2_options_cns = -t {threads}").unwrap();
+    writeln!(c1, "nextgraph_options = -a 1").unwrap();
+
+    let mut c2 = BufWriter::new(File::create(&dir.join("nextpolish_run.cfg")).unwrap());
+    writeln!(c2, "[General]").unwrap();
+    writeln!(c2, "job_type = local\njob_prefix = nextPolish\ntask = best").unwrap();
+    writeln!(c2, "rewrite = yes\ndeltmp = yes\nrerun = 3\nparallel_jobs = 1").unwrap();
+    writeln!(c2, "multithread_jobs = {threads}").unwrap();
+    writeln!(c2, "genome = nextdenovo/03.ctg_graph/nd.asm.fasta").unwrap();
+    writeln!(c2, "genome_size = auto\nworkdir = nextpolish").unwrap();
+    writeln!(c2, "polish_options = -p {threads}").unwrap();
+    writeln!(c2).unwrap();
+    writeln!(c2, "[lgs_option]").unwrap();
+    writeln!(c2, "lgs_fofn = input.fofn").unwrap();
+    writeln!(c2, "lgs_options = -min_read_len 1k -max_depth 100").unwrap();
+    writeln!(c2, "lgs_minimap2_options = -x {map_preset} -t {threads}").unwrap();
 }
 
 
