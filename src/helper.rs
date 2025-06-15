@@ -33,6 +33,7 @@ use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, loa
 use crate::subsample::parse_genome_size;
 
 
+#[allow(clippy::too_many_arguments)]
 pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: Option<PathBuf>, read_type: ReadType,
               min_depth_absolute: Option<f64>, min_depth_relative: Option<f64>,
@@ -104,9 +105,9 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     cmd.arg("-p").arg("canu")
        .arg("-d").arg(&dir)
        .arg("-fast")
-       .arg(&format!("genomeSize={genome_size}"))
+       .arg(format!("genomeSize={genome_size}"))
        .arg("useGrid=false")
-       .arg(&format!("maxThreads={threads}"))
+       .arg(format!("maxThreads={threads}"))
        .arg(input_flag).arg(&reads);
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, None);
@@ -219,7 +220,7 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
 
     let mut cmd = Command::new("miniasm");
     cmd.arg("-f").arg(&reads)
-       .arg(&dir.join("overlap.paf"));
+       .arg(dir.join("overlap.paf"));
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("unpolished.gfa")));
     run_command(&mut cmd);
@@ -227,7 +228,7 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
     let mut cmd = Command::new("minipolish");
     cmd.arg("--threads").arg(threads.to_string())
        .arg(&reads)
-       .arg(&dir.join("unpolished.gfa"));
+       .arg(dir.join("unpolished.gfa"));
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
     run_command(&mut cmd);
 
@@ -266,7 +267,7 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     let genome_size = get_genome_size(genome_size, "NECAT");
     make_necat_files(&reads, &dir, genome_size, threads);
 
-    let mut cmd = Command::new(&find_necat());
+    let mut cmd = Command::new(find_necat());
     cmd.arg("bridge").arg(dir.join("config.txt"));
     for token in extra_args { cmd.arg(token); }
     cmd.current_dir(&dir);
@@ -314,7 +315,7 @@ fn plassembler(reads: PathBuf, out_prefix: &Path,
     // https://github.com/gbouras13/plassembler
 
     check_requirements(&["plassembler", "chopper", "dnaapler", "fastp", "mash", "minimap2",
-                         "raven", "samtools", "unicycler", "unicycler"]);
+                         "raven", "samtools", "unicycler"]);
     let db = find_plassembler_db();
 
     let mut cmd = Command::new("plassembler");
@@ -348,7 +349,7 @@ fn raven(reads: PathBuf, out_prefix: &Path, threads: usize, extra_args: Vec<Stri
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
-       .arg("--graphical-fragment-assembly").arg(&out_prefix.with_extension("gfa"))
+       .arg("--graphical-fragment-assembly").arg(out_prefix.with_extension("gfa"))
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("fasta")));
@@ -394,16 +395,16 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
        .arg("-i").arg(&reads)
        .arg("-t").arg(threads.to_string())
        .arg("-f")
-       .arg("-o").arg(&dir.join("dbg"));
+       .arg("-o").arg(dir.join("dbg"));
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
     let mut cmd = Command::new("wtpoa-cns");
     cmd.arg("-t").arg(threads.to_string())
-       .arg("-i").arg(&dir.join("dbg.ctg.lay.gz"))
+       .arg("-i").arg(dir.join("dbg.ctg.lay.gz"))
        .arg("-f")
-       .arg("-o").arg(&dir.join("assembly.fasta"));
+       .arg("-o").arg(dir.join("assembly.fasta"));
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
@@ -533,9 +534,9 @@ fn sigint_cleanup(dir: &Path) {
 
 
 fn check_fasta(fasta: &Path) {
-    let ok = std::fs::metadata(&fasta).map(|m| m.len() > 0).unwrap_or(false);
+    let ok = std::fs::metadata(fasta).map(|m| m.len() > 0).unwrap_or(false);
     if !ok {
-        let _ = remove_file(&fasta);
+        let _ = remove_file(fasta);
         quit_with_error("assembly failed or produced empty output");
     }
 }
@@ -565,14 +566,14 @@ fn print_command(cmd: &Command) {
                       else { parts.push(s.into_owned()); }
     }
     eprintln!();
-    bold(&format!("{}", parts.join(" ")));
+    bold(&parts.join(" ").to_string());
     eprintln!();
 }
 
 
 fn run_command(cmd: &mut Command) {
     let name = cmd.get_program().to_string_lossy().into_owned();
-    print_command(&cmd);
+    print_command(cmd);
     let status = cmd.status().unwrap_or_else(|e| {
         quit_with_error(&format!("failed to launch {name}: {e}"))
     });
@@ -603,7 +604,7 @@ fn find_myloasm_log(dir: &Path) -> PathBuf {
     read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
         .find(|p| {
             p.file_name().and_then(|s| s.to_str())
-             .map_or(false, |name| { name.starts_with("myloasm_") && name.ends_with(".log") })
+             .is_some_and(|name| { name.starts_with("myloasm_") && name.ends_with(".log") })
         })
         .unwrap_or_else(|| quit_with_error("myloasm log file not found"))
 }
@@ -612,15 +613,13 @@ fn find_myloasm_log(dir: &Path) -> PathBuf {
 fn minpolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
     let reader = BufReader::new(File::open(gfa).unwrap());
     let mut writer = BufWriter::new(File::create(fasta).unwrap());
-    for line in reader.lines() {
-        let line = line.unwrap();
+    for line in reader.lines().map_while(Result::ok) {
         if !line.starts_with('S') { continue; }
         let mut cols = line.split('\t');
         cols.next();
         let name = cols.next().unwrap_or("");
         let seq  = cols.next().unwrap_or("");
-        let depth = cols.find_map(|field| { if field.starts_with("dp:f:") { Some(&field[5..]) }
-                                                                     else { None } });
+        let depth = cols.find_map(|field| field.strip_prefix("dp:f:"));
         let mut header = format!(">{name}");
         if name.ends_with('c') { header.push_str(" circular=true"); }
         if let Some(d) = depth { header.push_str(&format!(" depth={d}")); }
@@ -633,7 +632,7 @@ fn copy_flye_fasta(flye_fasta: &Path, assembly_info: &Path, out_fasta: &Path) {
     let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
     let info = load_flye_assembly_info(assembly_info);
     for (name, _, seq) in load_fasta(flye_fasta) {
-        let mut header = format!("{name}");
+        let mut header = name.to_string();
         if let Some((is_circ, depth)) = info.get(&name) {
             if *is_circ { header.push_str(" circular=true"); }
             header.push_str(&format!(" depth={depth}"));
@@ -717,7 +716,7 @@ fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
 
 
 fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) {
-    let mut r = BufWriter::new(File::create(&dir.join("read_list.txt")).unwrap());
+    let mut r = BufWriter::new(File::create(dir.join("read_list.txt")).unwrap());
     writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
 
     let mut w = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
@@ -756,10 +755,10 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
             ReadType::PacbioHifi => ("hifi", "hifi", "map-hifi"),
     };
 
-    let mut r = BufWriter::new(File::create(&dir.join("input.fofn")).unwrap());
+    let mut r = BufWriter::new(File::create(dir.join("input.fofn")).unwrap());
     writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
 
-    let mut c1 = BufWriter::new(File::create(&dir.join("nextdenovo_run.cfg")).unwrap());
+    let mut c1 = BufWriter::new(File::create(dir.join("nextdenovo_run.cfg")).unwrap());
     writeln!(c1, "[General]").unwrap();
     writeln!(c1, "job_type = local\njob_prefix = nextDenovo\ntask = all").unwrap();
     writeln!(c1, "rewrite = yes\ndeltmp = yes\nparallel_jobs = 1\ninput_type = raw").unwrap();
@@ -778,7 +777,7 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
     writeln!(c1, "minimap2_options_cns = -t {threads}").unwrap();
     writeln!(c1, "nextgraph_options = -a 1").unwrap();
 
-    let mut c2 = BufWriter::new(File::create(&dir.join("nextpolish_run.cfg")).unwrap());
+    let mut c2 = BufWriter::new(File::create(dir.join("nextpolish_run.cfg")).unwrap());
     writeln!(c2, "[General]").unwrap();
     writeln!(c2, "job_type = local\njob_prefix = nextPolish\ntask = best").unwrap();
     writeln!(c2, "rewrite = yes\ndeltmp = yes\nrerun = 3\nparallel_jobs = 1").unwrap();
@@ -848,7 +847,7 @@ fn find_plassembler_log(dir: &Path) -> PathBuf {
     read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
         .find(|p| {
             p.file_name().and_then(|s| s.to_str())
-             .map_or(false, |name| { name.starts_with("plassembler_") && name.ends_with(".log") })
+             .is_some_and(|name| { name.starts_with("plassembler_") && name.ends_with(".log") })
         })
         .unwrap_or_else(|| quit_with_error("plassembler log file not found"))
 }
@@ -891,8 +890,7 @@ fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
 
 fn depth_from_header(header: &str) -> Option<f64> {
     fn parse_num(s: &str) -> Option<f64> {
-        s.split(|c: char| c == '-' || c == '_' || c == ' ')
-            .next().and_then(|n| n.parse::<f64>().ok())
+        s.split(['-', '_', ' ']).next().and_then(|n| n.parse::<f64>().ok())
     }
     if let Some(i) = header.find("depth=")    { return parse_num(&header[i + 6..]); }
     if let Some(i) = header.find("depth-")    { return parse_num(&header[i + 6..]); }
@@ -950,14 +948,10 @@ mod tests {
         let out_prefix = dir.path().join("test");
         let fasta = out_prefix.with_extension("fasta");
 
-        make_test_file(&fasta, ">a depth=20\n\
-                                ACGT\n\
-                                >b depth=120\n\
-                                CGA\n\
-                                >c depth=200\n\
-                                ACAGACTACGACTACGACGACGATCAGCGACATCGACGT\n\
-                                >d depth=100\n\
-                                CGATCGACTACC\n");
+        make_test_file(&fasta, ">a depth=20\nACGT\n\
+                                >b depth=120\nCGA\n\
+                                >c depth=200\nACAGACTACGACTACGACGACGATCAGCGACATCGACGT\n\
+                                >d depth=100\nCGATCGACTACC\n");
 
         depth_filter(&out_prefix, &None, &None);
         assert_eq!(load_fasta(&fasta).len(), 4);
