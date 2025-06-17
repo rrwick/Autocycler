@@ -40,12 +40,15 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
               extra_args: Vec<String>) {
     check_if_file_exists(&reads);
     let (dir, _guard) = get_working_dir(dir);
-    let out_prefix = check_prefix(out_prefix);
 
+    if task == Task::Genomesize {
+        genome_size_raven(reads, threads, dir, extra_args);
+        return;
+    }
+
+    let out_prefix = check_prefix(out_prefix);
     match task {
-        Task::Genomesize => {
-            genome_size_raven(reads, threads, dir, extra_args);
-        }
+        Task::Genomesize => unreachable!(),
         Task::Canu => {
             canu(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
@@ -415,7 +418,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
 }
 
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 pub enum Task {
     Genomesize,   // calculate genome size using a Raven assembly
     Canu,         // assemble using Canu and clean results
