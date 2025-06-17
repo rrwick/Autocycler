@@ -81,8 +81,10 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
         }
     }
 
-    if min_depth_absolute.is_some() || min_depth_relative.is_some() {
-        depth_filter(&out_prefix, &min_depth_absolute, &min_depth_relative);
+    depth_filter(&out_prefix, &min_depth_absolute, &min_depth_relative);
+    let final_fasta = out_prefix.with_extension("fasta");
+    if final_fasta.exists() && total_fasta_length(&final_fasta) == 0 {
+        let _ = std::fs::remove_file(&final_fasta);
     }
 }
 
@@ -232,7 +234,7 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
     run_command(&mut cmd);
 
-    minpolish_gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
+    minipolish_gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
     check_fasta(&out_prefix.with_extension("fasta"));
 }
 
@@ -256,7 +258,7 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
     check_fasta(&dir.join("assembly_primary.fa"));
     copy_output_file(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("final_contig_graph.gfa"), &out_prefix.with_extension("gfa"));
-    copy_output_file(&find_myloasm_log(&dir), &out_prefix.with_extension("log"));
+    copy_output_file(&find_log_file(&dir, "myloasm"), &out_prefix.with_extension("log"));
 }
 
 
@@ -268,7 +270,7 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     make_necat_files(&reads, &dir, genome_size, threads);
 
     let mut cmd = Command::new(find_necat());
-    cmd.arg("bridge").arg(dir.join("config.txt"));
+    cmd.arg("bridge").arg("config.txt");
     for token in extra_args { cmd.arg(token); }
     cmd.current_dir(&dir);
     redirect_stderr_and_stdout(&mut cmd, None);
@@ -337,7 +339,7 @@ fn plassembler(reads: PathBuf, out_prefix: &Path,
     copy_output_file(&dir.join("plassembler_plasmids.gfa"), &out_prefix.with_extension("gfa"));
     rotate_plassembler_contigs(&dir.join("plassembler_plasmids.fasta"),
                                &out_prefix.with_extension("fasta"));
-    copy_output_file(&find_plassembler_log(&dir), &out_prefix.with_extension("log"));
+    copy_output_file(&find_log_file(&dir, "plassembler"), &out_prefix.with_extension("log"));
 }
 
 
@@ -566,7 +568,7 @@ fn print_command(cmd: &Command) {
                       else { parts.push(s.into_owned()); }
     }
     eprintln!();
-    bold(&parts.join(" ").to_string());
+    bold(&parts.join(" "));
     eprintln!();
 }
 
@@ -600,25 +602,22 @@ fn redirect_stderr_and_stdout(cmd: &mut Command, stdout_file: Option<&Path>) {
 }
 
 
-fn find_myloasm_log(dir: &Path) -> PathBuf {
+fn find_log_file(dir: &Path, prefix: &str) -> PathBuf {
     read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| {
-            p.file_name().and_then(|s| s.to_str())
-             .is_some_and(|name| { name.starts_with("myloasm_") && name.ends_with(".log") })
-        })
-        .unwrap_or_else(|| quit_with_error("myloasm log file not found"))
+      .find(|p| p.file_name().and_then(|s| s.to_str())
+                 .is_some_and(|n| n.starts_with(prefix) && n.ends_with(".log")))
+      .unwrap_or_else(|| quit_with_error(&format!("{prefix} log file not found")))
 }
 
 
-fn minpolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
+fn minipolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
     let reader = BufReader::new(File::open(gfa).unwrap());
     let mut writer = BufWriter::new(File::create(fasta).unwrap());
     for line in reader.lines().map_while(Result::ok) {
         if !line.starts_with('S') { continue; }
         let mut cols = line.split('\t');
         cols.next();
-        let name = cols.next().unwrap_or("");
-        let seq  = cols.next().unwrap_or("");
+        let (name, seq) = (cols.next().unwrap_or(""), cols.next().unwrap_or(""));
         let depth = cols.find_map(|field| field.strip_prefix("dp:f:"));
         let mut header = format!(">{name}");
         if name.ends_with('c') { header.push_str(" circular=true"); }
@@ -717,7 +716,8 @@ fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
 
 fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) {
     let mut r = BufWriter::new(File::create(dir.join("read_list.txt")).unwrap());
-    writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
+    writeln!(r, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
+                           .display()).unwrap();
 
     let mut w = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
     writeln!(w, "PROJECT=necat").unwrap();
@@ -756,7 +756,8 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
     };
 
     let mut r = BufWriter::new(File::create(dir.join("input.fofn")).unwrap());
-    writeln!(r, "{}", reads.canonicalize().unwrap().display()).unwrap();
+    writeln!(r, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
+                           .display()).unwrap();
 
     let mut c1 = BufWriter::new(File::create(dir.join("nextdenovo_run.cfg")).unwrap());
     writeln!(c1, "[General]").unwrap();
@@ -795,11 +796,10 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
 
 fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
     // Combines the two pid*.log.info files from NextDenovo and NextPolish into a single file.
-    let mut logs: Vec<PathBuf> = read_dir(dir).unwrap().filter_map(|e| {
+    let mut logs: Vec<_> = read_dir(dir).unwrap().filter_map(|e| {
         let p = e.ok()?.path();
         let is_log = p.file_name().and_then(|s| s.to_str())
-            .map(|name| name.starts_with("pid") && name.ends_with(".log.info"))
-            .unwrap_or(false);
+            .map(|name| name.starts_with("pid") && name.ends_with(".log.info")).unwrap_or(false);
         if is_log { Some(p) } else { None }
     }).collect();
     if logs.len() < 2 { return; }
@@ -819,8 +819,8 @@ fn find_plassembler_db() -> PathBuf {
         let pb = PathBuf::from(&p);
         if pb.is_dir() { return pb; }
     }
-    if let Ok(prefix) = env::var("CONDA_PREFIX") {
-        let pb = Path::new(&prefix).join("plassembler_db");
+    if let Ok(p) = env::var("CONDA_PREFIX") {
+        let pb = Path::new(&p).join("plassembler_db");
         if pb.is_dir() { return pb; }
     }
     quit_with_error("No Plassembler database found. \
@@ -832,24 +832,14 @@ fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
     let mut w = BufWriter::new(File::create(dest).unwrap());
     let mut rng = StdRng::seed_from_u64(0);
     for (_name, header, seq) in load_fasta(src) {
-        if header.contains("circular=True") && seq.len() > 1 {
+        if header.to_ascii_lowercase().contains("circular=true") && seq.len() > 1 {
             let r = rng.gen_range(1..seq.len());
-            let rotated = format!("{}{}", &seq[r..], &seq[..r]);
+            let rotated = seq[r..].to_owned() + &seq[..r];
             writeln!(w, ">{header}\n{rotated}").unwrap();
         } else {
             writeln!(w, ">{header}\n{seq}").unwrap();
         }
     }
-}
-
-
-fn find_plassembler_log(dir: &Path) -> PathBuf {
-    read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| {
-            p.file_name().and_then(|s| s.to_str())
-             .is_some_and(|name| { name.starts_with("plassembler_") && name.ends_with(".log") })
-        })
-        .unwrap_or_else(|| quit_with_error("plassembler log file not found"))
 }
 
 
@@ -890,7 +880,7 @@ fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
 
 fn depth_from_header(header: &str) -> Option<f64> {
     fn parse_num(s: &str) -> Option<f64> {
-        s.split(['-', '_', ' ']).next().and_then(|n| n.parse::<f64>().ok())
+        s.split(['-', '_', ' ']).next()?.parse().ok()
     }
     if let Some(i) = header.find("depth=")    { return parse_num(&header[i + 6..]); }
     if let Some(i) = header.find("depth-")    { return parse_num(&header[i + 6..]); }
@@ -1018,5 +1008,33 @@ mod tests {
         assert_eq!(new_header, ">tig00000001 len=40 reads=50 class=contig suggestRepeat=no \
                                 suggestBubble=no suggestCircular=yes trim=0-40");
         assert_eq!(new_seq, "CTATTTAATGCTAGAGATGCTGCATATCAAAAAATAATCA");
+    }
+
+    #[test]
+    fn test_rotate_plassembler_contigs_1() {
+        // non-circular contigs should not be modified
+        let dir = tempdir().unwrap();
+        let in_fasta = dir.path().join("input.fasta");
+        let out_fasta = dir.path().join("output.fasta");
+        make_test_file(&in_fasta, ">a\nACGATCGCT\n\
+                                   >b\nCGATCGACTAC\n");
+        rotate_plassembler_contigs(&in_fasta, &out_fasta);
+        let in_seqs: Vec<String> = load_fasta(&in_fasta).into_iter().map(|(_, _, s)| s).collect();
+        let out_seqs: Vec<String> = load_fasta(&out_fasta).into_iter().map(|(_, _, s)| s).collect();
+        assert_eq!(in_seqs, out_seqs);
+    }
+
+    #[test]
+    fn test_rotate_plassembler_contigs_2() {
+        // circular contigs should be modified
+        let dir = tempdir().unwrap();
+        let in_fasta = dir.path().join("input.fasta");
+        let out_fasta = dir.path().join("output.fasta");
+        make_test_file(&in_fasta, ">a circular=True\nACGATCGCT\n\
+                                   >b circular=True\nCGATCGACTAC\n");
+        rotate_plassembler_contigs(&in_fasta, &out_fasta);
+        let in_seqs: Vec<String> = load_fasta(&in_fasta).into_iter().map(|(_, _, s)| s).collect();
+        let out_seqs: Vec<String> = load_fasta(&out_fasta).into_iter().map(|(_, _, s)| s).collect();
+        assert_ne!(in_seqs, out_seqs);
     }
 }
