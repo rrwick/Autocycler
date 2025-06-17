@@ -13,13 +13,14 @@
 set -e
 
 # Get arguments.
-reads=$1    # input reads FASTQ
-threads=$2  # threads per job
-jobs=$3     # number of simultaneous jobs
+reads=$1                 # input reads FASTQ
+threads=$2               # threads per job
+jobs=$3                  # number of simultaneous jobs
+read_type=${4:-ont_r10}  # read type (default = ont_r10)
 
 # Validate input parameters.
 if [[ -z "$reads" || -z "$threads" || -z "$jobs" ]]; then
-    echo "Usage: $0 <read_fastq> <threads> <jobs>" 1>&2
+    echo "Usage: $0 <read_fastq> <threads> <jobs> [read_type]" 1>&2
     exit 1
 fi
 if [[ ! -f "$reads" ]]; then
@@ -27,8 +28,12 @@ if [[ ! -f "$reads" ]]; then
     exit 1
 fi
 if (( threads > 128 )); then threads=128; fi  # Flye won't work with more than 128 threads
+case $read_type in
+    ont_r9|ont_r10|pacbio_clr|pacbio_hifi) ;;
+    *) echo "Error: read_type must be ont_r9, ont_r10, pacbio_clr or pacbio_hifi" 1>&2; exit 1 ;;
+esac
 
-genome_size=$(genome_size_raven.sh "$reads" "$threads")
+genome_size=$(autocycler helper genomesize --reads "$reads" --threads "$threads")
 
 # Step 1: subsample the long-read set into multiple files
 autocycler subsample --reads "$reads" --out_dir subsampled_reads --genome_size "$genome_size" 2>> autocycler.stderr
@@ -38,13 +43,12 @@ mkdir -p assemblies
 rm -f assemblies/jobs.txt
 for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; do
     for i in 01 02 03 04; do
-        echo "$assembler.sh subsampled_reads/sample_$i.fastq assemblies/${assembler}_$i $threads $genome_size" >> assemblies/jobs.txt
+        echo "autocycler helper $assembler --reads subsampled_reads/sample_$i.fastq --out_prefix assemblies/${assembler}_$i --threads $threads --genome_size $genome_size --read_type $read_type" >> assemblies/jobs.txt
     done
 done
 set +e
 nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.txt --results assemblies/logs < assemblies/jobs.txt
 set -e
-find assemblies/ -maxdepth 1 -type f -name "*.fasta" -empty -delete
 
 # Give circular contigs from Plassembler extra clustering weight
 shopt -s nullglob
