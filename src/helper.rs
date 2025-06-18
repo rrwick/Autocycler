@@ -209,17 +209,24 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
 
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon"]);
 
-    let ava_preset = match read_type {
+    let ava_arg = match read_type {
         ReadType::OntR9      => "ava-ont",
-        ReadType::OntR10     => "ava-pb",
+        ReadType::OntR10     => "-k19 -Xw7 -e0 -m100",
         ReadType::PacbioClr  => "ava-pb",
-        ReadType::PacbioHifi => "ava-pb",
+        ReadType::PacbioHifi => "-k23 -Xw11 -e0 -m100",
+    };
+    let map_preset = match read_type {
+        ReadType::OntR9      => "map-ont",
+        ReadType::OntR10     => "lr:hq",
+        ReadType::PacbioClr  => "map-pb",
+        ReadType::PacbioHifi => "map-hifi",
     };
 
     let mut cmd = Command::new("minimap2");
-    cmd.arg("-x").arg(ava_preset)
-       .arg("-t").arg(threads.to_string())
-       .arg(&reads).arg(&reads);
+    cmd.arg("-t").arg(threads.to_string());
+    if ava_arg.starts_with('-') { cmd.args(ava_arg.split_whitespace()); }
+                           else { cmd.arg("-x").arg(ava_arg); }
+    cmd.arg(&reads).arg(&reads);
     redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("overlap.paf")));
     run_command(&mut cmd);
 
@@ -232,6 +239,7 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
 
     let mut cmd = Command::new("minipolish");
     cmd.arg("--threads").arg(threads.to_string())
+       .arg("--minimap2-preset").arg(map_preset)
        .arg(&reads)
        .arg(dir.join("unpolished.gfa"));
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
