@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
-use std::io::{prelude::*, BufReader, Read};
+use std::io::{prelude::*, BufReader, Read, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -504,6 +504,20 @@ pub fn find_replace_i32_tuple(tuple: (i32, i32), find: i32, replace: i32) -> (i3
 }
 
 
+pub fn gunzip_file(src: &Path, dest: &Path) {
+    let gz = File::open(src).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot open {}: {e}", src.display()))
+    });
+    let mut decoder = MultiGzDecoder::new(gz);
+    let mut writer = BufWriter::new(File::create(dest).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot create {}: {e}", dest.display()))
+    }));
+    io::copy(&mut decoder, &mut writer).unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to decompress {}: {e}", src.display()))
+    });
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,5 +774,31 @@ mod tests {
 
         make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
         assert_eq!(total_fasta_length(&filename), 12);
+    }
+
+    #[test]
+    fn test_gunzip_file() {
+        let dir = tempdir().unwrap();
+        let fasta = dir.path().join("test.fasta");
+        let gzipped_fasta = dir.path().join("test.fasta.gz");
+        let gunzipped_fasta = dir.path().join("test2.fasta");
+
+        let contents = ">a depth=20\nACGT\n>b depth=120\nCGA\n";  // fasta file
+        make_test_file(&fasta, contents);
+        make_gzipped_test_file(&gzipped_fasta, contents);
+        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
+        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
+
+        let contents = "isdhfisdufhosdijfosdhfso";  // random contents
+        make_test_file(&fasta, contents);
+        make_gzipped_test_file(&gzipped_fasta, contents);
+        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
+        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
+
+        let contents = "";  // empty files should work too
+        make_test_file(&fasta, contents);
+        make_gzipped_test_file(&gzipped_fasta, contents);
+        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
+        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
     }
 }

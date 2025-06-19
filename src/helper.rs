@@ -29,7 +29,8 @@ use which::which;
 use tempfile::{tempdir, NamedTempFile, TempDir};
 
 use crate::log::{bold, underline};
-use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta};
+use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta,
+                  gunzip_file};
 use crate::subsample::parse_genome_size;
 
 
@@ -197,7 +198,7 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("contigs.fasta.gz"));
-    gunzip_fasta(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
+    gunzip_file(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("metaMDBG.log"), &out_prefix.with_extension("log"));
 }
 
@@ -559,14 +560,6 @@ fn copy_output_file(src: &Path, dest: &Path) {
     copy(src, dest).unwrap_or_else(|e| {
         quit_with_error(&format!("failed to copy {} → {}: {e}", src.display(), dest.display()))
     });
-}
-
-
-fn gunzip_fasta(src: &Path, dest: &Path) {
-    let mut writer = BufWriter::new(File::create(dest).unwrap());
-    for (_, header, seq) in load_fasta(src) {
-        writeln!(writer, ">{header}\n{seq}").unwrap();
-    }
 }
 
 
