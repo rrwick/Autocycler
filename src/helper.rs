@@ -19,7 +19,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir,
-              metadata};
+              metadata, rename};
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -269,6 +269,7 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
 
     check_fasta(&dir.join("assembly_primary.fa"));
     copy_output_file(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
+    replace_underscores_with_spaces(&out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("final_contig_graph.gfa"), &out_prefix.with_extension("gfa"));
     copy_output_file(&find_log_file(&dir, "myloasm"), &out_prefix.with_extension("log"));
 }
@@ -847,6 +848,18 @@ fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
 }
 
 
+fn replace_underscores_with_spaces(filename: &Path) {
+    let in_file = BufReader::new(File::open(filename).unwrap());
+    let tmp_path = filename.with_extension("tmp");
+    let mut out_file = BufWriter::new(File::create(&tmp_path).unwrap());
+
+    for line in in_file.lines().map_while(Result::ok) {
+        writeln!(out_file, "{}", line.replace('_', " ")).unwrap();
+    }
+    rename(tmp_path, filename).unwrap();
+}
+
+
 fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
                 min_depth_relative: &Option<f64>) {
     // Filters the final FASTA file by depth, overwriting the original file. If no depths are
@@ -933,6 +946,8 @@ mod tests {
         assert_eq!(depth_from_header(">contig"), None);
         assert_eq!(depth_from_header(">a_len-12_circular-no_depth-37-37-37_mult-2.00"), Some(37.0));
         assert_eq!(depth_from_header(">b_len-9_circular-yes_depth-25-24-23_mult-1.00"), Some(25.0));
+        assert_eq!(depth_from_header(">a len-12 circular-no depth-37-37-37 mult-2.00"), Some(37.0));
+        assert_eq!(depth_from_header(">b len-9 circular-yes depth-25-24-23 mult-1.00"), Some(25.0));
         assert_eq!(depth_from_header(">ctg15 length=123 coverage=49.70 circular=yes"), Some(49.7));
     }
 
@@ -1040,5 +1055,17 @@ mod tests {
         let in_seqs: Vec<String> = load_fasta(&in_fasta).into_iter().map(|(_, _, s)| s).collect();
         let out_seqs: Vec<String> = load_fasta(&out_fasta).into_iter().map(|(_, _, s)| s).collect();
         assert_ne!(in_seqs, out_seqs);
+    }
+
+    #[test]
+    fn test_replace_underscores_with_spaces() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("test.fasta");
+        make_test_file(&filename, ">a_len-12_circular-no_depth-37-37-37_mult-2.00\nACGATCGCT\n\
+                                   >b_len-9_circular-yes_depth-25-24-23_mult-1.00\nCGATCGACTAC\n");
+        replace_underscores_with_spaces(&filename);
+        let expected = ">a len-12 circular-no depth-37-37-37 mult-2.00\nACGATCGCT\n\
+                        >b len-9 circular-yes depth-25-24-23 mult-1.00\nCGATCGACTAC\n";
+        assert_eq!(std::fs::read_to_string(&filename).unwrap(), expected);
     }
 }
