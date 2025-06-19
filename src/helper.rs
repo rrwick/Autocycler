@@ -424,7 +424,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     run_command(&mut cmd);
 
     check_fasta(&dir.join("assembly.fasta"));
-    copy_output_file(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
+    copy_fasta_one_line_per_seq(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
 }
 
 
@@ -860,6 +860,14 @@ fn replace_underscores_with_spaces(filename: &Path) {
 }
 
 
+fn copy_fasta_one_line_per_seq(in_fasta: &Path, out_fasta: &Path) {
+    let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
+    for (_, header, seq) in load_fasta(in_fasta) {
+        writeln!(writer, ">{header}\n{seq}").unwrap();
+    }
+}
+
+
 fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
                 min_depth_relative: &Option<f64>) {
     // Filters the final FASTA file by depth, overwriting the original file. If no depths are
@@ -910,7 +918,6 @@ fn depth_from_header(header: &str) -> Option<f64> {
 mod tests {
     use super::*;
     use std::panic;
-
     use crate::tests::make_test_file;
 
     #[test]
@@ -1067,5 +1074,16 @@ mod tests {
         let expected = ">a len-12 circular-no depth-37-37-37 mult-2.00\nACGATCGCT\n\
                         >b len-9 circular-yes depth-25-24-23 mult-1.00\nCGATCGACTAC\n";
         assert_eq!(std::fs::read_to_string(&filename).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_copy_fasta_one_line_per_seq() {
+        let dir = tempdir().unwrap();
+        let in_fasta = dir.path().join("in.fasta");
+        let out_fasta = dir.path().join("out.fasta");
+        make_test_file(&in_fasta, ">a\nACGA\nTCGC\nT\n>b\nCGAT\nCGAC\nTAC\n");
+        let expected = ">a\nACGATCGCT\n>b\nCGATCGACTAC\n";
+        copy_fasta_one_line_per_seq(&in_fasta, &out_fasta);
+        assert_eq!(std::fs::read_to_string(&out_fasta).unwrap(), expected);
     }
 }

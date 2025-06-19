@@ -147,11 +147,8 @@ pub fn load_fasta(filename: &Path) -> Vec<(String, String, String)> {
     if is_file_empty(filename) {
         quit_with_error(&format!("{} is an empty file", filename.display()));
     }
-    let load_result = if is_file_gzipped(filename) {
-        load_fasta_gzipped(filename)
-    } else {
-        load_fasta_not_gzipped(filename)
-    };
+    let load_result = if is_file_gzipped(filename) { load_fasta_gzipped(filename) }
+                                              else { load_fasta_not_gzipped(filename) };
     match load_result {
         Ok(_)  => (),
         Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
@@ -215,22 +212,16 @@ pub fn total_fasta_length(filename: &Path) -> usize {
 
 fn is_file_gzipped(filename: &Path) -> bool {
     // This function returns true if the file appears to be gzipped (based on the first two bytes)
-    // and false if not. If it can't open the file or read the first two bytes, it will quit with
-    // an error message.
-    let open_result = File::open(filename);
-    match open_result {
-        Ok(_)  => (),
-        Err(e) => quit_with_error(&format!("unable to open {}\n{}", filename.display(), e)),
-    }
-    let file = open_result.unwrap();
-    let mut reader = BufReader::new(file);
-    let mut buf = vec![0u8; 2];
-    let read_result = reader.read_exact(&mut buf);
-    match read_result {
-        Ok(_)  => (),
-        Err(e) => quit_with_error(&format!("{} is too small\n{}", filename.display(), e)),
-    }
-    buf[0] == 31 && buf[1] == 139
+    // and false if not.
+    let file = File::open(filename).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to open {}: {e}", filename.display()))
+    });
+    let mut buf = [0u8; 2];
+    let n = BufReader::new(file).read(&mut buf)
+        .unwrap_or_else(|e| {
+            quit_with_error(&format!("error reading {}: {e}", filename.display()))
+        });
+    n == 2 && buf == [0x1f, 0x8b]
 }
 
 
@@ -521,6 +512,7 @@ pub fn gunzip_file(src: &Path, dest: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic;
     use tempfile::tempdir;
 
     use crate::tests::{make_test_file, make_gzipped_test_file};
@@ -732,14 +724,24 @@ mod tests {
         let filename = dir.path().join("temp.fasta");
 
         make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta_not_gzipped(&filename).unwrap();
+        let fasta = load_fasta(&filename);
         assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
                                ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
 
         make_gzipped_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta_gzipped(&filename).unwrap();
+        let fasta = load_fasta(&filename);
         assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
                                ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+
+        make_test_file(&filename, "");
+        assert!(panic::catch_unwind(|| {
+            load_fasta(&filename);
+        }).is_err());
+
+        make_gzipped_test_file(&filename, "");
+        assert!(panic::catch_unwind(|| {
+            load_fasta(&filename);
+        }).is_err());
     }
 
     #[test]
