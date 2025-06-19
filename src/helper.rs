@@ -86,10 +86,7 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
     }
 
     depth_filter(&out_prefix, &min_depth_absolute, &min_depth_relative);
-    let final_fasta = out_prefix.with_extension("fasta");
-    if final_fasta.exists() && total_fasta_length(&final_fasta) == 0 {
-        let _ = std::fs::remove_file(&final_fasta);
-    }
+    delete_fasta_if_empty(&out_prefix);
 }
 
 
@@ -875,6 +872,7 @@ fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
     if min_depth_absolute.is_none() && min_depth_relative.is_none() { return; }
     let fasta = out_prefix.with_extension("fasta");
     if !fasta.exists() { return; }
+    if total_fasta_length(&fasta) == 0 { return; }
 
     let mut records = Vec::new();
     let (mut longest_len, mut longest_depth) = (0usize, 0.0);
@@ -911,6 +909,14 @@ fn depth_from_header(header: &str) -> Option<f64> {
     if let Some(i) = header.find("depth-")    { return parse_num(&header[i + 6..]); }
     if let Some(i) = header.find("coverage=") { return parse_num(&header[i + 9..]); }
     None
+}
+
+
+fn delete_fasta_if_empty(out_prefix: &Path) {
+    let fasta = out_prefix.with_extension("fasta");
+    if fasta.exists() && total_fasta_length(&fasta) == 0 {
+        let _ = std::fs::remove_file(&fasta);
+    }
 }
 
 

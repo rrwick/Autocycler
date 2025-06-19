@@ -159,6 +159,18 @@ pub fn load_fasta(filename: &Path) -> Vec<(String, String, String)> {
 }
 
 
+pub fn load_fasta_allow_empty(filename: &Path) -> Vec<(String, String, String)> {
+    // Same as load_fasta, but will not quit with an error if the file is empty.
+    let load_result = if is_file_gzipped(filename) { load_fasta_gzipped(filename) }
+                                              else { load_fasta_not_gzipped(filename) };
+    match load_result {
+        Ok(_)  => (),
+        Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
+    }
+    load_result.unwrap()
+}
+
+
 fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path) {
     // This function looks at the result of the load_fasta function and does some checks to make
     // sure everything looks okay. If any problems are found, it will quit with an error message.
@@ -205,7 +217,7 @@ fn is_file_empty(filename: &Path) -> bool {
 
 pub fn total_fasta_length(filename: &Path) -> usize {
     // This function returns the total length of all sequences in a FASTA file.
-    let fasta_seqs = load_fasta(filename);
+    let fasta_seqs = load_fasta_allow_empty(filename);
     fasta_seqs.iter().map(|(_, _, seq)| seq.len()).sum()
 }
 
@@ -745,6 +757,28 @@ mod tests {
     }
 
     #[test]
+    fn test_load_fasta_allow_empty() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+
+        make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
+        let fasta = load_fasta_allow_empty(&filename);
+        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
+                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+
+        make_gzipped_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
+        let fasta = load_fasta_allow_empty(&filename);
+        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
+                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+
+        make_test_file(&filename, "");
+        load_fasta_allow_empty(&filename);
+
+        make_gzipped_test_file(&filename, "");
+        load_fasta_allow_empty(&filename);
+    }
+
+    #[test]
     fn test_is_file_empty() {
         let dir = tempdir().unwrap();
         let filename = dir.path().join("temp.fasta");
@@ -776,6 +810,9 @@ mod tests {
 
         make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
         assert_eq!(total_fasta_length(&filename), 12);
+
+        make_test_file(&filename, "");
+        assert_eq!(total_fasta_length(&filename), 0);
     }
 
     #[test]
