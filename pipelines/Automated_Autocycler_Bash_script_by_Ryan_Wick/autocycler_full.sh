@@ -47,7 +47,7 @@ for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; 
     done
 done
 set +e
-nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.txt --results assemblies/logs < assemblies/jobs.txt
+nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.tsv --results assemblies/logs < assemblies/jobs.txt
 set -e
 
 # Give circular contigs from Plassembler extra clustering weight
