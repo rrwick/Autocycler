@@ -1,1 +1,0 @@
-This directory contains helper scripts for simplifying the generation of long-read assemblies. See [this page of the wiki](https://github.com/rrwick/Autocycler/wiki/Generating-input-assemblies#assembly-helper-scripts) for more information.
