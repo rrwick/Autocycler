@@ -835,7 +835,7 @@ fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
     let mut rng = StdRng::seed_from_u64(0);
     for (_name, header, seq) in load_fasta(src) {
         if header.to_ascii_lowercase().contains("circular=true") && seq.len() > 1 {
-            let r = rng.gen_range(1..seq.len());
+            let r = rng.random_range(1..seq.len());
             let rotated = seq[r..].to_owned() + &seq[..r];
             writeln!(w, ">{header}\n{rotated}").unwrap();
         } else {

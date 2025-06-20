@@ -15,7 +15,7 @@ use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use rand::{rngs::StdRng, SeedableRng};
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use std::fs::{File, read_to_string};
 use std::io::{Read, Write};
 use std::path::Path;

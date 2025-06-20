@@ -348,7 +348,7 @@ mod tests {
         make_test_file(&assembly_dir.path().join("b.fasta"), ">b1\nACGT\n>b2\nACGT\n");
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c2\nACGT\n>c3\nACGT\n");
         let mut metrics = InputAssemblyMetrics::default();
-        let (sequences, count) = load_sequences(&assembly_dir.into_path(), 3, &mut metrics, 25);
+        let (sequences, count) = load_sequences(assembly_dir.path(), 3, &mut metrics, 25);
         assert_eq!(sequences.len(), 6);
         assert_eq!(count, 3);
     }
@@ -362,7 +362,7 @@ mod tests {
         make_test_file(&assembly_dir.path().join("c.fasta"), ">c1\nACGT\n>c1\nACGT\n>c3\nACGT\n");
         assert!(panic::catch_unwind(|| {
             let mut metrics = InputAssemblyMetrics::default();
-            load_sequences(&assembly_dir.into_path(), 3, &mut metrics, 25);
+            load_sequences(assembly_dir.path(), 3, &mut metrics, 25);
         }).is_err());
     }
 }
