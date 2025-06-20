@@ -16,7 +16,7 @@ RUN install_tools.sh metamdbg
 FROM builder as builder_necat
 RUN install_tools.sh necat
 FROM builder as builder_minipolish
-RUN install_tools.sh minipolish miniasm bioconda::minipolish racon any2fasta
+RUN install_tools.sh minipolish miniasm bioconda::minipolish racon
 FROM builder as builder_verkko
 RUN install_tools.sh Verkko
 FROM builder as builder_nextdenovo
@@ -46,14 +46,11 @@ ENV PATH="/opt/conda/envs/autocycler/bin:$PATH"
 
 # Download and install Autocycler (binary and scripts) from the latest release.
 RUN curl -L -o autocycler.tar.gz $(curl -s https://api.github.com/repos/rrwick/Autocycler/releases/latest | grep "browser_download_url.*linux-x86_64-musl.*tar.gz" | cut -d '"' -f 4) && \
-    curl -L -o autocycler_scripts.tar.gz $(curl -s https://api.github.com/repos/rrwick/Autocycler/releases/latest | grep "browser_download_url.*autocycler-helper-scripts.*tar.gz" | cut -d '"' -f 4) && \
     tar -xzf autocycler.tar.gz && \
-    tar -xzf autocycler_scripts.tar.gz && \
-    mv autocycler *.sh *.py /opt/conda/envs/autocycler/bin/ && \
-    rm environment.yml autocycler.tar.gz autocycler_scripts.tar.gz
+    mv autocycler /opt/conda/envs/autocycler/bin/ && \
+    rm environment.yml autocycler.tar.gz
 
 # Copy certain tools from public containers
-COPY --from=docker.io/staphb/seqtk /usr/local/bin/seqtk /usr/local/bin/seqtk
 COPY --from=docker.io/staphb/minimap2 /usr/local/bin/minimap2 /usr/local/bin/minimap2
 COPY --from=docker.io/troder/lja /opt/LJA/bin/lja /usr/local/bin/lja
 

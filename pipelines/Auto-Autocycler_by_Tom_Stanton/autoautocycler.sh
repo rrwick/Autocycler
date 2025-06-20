@@ -3,14 +3,12 @@
 # Simple pipeline for running Autocycler on multiple samples (https://github.com/rrwick/Autocycler.git)
 # Copyright (C) 2025 Thomas D. Stanton (tomdstanton@gmail.com)
 # Permission to copy and modify is granted under the GPLv3 license
-# Last revised 15/01/2025
+# Last revised 20/06/2025
 
 set -eo pipefail
 
-# First check binaries
-for b in autocycler canu.sh canu_trim.py flye.sh genome_size_raven.sh lja.sh metamdbg.sh metamdbg_filter.py miniasm.sh necat.sh nextdenovo.sh raven.sh redbean.sh; do
-    command -v $b >/dev/null 2>&1 || { echo 2>&1 "ERROR: $b not found, was Autocycler installed correctly?"; exit 1; }
-done
+# First check binary
+command -v autocycler >/dev/null 2>&1 || { echo 2>&1 "ERROR: autocycler not found, was Autocycler installed correctly?"; exit 1; }
 
 # Define initial globals and argument defaults
 PROG_NAME=$(basename $0 ".sh")
@@ -155,9 +153,9 @@ for reads in "${READ_FILES[@]}"; do
 
     # Get genome size
     if [ $SIZE == 'AUTO' ]; then
-        echo "Getting genome size with genome_size_raven.sh"
+        echo "Getting genome size with autocycler helper genomesize"
         echo
-        genome_size=$(genome_size_raven.sh $reads $THREADS)
+        genome_size=$(autocycler helper genomesize --reads $reads --threads $THREADS)
     else
         genome_size=$SIZE
     fi
@@ -172,7 +170,7 @@ for reads in "${READ_FILES[@]}"; do
             echo
             echo "Assembling set $i with $assembler  -----------"
             echo
-            ${assembler}.sh ${subsampled_reads}/sample_0${i}.fastq ${assemblies}/${assembler}_0${i} $THREADS $genome_size
+            autocycler helper ${assembler} --reads ${subsampled_reads}/sample_0${i}.fastq --out_prefix ${assemblies}/${assembler}_0${i} --threads $THREADS --genome_size $genome_size
         done
     done
     rm -rf $subsampled_reads  # Remove reads directory to save disk space

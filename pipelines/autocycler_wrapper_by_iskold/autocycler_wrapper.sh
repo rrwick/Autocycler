@@ -33,7 +33,7 @@ mkdir -p $output
 echo -e "\nEstimating genome size:"
 if ! command -v lrge 2>&1 >/dev/null
 then
-    genome_size=$(genome_size_raven.sh "$reads" "$threads")
+    genome_size=$(autocycler helper genomesize --reads "$reads" --threads "$threads")
 else
     genome_size=$(lrge -t "$threads" "$reads")
 fi
@@ -45,7 +45,7 @@ autocycler subsample --count $subset  --reads "$reads" --out_dir ${output}/subsa
 mkdir -p $output/assemblies
 for assembler in canu flye miniasm necat nextdenovo raven; do
     for i in `eval echo {01..$subset}`; do
-        "$assembler".sh ${output}/subsampled_reads/sample_"$i".fastq ${output}/assemblies/"$assembler"_"$i" "$threads" "$genome_size"
+        autocycler helper "$assembler" --reads ${output}/subsampled_reads/sample_"$i".fastq --out_prefix ${output}/assemblies/"$assembler"_"$i" --threads "$threads" --genome_size "$genome_size"
     done
 done
 
