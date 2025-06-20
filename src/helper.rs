@@ -30,7 +30,7 @@ use tempfile::{tempdir, NamedTempFile, TempDir};
 
 use crate::log::{bold, underline};
 use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta,
-                  gunzip_file};
+                  is_file_empty, is_fasta_empty};
 use crate::subsample::parse_genome_size;
 
 
@@ -90,8 +90,8 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
 }
 
 
-fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
-        threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads: usize,
+        dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/marbl/canu
 
     let genome_size = get_genome_size(genome_size, "Canu");
@@ -116,15 +116,14 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("canu.contigs.fasta"));
     copy_canu_fasta(&dir.join("canu.contigs.fasta"), &dir.join("canu.contigs.layout.tigInfo"),
                     &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("canu.report"), &out_prefix.with_extension("log"));
 }
 
 
-fn flye(reads: PathBuf, out_prefix: &Path,
-        threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn flye(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+        extra_args: Vec<String>) {
     // https://github.com/mikolmogorov/Flye
 
     check_requirements(&["flye"]);
@@ -144,7 +143,6 @@ fn flye(reads: PathBuf, out_prefix: &Path,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("assembly.fasta"));
     copy_flye_fasta(&dir.join("assembly.fasta"), &dir.join("assembly_info.txt"),
                     &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("assembly_graph.gfa"), &out_prefix.with_extension("gfa"));
@@ -165,15 +163,14 @@ fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_ar
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("assembly.fasta"));
-    copy_output_file(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("mdbg.gfa"), &out_prefix.with_extension("gfa"));
     copy_output_file(&dir.join("dbg.log"), &out_prefix.with_extension("log"));
 }
 
 
-fn metamdbg(reads: PathBuf, out_prefix: &Path,
-            threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn metamdbg(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+            extra_args: Vec<String>) {
     // https://github.com/GaetanBenoitDev/metaMDBG
 
     check_requirements(&["metaMDBG"]);
@@ -194,14 +191,13 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("contigs.fasta.gz"));
-    gunzip_file(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("metaMDBG.log"), &out_prefix.with_extension("log"));
 }
 
 
-fn miniasm(reads: PathBuf, out_prefix: &Path,
-           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn miniasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+           extra_args: Vec<String>) {
     // https://github.com/lh3/miniasm
     // https://github.com/rrwick/Minipolish
 
@@ -244,12 +240,11 @@ fn miniasm(reads: PathBuf, out_prefix: &Path,
     run_command(&mut cmd);
 
     minipolish_gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
-    check_fasta(&out_prefix.with_extension("fasta"));
 }
 
 
-fn myloasm(reads: PathBuf, out_prefix: &Path,
-           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn myloasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+           extra_args: Vec<String>) {
     // https://github.com/bluenote-1577/myloasm
 
     check_requirements(&["myloasm"]);
@@ -264,16 +259,15 @@ fn myloasm(reads: PathBuf, out_prefix: &Path,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("assembly_primary.fa"));
-    copy_output_file(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
     replace_underscores_with_spaces(&out_prefix.with_extension("fasta"));
     copy_output_file(&dir.join("final_contig_graph.gfa"), &out_prefix.with_extension("gfa"));
     copy_output_file(&find_log_file(&dir, "myloasm"), &out_prefix.with_extension("log"));
 }
 
 
-fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
-         threads: usize, dir: PathBuf, extra_args: Vec<String>) {
+fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads: usize,
+         dir: PathBuf, extra_args: Vec<String>) {
     // https://github.com/xiaochuanle/NECAT
 
     let genome_size = get_genome_size(genome_size, "NECAT");
@@ -286,14 +280,13 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"));
-    copy_output_file(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"),
-                     &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"),
+               &out_prefix.with_extension("fasta"));
 }
 
 
-fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
-              threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads: usize,
+              dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/Nextomics/NextDenovo
     // https://github.com/Nextomics/NextPolish
 
@@ -307,7 +300,6 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     cmd.current_dir(&dir);
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
-    check_fasta(&dir.join("nextdenovo/03.ctg_graph/nd.asm.fasta"));
 
     let mut cmd = Command::new("nextPolish");
     cmd.arg("nextpolish_run.cfg");
@@ -315,15 +307,14 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"));
-    copy_output_file(&dir.join("nextpolish/genome.nextpolish.fasta"),
-                     &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"),
+               &out_prefix.with_extension("fasta"));
     combine_nextdenovo_logs(&dir, &out_prefix.with_extension("log"));
 }
 
 
-fn plassembler(reads: PathBuf, out_prefix: &Path,
-               threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn plassembler(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+               extra_args: Vec<String>) {
     // https://github.com/gbouras13/plassembler
 
     check_requirements(&["plassembler", "chopper", "dnaapler", "fastp", "mash", "minimap2",
@@ -345,7 +336,6 @@ fn plassembler(reads: PathBuf, out_prefix: &Path,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("plassembler_plasmids.fasta"));
     copy_output_file(&dir.join("plassembler_plasmids.gfa"), &out_prefix.with_extension("gfa"));
     rotate_plassembler_contigs(&dir.join("plassembler_plasmids.fasta"),
                                &out_prefix.with_extension("fasta"));
@@ -366,8 +356,6 @@ fn raven(reads: PathBuf, out_prefix: &Path, threads: usize, extra_args: Vec<Stri
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("fasta")));
     run_command(&mut cmd);
-
-    check_fasta(&out_prefix.with_extension("fasta"));
 }
 
 
@@ -382,13 +370,15 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("assembly.fasta")));
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("assembly.fasta"));
+    if is_fasta_empty(&dir.join("assembly.fasta")) {
+        quit_with_error("Raven assembly failed");
+    }
     println!("{}", total_fasta_length(&dir.join("assembly.fasta")));
 }
 
 
-fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
-           threads: usize, dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
+fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads: usize,
+           dir: PathBuf, read_type: ReadType, extra_args: Vec<String>) {
     // https://github.com/ruanjue/wtdbg2
 
     let genome_size = get_genome_size(genome_size, "Redbean");
@@ -420,8 +410,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>,
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    check_fasta(&dir.join("assembly.fasta"));
-    copy_fasta_one_line_per_seq(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
 }
 
 
@@ -458,9 +447,15 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
         quit_with_error("assembly helper commands require --out_prefix")
     });
 
-    let mut fasta = prefix.clone();
-    fasta.set_extension("fasta");
+    // Make parent directories if they don't exist.
+    if let Some(parent) = prefix.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            quit_with_error(&format!("cannot create directory {}: {e}", parent.display()));
+        }
+    }
 
+    // Ensure that we can create/overwrite prefix.fasta
+    let fasta = prefix.clone().with_extension("fasta");
     let writable = match OpenOptions::new().write(true).open(&fasta) {
         Ok(_) => true,
         Err(e) if e.kind() == ErrorKind::NotFound => match OpenOptions::new()
@@ -471,9 +466,7 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
         },
         _ => false,
     };
-    if !writable {
-        quit_with_error(&format!("cannot write to this location: {}", fasta.display()));
-    }
+    if !writable { quit_with_error(&format!("cannot write to {}", fasta.display())); }
 
     prefix
 }
@@ -545,19 +538,22 @@ fn sigint_cleanup(dir: &Path) {
 }
 
 
-fn check_fasta(fasta: &Path) {
-    let ok = std::fs::metadata(fasta).map(|m| m.len() > 0).unwrap_or(false);
-    if !ok {
-        let _ = remove_file(fasta);
-        quit_with_error("assembly failed or produced empty output");
-    }
-}
-
-
 fn copy_output_file(src: &Path, dest: &Path) {
+    if !src.exists() || is_file_empty(src) { let _ = remove_file(dest); return; }
     copy(src, dest).unwrap_or_else(|e| {
         quit_with_error(&format!("failed to copy {} → {}: {e}", src.display(), dest.display()))
     });
+}
+
+
+fn copy_fasta(src: &Path, dest: &Path) {
+    // Can handle gzipped and uncompressed FASTA files - destination will always be uncompressed.
+    // Multi-line-per-seq FASTA files are converted to single-line-per-seq.
+    if !src.exists() || is_fasta_empty(src) { let _ = remove_file(dest); return; }
+    let mut writer = BufWriter::new(File::create(dest).unwrap());
+    for (_, header, seq) in load_fasta(src) {
+        writeln!(writer, ">{header}\n{seq}").unwrap();
+    }
 }
 
 
@@ -582,7 +578,7 @@ fn run_command(cmd: &mut Command) {
         quit_with_error(&format!("failed to launch {name}: {e}"))
     });
     if !status.success() {
-        quit_with_error(&format!("{name} exited with status {status}"));
+        eprintln!("{name} failed with status {status}");
     }
 }
 
@@ -613,6 +609,7 @@ fn find_log_file(dir: &Path, prefix: &str) -> PathBuf {
 
 
 fn minipolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
+    if !gfa.exists() || is_file_empty(gfa) { return; }
     let reader = BufReader::new(File::open(gfa).unwrap());
     let mut writer = BufWriter::new(File::create(fasta).unwrap());
     for line in reader.lines().map_while(Result::ok) {
@@ -629,10 +626,11 @@ fn minipolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
 }
 
 
-fn copy_flye_fasta(flye_fasta: &Path, assembly_info: &Path, out_fasta: &Path) {
-    let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
+fn copy_flye_fasta(src: &Path, assembly_info: &Path, dest: &Path) {
+    if !src.exists() || is_fasta_empty(src) { return; }
+    let mut writer = BufWriter::new(File::create(dest).unwrap());
     let info = load_flye_assembly_info(assembly_info);
-    for (name, _, seq) in load_fasta(flye_fasta) {
+    for (name, _, seq) in load_fasta(src) {
         let mut header = name.to_string();
         if let Some((is_circ, depth)) = info.get(&name) {
             if *is_circ { header.push_str(" circular=true"); }
@@ -660,14 +658,15 @@ fn load_flye_assembly_info(assembly_info: &Path) -> HashMap<String, (bool, Strin
 }
 
 
-fn copy_canu_fasta(flye_fasta: &Path, assembly_info: &Path, out_fasta: &Path) {
+fn copy_canu_fasta(src: &Path, assembly_info: &Path, dest: &Path) {
     // Copies the Canu assembly FASTA file, with the following modifications:
     // * Adds the depth from the assembly_info file to the header.
     // * Excludes repeat/bubble contigs.
     // * Trims overlap from circular contigs.
-    let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
+    if !src.exists() || is_fasta_empty(src) { return; }
+    let mut writer = BufWriter::new(File::create(dest).unwrap());
     let depth = load_canu_assembly_depth(assembly_info);
-    for (name, header, seq) in load_fasta(flye_fasta) {
+    for (name, header, seq) in load_fasta(src) {
         if header.contains("suggestRepeat=yes") || header.contains("suggestBubble=yes") {
             continue;
         }
@@ -804,7 +803,7 @@ fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
             .map(|name| name.starts_with("pid") && name.ends_with(".log.info")).unwrap_or(false);
         if is_log { Some(p) } else { None }
     }).collect();
-    if logs.len() < 2 { return; }
+    if logs.is_empty() { return; }
     logs.sort_by_key(|p| {
         metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
     });
@@ -831,6 +830,7 @@ fn find_plassembler_db() -> PathBuf {
 
 
 fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
+    if !src.exists() || is_fasta_empty(src) { return; }
     let mut w = BufWriter::new(File::create(dest).unwrap());
     let mut rng = StdRng::seed_from_u64(0);
     for (_name, header, seq) in load_fasta(src) {
@@ -846,10 +846,10 @@ fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
 
 
 fn replace_underscores_with_spaces(filename: &Path) {
+    if !filename.exists() || is_file_empty(filename) { return; }
     let in_file = BufReader::new(File::open(filename).unwrap());
     let tmp_path = filename.with_extension("tmp");
     let mut out_file = BufWriter::new(File::create(&tmp_path).unwrap());
-
     for line in in_file.lines().map_while(Result::ok) {
         writeln!(out_file, "{}", line.replace('_', " ")).unwrap();
     }
@@ -857,22 +857,13 @@ fn replace_underscores_with_spaces(filename: &Path) {
 }
 
 
-fn copy_fasta_one_line_per_seq(in_fasta: &Path, out_fasta: &Path) {
-    let mut writer = BufWriter::new(File::create(out_fasta).unwrap());
-    for (_, header, seq) in load_fasta(in_fasta) {
-        writeln!(writer, ">{header}\n{seq}").unwrap();
-    }
-}
-
-
 fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
                 min_depth_relative: &Option<f64>) {
-    // Filters the final FASTA file by depth, overwriting the original file. If no depths are
-    // available, does nothing.
+    // Filters the final FASTA file by depth, overwriting the original file. If any contig does
+    // not have depth, the function does nothing.
     if min_depth_absolute.is_none() && min_depth_relative.is_none() { return; }
     let fasta = out_prefix.with_extension("fasta");
-    if !fasta.exists() { return; }
-    if total_fasta_length(&fasta) == 0 { return; }
+    if !fasta.exists() || is_fasta_empty(&fasta) { return; }
 
     let mut records = Vec::new();
     let (mut longest_len, mut longest_depth) = (0usize, 0.0);
@@ -914,7 +905,7 @@ fn depth_from_header(header: &str) -> Option<f64> {
 
 fn delete_fasta_if_empty(out_prefix: &Path) {
     let fasta = out_prefix.with_extension("fasta");
-    if fasta.exists() && total_fasta_length(&fasta) == 0 {
+    if fasta.exists() && is_fasta_empty(&fasta) {
         let _ = std::fs::remove_file(&fasta);
     }
 }
@@ -924,31 +915,23 @@ fn delete_fasta_if_empty(out_prefix: &Path) {
 mod tests {
     use super::*;
     use std::panic;
-    use crate::tests::make_test_file;
+    use crate::tests::{make_test_file, make_gzipped_test_file};
 
     #[test]
-    fn test_check_prefix_1() {
+    fn test_check_prefix() {
         // prefix.fasta doesn't exist - should work
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("prefix");
         check_prefix(Some(prefix.clone()));
-    }
 
-    #[test]
-    fn test_check_prefix_2() {
+        // nested directories should work
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("abc/def/prefix");
+        check_prefix(Some(prefix.clone()));
+
         // no prefix provided - should fail
         assert!(panic::catch_unwind(|| {
             check_prefix(None);
-        }).is_err());
-    }
-
-    #[test]
-    fn test_check_prefix_3() {
-        // can't create nested directories - should fail
-        let dir = tempdir().unwrap();
-        let prefix = dir.path().join("nonexistent/prefix");
-        assert!(panic::catch_unwind(|| {
-            check_prefix(Some(prefix.clone()));
         }).is_err());
     }
 
@@ -1083,13 +1066,27 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_fasta_one_line_per_seq() {
+    fn test_copy_fasta() {
         let dir = tempdir().unwrap();
         let in_fasta = dir.path().join("in.fasta");
         let out_fasta = dir.path().join("out.fasta");
+
+        // Empty FASTA files are not copied
+        make_test_file(&in_fasta, "");
+        copy_fasta(&in_fasta, &out_fasta);
+        assert!(!out_fasta.exists());
+
+        // Multi-line-per-seq FASTA file is converted to single-line-per-seq FASTA
         make_test_file(&in_fasta, ">a\nACGA\nTCGC\nT\n>b\nCGAT\nCGAC\nTAC\n");
         let expected = ">a\nACGATCGCT\n>b\nCGATCGACTAC\n";
-        copy_fasta_one_line_per_seq(&in_fasta, &out_fasta);
+        copy_fasta(&in_fasta, &out_fasta);
+        assert_eq!(std::fs::read_to_string(&out_fasta).unwrap(), expected);
+
+        // Gzipped FASTA file is converted to uncompressed FASTA
+        let in_fasta = dir.path().join("in.fasta.gz");
+        make_gzipped_test_file(&in_fasta, ">a\nACGATCGCT\n>b\nCGATCGACTAC\n");
+        let expected = ">a\nACGATCGCT\n>b\nCGATCGACTAC\n";
+        copy_fasta(&in_fasta, &out_fasta);
         assert_eq!(std::fs::read_to_string(&out_fasta).unwrap(), expected);
     }
 }

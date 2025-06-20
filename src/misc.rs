@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
-use std::io::{prelude::*, BufReader, Read, BufWriter};
+use std::io::{prelude::*, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -207,7 +207,7 @@ pub fn fastq_reader(fastq_file: &Path)
 }
 
 
-fn is_file_empty(filename: &Path) -> bool {
+pub fn is_file_empty(filename: &Path) -> bool {
     match fs::metadata(filename) {
         Ok(metadata) => metadata.len() == 0,
         Err(_) => false,
@@ -217,8 +217,16 @@ fn is_file_empty(filename: &Path) -> bool {
 
 pub fn total_fasta_length(filename: &Path) -> usize {
     // This function returns the total length of all sequences in a FASTA file.
+    if !filename.exists() { return 0; }
     let fasta_seqs = load_fasta_allow_empty(filename);
     fasta_seqs.iter().map(|(_, _, seq)| seq.len()).sum()
+}
+
+
+pub fn is_fasta_empty(filename: &Path) -> bool {
+    // This function differs from is_file_empty in that it will return false even when the file
+    // size is non-zero, e.g. a gzipped empty file or a FASTA file with headers but no sequences.
+    total_fasta_length(filename) == 0
 }
 
 
@@ -507,20 +515,6 @@ pub fn find_replace_i32_tuple(tuple: (i32, i32), find: i32, replace: i32) -> (i3
 }
 
 
-pub fn gunzip_file(src: &Path, dest: &Path) {
-    let gz = File::open(src).unwrap_or_else(|e| {
-        quit_with_error(&format!("cannot open {}: {e}", src.display()))
-    });
-    let mut decoder = MultiGzDecoder::new(gz);
-    let mut writer = BufWriter::new(File::create(dest).unwrap_or_else(|e| {
-        quit_with_error(&format!("cannot create {}: {e}", dest.display()))
-    }));
-    io::copy(&mut decoder, &mut writer).unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to decompress {}: {e}", src.display()))
-    });
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -786,6 +780,9 @@ mod tests {
         make_test_file(&filename, "");
         assert!(is_file_empty(&filename));
 
+        make_gzipped_test_file(&filename, "");
+        assert!(!is_file_empty(&filename));
+
         make_test_file(&filename, "x");
         assert!(!is_file_empty(&filename));
     }
@@ -816,28 +813,20 @@ mod tests {
     }
 
     #[test]
-    fn test_gunzip_file() {
+    fn test_is_fasta_empty() {
         let dir = tempdir().unwrap();
-        let fasta = dir.path().join("test.fasta");
-        let gzipped_fasta = dir.path().join("test.fasta.gz");
-        let gunzipped_fasta = dir.path().join("test2.fasta");
+        let filename = dir.path().join("temp.fasta");
 
-        let contents = ">a depth=20\nACGT\n>b depth=120\nCGA\n";  // fasta file
-        make_test_file(&fasta, contents);
-        make_gzipped_test_file(&gzipped_fasta, contents);
-        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
-        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
+        make_test_file(&filename, "");
+        assert!(is_fasta_empty(&filename));
 
-        let contents = "isdhfisdufhosdijfosdhfso";  // random contents
-        make_test_file(&fasta, contents);
-        make_gzipped_test_file(&gzipped_fasta, contents);
-        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
-        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
+        make_gzipped_test_file(&filename, "");
+        assert!(is_fasta_empty(&filename));
 
-        let contents = "";  // empty files should work too
-        make_test_file(&fasta, contents);
-        make_gzipped_test_file(&gzipped_fasta, contents);
-        gunzip_file(&gzipped_fasta, &gunzipped_fasta);
-        assert_eq!(fs::read(&fasta).unwrap(), fs::read(&gunzipped_fasta).unwrap());
+        make_test_file(&filename, ">a\nACGT\n");
+        assert!(!is_fasta_empty(&filename));
+
+        make_test_file(&filename, ">a\n\n");
+        assert!(is_fasta_empty(&filename));
     }
 }
