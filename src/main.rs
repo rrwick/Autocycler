@@ -197,7 +197,7 @@ enum Commands {
         #[clap(short = 'r', long = "reads", required = true)]
         reads: PathBuf,
 
-        /// Output prefix (required for all tasks except genomesize)
+        /// Output prefix (required for all tasks except genome_size)
         #[clap(short = 'o', long = "out_prefix")]
         out_prefix: Option<PathBuf>,
 
@@ -218,12 +218,12 @@ enum Commands {
         read_type: helper::ReadType,
 
         /// Exclude contigs with a depth below this value
-        #[clap(long = "min_depth_absolute")]
-        min_depth_absolute: Option<f64>,
+        #[clap(long = "min_depth_abs")]
+        min_depth_abs: Option<f64>,
 
         /// Exclude contigs with a depth below this fraction of the longet contig's depth
-        #[clap(long = "min_depth_relative")]
-        min_depth_relative: Option<f64>,
+        #[clap(long = "min_depth_rel")]
+        min_depth_rel: Option<f64>,
 
         /// Additional arguments for the task
         #[clap(long = "args", value_parser = clap::builder::NonEmptyStringValueParser::new(),
@@ -345,9 +345,9 @@ fn main() {
             gfa2fasta::gfa2fasta(in_gfa, out_fasta);
         },
         Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type,
-                                min_depth_absolute, min_depth_relative, args }) => {
+                                min_depth_abs, min_depth_rel, args }) => {
             helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type,
-                           min_depth_absolute, min_depth_relative, args);
+                           min_depth_abs, min_depth_rel, args);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);

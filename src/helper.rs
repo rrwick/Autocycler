@@ -37,19 +37,18 @@ use crate::subsample::parse_genome_size;
 #[allow(clippy::too_many_arguments)]
 pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: Option<PathBuf>, read_type: ReadType,
-              min_depth_absolute: Option<f64>, min_depth_relative: Option<f64>,
-              extra_args: Vec<String>) {
+              min_depth_abs: Option<f64>, min_depth_rel: Option<f64>, extra_args: Vec<String>) {
     check_if_file_exists(&reads);
     let (dir, _guard) = get_working_dir(dir);
 
-    if task == Task::Genomesize {
+    if task == Task::GenomeSize {
         genome_size_raven(reads, threads, dir, extra_args);
         return;
     }
 
     let out_prefix = check_prefix(out_prefix);
     match task {
-        Task::Genomesize => unreachable!(),
+        Task::GenomeSize => unreachable!(),
         Task::Canu => {
             canu(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
         }
@@ -85,7 +84,7 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
         }
     }
 
-    depth_filter(&out_prefix, &min_depth_absolute, &min_depth_relative);
+    depth_filter(&out_prefix, &min_depth_abs, &min_depth_rel);
     delete_fasta_if_empty(&out_prefix);
 }
 
@@ -415,8 +414,9 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
 
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
+#[value(rename_all = "snake_case")]
 pub enum Task {
-    Genomesize,   // calculate genome size using a Raven assembly
+    GenomeSize,   // calculate genome size using a Raven assembly
     Canu,         // assemble using Canu and clean results
     Flye,         // assemble using Flye
     Lja,          // assemble using LJA
@@ -857,11 +857,10 @@ fn replace_underscores_with_spaces(filename: &Path) {
 }
 
 
-fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
-                min_depth_relative: &Option<f64>) {
+fn depth_filter(out_prefix: &Path, min_depth_abs: &Option<f64>, min_depth_rel: &Option<f64>) {
     // Filters the final FASTA file by depth, overwriting the original file. If any contig does
     // not have depth, the function does nothing.
-    if min_depth_absolute.is_none() && min_depth_relative.is_none() { return; }
+    if min_depth_abs.is_none() && min_depth_rel.is_none() { return; }
     let fasta = out_prefix.with_extension("fasta");
     if !fasta.exists() || is_fasta_empty(&fasta) { return; }
 
@@ -874,8 +873,8 @@ fn depth_filter(out_prefix: &Path, min_depth_absolute: &Option<f64>,
         records.push((name, header, seq, depth));
     }
 
-    let mut threshold = min_depth_absolute.unwrap_or(0.0);
-    if let Some(r) = min_depth_relative { threshold = threshold.max(r * longest_depth); }
+    let mut threshold = min_depth_abs.unwrap_or(0.0);
+    if let Some(r) = min_depth_rel { threshold = threshold.max(r * longest_depth); }
     eprintln!();
     underline("Autocycler helper depth filter");
     eprintln!("threshold = {:.3}", threshold);

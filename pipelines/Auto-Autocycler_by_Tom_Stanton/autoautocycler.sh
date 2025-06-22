@@ -153,9 +153,9 @@ for reads in "${READ_FILES[@]}"; do
 
     # Get genome size
     if [ $SIZE == 'AUTO' ]; then
-        echo "Getting genome size with autocycler helper genomesize"
+        echo "Getting genome size with autocycler helper genome_size"
         echo
-        genome_size=$(autocycler helper genomesize --reads $reads --threads $THREADS)
+        genome_size=$(autocycler helper genome_size --reads $reads --threads $THREADS)
     else
         genome_size=$SIZE
     fi

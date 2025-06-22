@@ -33,7 +33,7 @@ case $read_type in
     *) echo "Error: read_type must be ont_r9, ont_r10, pacbio_clr or pacbio_hifi" 1>&2; exit 1 ;;
 esac
 
-genome_size=$(autocycler helper genomesize --reads "$reads" --threads "$threads")
+genome_size=$(autocycler helper genome_size --reads "$reads" --threads "$threads")
 
 # Step 1: subsample the long-read set into multiple files
 autocycler subsample --reads "$reads" --out_dir subsampled_reads --genome_size "$genome_size" 2>> autocycler.stderr

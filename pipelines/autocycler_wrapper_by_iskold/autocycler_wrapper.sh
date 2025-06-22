@@ -33,7 +33,7 @@ mkdir -p $output
 echo -e "\nEstimating genome size:"
 if ! command -v lrge 2>&1 >/dev/null
 then
-    genome_size=$(autocycler helper genomesize --reads "$reads" --threads "$threads")
+    genome_size=$(autocycler helper genome_size --reads "$reads" --threads "$threads")
 else
     genome_size=$(lrge -t "$threads" "$reads")
 fi
