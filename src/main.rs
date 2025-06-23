@@ -217,11 +217,11 @@ enum Commands {
         #[clap(long = "read_type", value_enum, default_value = "ont_r10")]
         read_type: helper::ReadType,
 
-        /// Exclude contigs with a depth below this value
+        /// Exclude contigs with read depth less than this absolute value
         #[clap(long = "min_depth_abs")]
         min_depth_abs: Option<f64>,
 
-        /// Exclude contigs with a depth below this fraction of the longet contig's depth
+        /// Exclude contigs with read depth less than this fraction of the longest contig's depth
         #[clap(long = "min_depth_rel")]
         min_depth_rel: Option<f64>,
 
