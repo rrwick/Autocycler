@@ -43,7 +43,7 @@ mkdir -p assemblies
 rm -f assemblies/jobs.txt
 for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; do
     for i in 01 02 03 04; do
-        echo "autocycler helper $assembler --reads subsampled_reads/sample_$i.fastq --out_prefix assemblies/${assembler}_$i --threads $threads --genome_size $genome_size --read_type $read_type" >> assemblies/jobs.txt
+        echo "autocycler helper $assembler --reads subsampled_reads/sample_$i.fastq --out_prefix assemblies/${assembler}_$i --threads $threads --genome_size $genome_size --read_type $read_type" --min_depth_rel 0.1 >> assemblies/jobs.txt
     done
 done
 set +e

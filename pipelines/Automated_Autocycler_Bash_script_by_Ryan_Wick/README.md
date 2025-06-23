@@ -20,6 +20,7 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
   * Plassembler requires a reference database. Its helper will look for it via the `PLASSEMBLER_DB` environment variable, or else in a `plassembler_db` directory inside the active conda environment.
   * Circular Plassembler contigs are given extra clustering weight which helps small plasmids (which may only be assembled by Plassembler) to be included in the final assembly.
 * Canu and Flye contigs are given extra consensus weight, since those two assemblers often produce the most accurate sequence.
+* The `--min_depth_rel 0.1` filter is used to exclude contigs with <10% of the read depth of the longest contig. This helps to exclude low-level contamination.
 * Uses GNU `sed` syntax. On macOS (BSD `sed`), the `sed` commands may need adjustment.
 
 
