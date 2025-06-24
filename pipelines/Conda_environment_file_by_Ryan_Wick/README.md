@@ -20,6 +20,7 @@ All tools will be installed into the same environment (`autocycler`).
 
 ## Notes
 
-* If you encounter dependency conflicts on your platform, try commenting out one or more lines in the `environment.yml` file (e.g. for tools you don't plan to use).
+* If you encounter missing packages or dependency conflicts on your platform, try commenting out one or more lines in the `environment.yml` file (e.g. for tools you don't plan to use).
+* Autocycler does not require any specific assemblers to work, just a range of different assemblers – see the [Generating input assemblies](https://github.com/rrwick/Autocycler/wiki/Generating-input-assemblies) page for more information.
 * [Plassembler](https://github.com/gbouras13/plassembler) requires a database. The above `plassembler download` command saves it in the conda environment directory.
 * You can use `mamba` instead of `conda` in the installation command if you have [mamba](https://mamba.readthedocs.io/en/latest) installed. It resolves dependencies more quickly.
