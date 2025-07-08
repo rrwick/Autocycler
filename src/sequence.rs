@@ -90,6 +90,10 @@ impl Sequence {
         self.contig_header.to_lowercase().contains("autocycler_trusted")
     }
 
+    pub fn is_ignored(&self) -> bool {
+        self.contig_header.to_lowercase().contains("autocycler_ignore")
+    }
+
     pub fn cluster_weight(&self) -> usize {
         self.contig_header.to_lowercase().split_whitespace()
             .find_map(|token| { token.strip_prefix("autocycler_cluster_weight=")
@@ -111,6 +115,9 @@ impl fmt::Display for Sequence {
         let mut extras = Vec::new();
         if self.is_trusted() {
             extras.push("trusted".to_string());
+        }
+        if self.is_ignored() {
+            extras.push("ignored".to_string());
         }
         if self.cluster_weight() != 1 {
             extras.push(format!("cluster weight = {}", self.cluster_weight()));
@@ -234,6 +241,9 @@ mod tests {
 
         s.contig_header = "c123 Autocycler_trusted".to_string();
         assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [trusted]");
+
+        s.contig_header = "c123 Autocycler_ignore".to_string();
+        assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [ignored]");
 
         s.contig_header = "c123 Autocycler_cluster_weight=2".to_string();
         assert_eq!(s.to_string(), "assembly_1.fasta c123 (1 bp) [cluster weight = 2]");

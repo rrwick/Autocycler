@@ -29,7 +29,6 @@ use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
 
-
 pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, max_contigs: u32,
                 threads: usize) {
     let start_time = Instant::now();
@@ -118,7 +117,9 @@ pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAss
             let seq = Sequence::new_with_seq(seq_id, seq, filename, contig_header, seq_len, half_k);
             eprintln!(" {:>3}: {}", seq_id, seq);
             assembly_details.contigs.push(InputContigDetails::new(&seq));
-            sequences.push(seq);
+            if !seq.is_ignored() {
+                sequences.push(seq);
+            }
         }
         metrics.input_assembly_details.push(assembly_details);
     }
