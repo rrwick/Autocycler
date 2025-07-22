@@ -55,6 +55,9 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
         Task::Flye => {
             flye(reads, &out_prefix, threads, dir, read_type, extra_args);
         }
+        Task::Hifiasm => {
+            hifiasm(reads, &out_prefix, threads, dir, read_type, extra_args);
+        }
         Task::Lja => {
             lja(reads, &out_prefix, threads, dir, extra_args);
         }
@@ -149,6 +152,30 @@ fn flye(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_ty
 }
 
 
+fn hifiasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+           extra_args: Vec<String>) {
+    // https://github.com/chhylp123/hifiasm
+
+    check_requirements(&["hifiasm"]);
+
+    let mut cmd = Command::new("hifiasm");
+    cmd.arg("-t").arg(threads.to_string())
+       .arg("-o").arg(dir.join("hifiasm"))
+       .arg("-l").arg("0")
+       .arg("-f").arg("0");
+    if read_type != ReadType::PacbioHifi {
+        cmd.arg("--ont");
+    }
+    for token in extra_args { cmd.arg(token); }
+    cmd.arg(&reads);
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+
+    gfa_to_fasta(&dir.join("hifiasm.bp.p_ctg.gfa"), &out_prefix.with_extension("fasta"));
+    copy_output_file(&dir.join("hifiasm.bp.p_ctg.gfa"), &out_prefix.with_extension("gfa"));
+}
+
+
 fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_args: Vec<String>) {
     // https://github.com/AntonBankevich/LJA
 
@@ -238,7 +265,7 @@ fn miniasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
     redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
     run_command(&mut cmd);
 
-    minipolish_gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
+    gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
 }
 
 
@@ -419,6 +446,7 @@ pub enum Task {
     GenomeSize,   // calculate genome size using a Raven assembly
     Canu,         // assemble using Canu and clean results
     Flye,         // assemble using Flye
+    Hifiasm,      // assemble using Hifiasm
     Lja,          // assemble using LJA
     Metamdbg,     // assemble using metaMDBG
     Miniasm,      // assemble using miniasm and Minipolish
@@ -608,16 +636,17 @@ fn find_log_file(dir: &Path, prefix: &str) -> PathBuf {
 }
 
 
-fn minipolish_gfa_to_fasta(gfa: &Path, fasta: &Path) {
+fn gfa_to_fasta(gfa: &Path, fasta: &Path) {
     if !gfa.exists() || is_file_empty(gfa) { return; }
     let reader = BufReader::new(File::open(gfa).unwrap());
     let mut writer = BufWriter::new(File::create(fasta).unwrap());
     for line in reader.lines().map_while(Result::ok) {
         if !line.starts_with('S') { continue; }
-        let mut cols = line.split('\t');
-        cols.next();
-        let (name, seq) = (cols.next().unwrap_or(""), cols.next().unwrap_or(""));
-        let depth = cols.find_map(|field| field.strip_prefix("dp:f:"));
+        let col: Vec<&str> = line.split('\t').collect();
+        let name = *col.get(1).unwrap_or(&"");
+        let seq  = *col.get(2).unwrap_or(&"");
+        let depth = col.iter().skip(3).find_map(|f| f.strip_prefix("dp:f:"))
+                       .or_else(|| col.iter().skip(3).find_map(|f| f.strip_prefix("rd:i:")));
         let mut header = format!(">{name}");
         if name.ends_with('c') { header.push_str(" circular=true"); }
         if let Some(d) = depth { header.push_str(&format!(" depth={d}")); }
@@ -1087,5 +1116,20 @@ mod tests {
         let expected = ">a\nACGATCGCT\n>b\nCGATCGACTAC\n";
         copy_fasta(&in_fasta, &out_fasta);
         assert_eq!(std::fs::read_to_string(&out_fasta).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_gfa_to_fasta() {
+        let dir = tempdir().unwrap();
+        let gfa = dir.path().join("in.gfa");
+        let fasta = dir.path().join("out.fasta");
+        make_test_file(&gfa, "S\tctg000001c\tATCAGCTGA\n\
+                              S\tctg000002l\tGCTCGAGCA\tdp:f:12.3\n\
+                              S\tctg000003c\tGACTACGAT\trd:i:51\n");
+        let expected = ">ctg000001c circular=true\nATCAGCTGA\n\
+                        >ctg000002l depth=12.3\nGCTCGAGCA\n\
+                        >ctg000003c circular=true depth=51\nGACTACGAT\n";
+        gfa_to_fasta(&gfa, &fasta);
+        assert_eq!(std::fs::read_to_string(&fasta).unwrap(), expected);
     }
 }
