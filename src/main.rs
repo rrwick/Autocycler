@@ -80,7 +80,7 @@ enum Commands {
         #[clap(short = 'r', long = "remove")]
         remove: Option<String>,
 
-        /// Tig numbers to duplication in the input graph
+        /// Tig numbers to duplicate in the input graph
         #[clap(short = 'd', long = "duplicate")]
         duplicate: Option<String>,
     },
