@@ -109,9 +109,9 @@ fn shift_sequence_1(sources: &Vec<UnitigStrand>, destination_rc: &Rc<RefCell<Uni
     }
     for source in sources {
         if source.strand {
-            source.unitig.borrow_mut().remove_seq_from_end(shifted_amount);
+            source.unitig().borrow_mut().remove_seq_from_end(shifted_amount);
         } else {
-            source.unitig.borrow_mut().remove_seq_from_start(shifted_amount);
+            source.unitig().borrow_mut().remove_seq_from_start(shifted_amount);
         }
     }
     destination_rc.borrow_mut().add_seq_to_start(common_seq);
@@ -132,9 +132,9 @@ fn shift_sequence_2(destination_rc: &Rc<RefCell<Unitig>>, sources: &[UnitigStran
     }
     for source in sources {
         if source.strand {
-            source.unitig.borrow_mut().remove_seq_from_start(shifted_amount);
+            source.unitig().borrow_mut().remove_seq_from_start(shifted_amount);
         } else {
-            source.unitig.borrow_mut().remove_seq_from_end(shifted_amount);
+            source.unitig().borrow_mut().remove_seq_from_end(shifted_amount);
         }
     }
     destination_rc.borrow_mut().add_seq_to_end(common_seq);
@@ -237,19 +237,18 @@ fn get_exclusive_inputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<UnitigStrand> {
     let mut inputs = Vec::new();
     let unitig = unitig_rc.borrow();
     for prev in &unitig.forward_prev {
-        let prev_unitig = &prev.unitig.borrow();
-        let prev_next_unitigs = if prev.strand { &prev_unitig.forward_next } else { &prev_unitig.reverse_next };
-        if prev_next_unitigs.len() != 1 {
+        let prev_rc = match prev.unitig.upgrade() { Some(rc) => rc, None => return Vec::new() };
+        let exclusive_to_this = {
+            let prev_u = prev_rc.borrow();
+            let next = if prev.strand { &prev_u.forward_next } else { &prev_u.reverse_next };
+            next.len() == 1 && next[0].strand && next[0].number() == unitig.number
+        };
+        if !exclusive_to_this {
             return Vec::new();
         }
-        let prev_next = &prev_next_unitigs[0];
-        if prev_next.strand && prev_next.number() == unitig.number {
-            inputs.push(UnitigStrand::new(&prev.unitig, prev.strand));
-        } else {
-            return Vec::new();
-        }
+        inputs.push(UnitigStrand::from_weak(&prev.unitig, prev.strand));
     }
-    if inputs.iter().any(|input| { input.number() == unitig.number }) {
+    if inputs.iter().any(|inp| inp.number() == unitig.number) {
         return Vec::new();
     }
     inputs
@@ -263,19 +262,18 @@ fn get_exclusive_outputs(unitig_rc: &Rc<RefCell<Unitig>>) -> Vec<UnitigStrand> {
     let mut outputs = Vec::new();
     let unitig = unitig_rc.borrow();
     for next in &unitig.forward_next {
-        let next_unitig = &next.unitig.borrow();
-        let next_prev_unitigs = if next.strand { &next_unitig.forward_prev } else { &next_unitig.reverse_prev };
-        if next_prev_unitigs.len() != 1 {
+        let next_rc = match next.unitig.upgrade() { Some(rc) => rc, None => return Vec::new() };
+        let exclusive_from_this = {
+            let next_u = next_rc.borrow();
+            let prevs = if next.strand { &next_u.forward_prev } else { &next_u.reverse_prev };
+            prevs.len() == 1 && prevs[0].strand && prevs[0].number() == unitig.number
+        };
+        if !exclusive_from_this {
             return Vec::new();
         }
-        let next_prev = &next_prev_unitigs[0];
-        if next_prev.strand && next_prev.number() == unitig.number {
-            outputs.push(UnitigStrand::new(&next.unitig, next.strand));
-        } else {
-            return Vec::new();
-        }
+        outputs.push(UnitigStrand::from_weak(&next.unitig, next.strand));
     }
-    if outputs.iter().any(|output| { output.number() == unitig.number }) {
+    if outputs.iter().any(|o| o.number() == unitig.number) {
         return Vec::new();
     }
     outputs
@@ -345,14 +343,14 @@ pub fn merge_linear_paths(graph: &mut UnitigGraph, seqs: &Vec<Sequence>) {
             loop {
                 let unitig = current_path.last().unwrap();
                 if cannot_merge_end(unitig.number(), unitig.strand, &fixed_starts, &fixed_ends) { break; }
-                let mut outputs = if unitig.strand { get_exclusive_outputs(&unitig.unitig) } else { get_exclusive_inputs(&unitig.unitig) };
+                let mut outputs = if unitig.strand { get_exclusive_outputs(&unitig.unitig()) } else { get_exclusive_inputs(&unitig.unitig()) };
                 if outputs.len() != 1 { break; }
                 let output = &mut outputs[0];
                 if !unitig.strand { output.strand = !output.strand; }
                 let output_number = output.number();
                 if already_used.contains(&output_number) { break; }
                 if cannot_merge_start(output_number, output.strand, &fixed_starts, &fixed_ends) { break; }
-                current_path.push(UnitigStrand::new(&output.unitig, output.strand));
+                current_path.push(UnitigStrand::new(&output.unitig(), output.strand));
                 already_used.insert(output_number);
             }
 
@@ -413,8 +411,8 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
     let merged_seq = merge_unitig_seqs(path);
     let first = &path[0];
     let last = path.last().unwrap();
-    let forward_positions = if first.strand {first.unitig.borrow().forward_positions.clone()} else {first.unitig.borrow().reverse_positions.clone()};
-    let reverse_positions = if last.strand {last.unitig.borrow().reverse_positions.clone()} else {last.unitig.borrow().forward_positions.clone()};
+    let forward_positions = if first.strand {first.unitig().borrow().forward_positions.clone()} else {first.unitig().borrow().reverse_positions.clone()};
+    let reverse_positions = if last.strand {last.unitig().borrow().reverse_positions.clone()} else {last.unitig().borrow().forward_positions.clone()};
 
     // Check to see if the path has any self links, so we can make those after the merge if needed.
     let end_to_start_link = graph.link_exists(last.number(), last.strand, first.number(), first.strand);
@@ -423,10 +421,10 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
 
     // For the new unitig, we take links (forward_prev, reverse_next, forward_next, reverse_prev)
     // from the first/last unitigs in the path.
-    let forward_prev = if first.strand {first.unitig.borrow().forward_prev.clone()} else {first.unitig.borrow().reverse_prev.clone()};
-    let reverse_next = if first.strand {first.unitig.borrow().reverse_next.clone()} else {first.unitig.borrow().forward_next.clone()};
-    let forward_next = if last.strand {last.unitig.borrow().forward_next.clone()} else {last.unitig.borrow().reverse_next.clone()};
-    let reverse_prev = if last.strand {last.unitig.borrow().reverse_prev.clone()} else {last.unitig.borrow().forward_prev.clone()};
+    let forward_prev = if first.strand {first.unitig().borrow().forward_prev.clone()} else {first.unitig().borrow().reverse_prev.clone()};
+    let reverse_next = if first.strand {first.unitig().borrow().reverse_next.clone()} else {first.unitig().borrow().forward_next.clone()};
+    let forward_next = if last.strand {last.unitig().borrow().forward_next.clone()} else {last.unitig().borrow().reverse_next.clone()};
+    let reverse_prev = if last.strand {last.unitig().borrow().reverse_prev.clone()} else {last.unitig().borrow().forward_prev.clone()};
 
     let mut unitig = Unitig {
         number: new_unitig_number,
@@ -447,20 +445,20 @@ fn merge_path(graph: &mut UnitigGraph, path: &Vec<UnitigStrand>, new_unitig_numb
 
     // Create links to the new unitig from its neighbours.
     for u in &unitig_rc.borrow().forward_next {
-        if u.strand {u.unitig.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
-              else {u.unitig.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
+        if u.strand {u.unitig().borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
+              else {u.unitig().borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
     }
     for u in &unitig_rc.borrow().forward_prev {
-        if u.strand {u.unitig.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
-              else {u.unitig.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
+        if u.strand {u.unitig().borrow_mut().forward_next.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
+              else {u.unitig().borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_rc, strand::FORWARD));}
     }
     for u in &unitig_rc.borrow().reverse_next {
-        if u.strand {u.unitig.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
-              else {u.unitig.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
+        if u.strand {u.unitig().borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
+              else {u.unitig().borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
     }
     for u in &unitig_rc.borrow().reverse_prev {
-        if u.strand {u.unitig.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
-              else {u.unitig.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
+        if u.strand {u.unitig().borrow_mut().forward_next.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
+              else {u.unitig().borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_rc, strand::REVERSE));}
     }
 
     // Create any needed links from the new unitig to itself.

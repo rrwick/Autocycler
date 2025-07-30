@@ -805,15 +805,30 @@ fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<St
                     out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num)
                                                .cloned().collect();
-    let (mut cluster_graph, _) = UnitigGraph::from_gfa_lines(gfa_lines);
     let seq_ids_to_remove:Vec<_> = sequences.iter().filter(|s| s.cluster != cluster_num)
                                             .map(|s| s.id).collect();
-    for id in seq_ids_to_remove {
-        cluster_graph.remove_sequence_from_graph(id);
-    }
+    let filtered_gfa_lines: Vec<String> = filter_gfa_lines(gfa_lines, &seq_ids_to_remove);
+    let (mut cluster_graph, _) = UnitigGraph::from_gfa_lines(&filtered_gfa_lines);
+    cluster_graph.recalculate_depths();
     cluster_graph.remove_zero_depth_unitigs();
     merge_linear_paths(&mut cluster_graph, &cluster_seqs);
     cluster_graph.save_gfa(&out_gfa, &cluster_seqs, false).unwrap();
+}
+
+
+fn filter_gfa_lines(gfa_lines: &Vec<String>, paths_to_remove: &[u16]) -> Vec<String> {
+    // This function produces a new set of GFA lines, excluding specified path lines.
+    gfa_lines.iter().filter(|line| {
+        if let Some(rest) = line.strip_prefix("P\t") {
+            let path_name = rest.split('\t').next().unwrap_or_default();
+            match path_name.parse::<u16>() {
+                Ok(id) => !paths_to_remove.contains(&id),
+                Err(_) => true,
+            }
+        } else {
+            true
+        }
+    }).cloned().collect()
 }
 
 

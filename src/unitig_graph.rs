@@ -430,14 +430,15 @@ impl UnitigGraph {
         // unitig in that sequence's path.
         let unitig = unitig_rc.borrow();
         let next_pos = pos + unitig.length();
-        let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
-        for next in next_unitigs {
-            let u = next.unitig.borrow();
-            let positions = if next.strand { &u.forward_positions } else { &u.reverse_positions};
-            for p in positions {
-                if p.seq_id() == seq_id && p.strand() == seq_strand && p.pos == next_pos {
-                    return Some((UnitigStrand::new(&next.unitig, next.strand), next_pos));
-                }
+        let next_edges = if strand { &unitig.forward_next } else { &unitig.reverse_next };
+        for next in next_edges {
+            let next_rc = next.unitig.upgrade()?;
+            let next_u  = next_rc.borrow();
+            let positions = if next.strand { &next_u.forward_positions }
+                                      else { &next_u.reverse_positions };
+            if positions.iter().any(|p|
+                p.seq_id() == seq_id && p.strand() == seq_strand && p.pos == next_pos){
+                return Some((UnitigStrand::from_weak(&next.unitig, next.strand), next_pos));
             }
         }
         None
@@ -449,7 +450,11 @@ impl UnitigGraph {
         let mut pos = 0;
         loop {
             unitig_path.push((u.number(), u.strand));
-            match self.get_next_unitig(seq.id, strand::FORWARD, &u.unitig, u.strand, pos) {
+            let current_rc = match u.unitig.upgrade() {
+                Some(rc) => rc,
+                None => break,
+            };
+            match self.get_next_unitig(seq.id, strand::FORWARD, &current_rc, u.strand, pos) {
                 None => break,
                 Some((next, next_pos)) => {
                     (u, pos) = (next, next_pos);
@@ -778,7 +783,7 @@ impl UnitigGraph {
         let start_indices: Vec<usize> = {
             let start = start_rc.borrow();
             let next_unitigs = if start_strand { &start.forward_next } else { &start.reverse_next };
-            next_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig.borrow().number == end_num && connection.strand == end_strand { Some(i) } else { None } }).collect()
+            next_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig().borrow().number == end_num && connection.strand == end_strand { Some(i) } else { None } }).collect()
         };
 
         // Remove the elements from start unitig
@@ -794,7 +799,7 @@ impl UnitigGraph {
         let end_indices: Vec<usize> = {
             let end = end_rc.borrow();
             let prev_unitigs = if end_strand { &end.forward_prev } else { &end.reverse_prev };
-            prev_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig.borrow().number == start_num && connection.strand == start_strand { Some(i) } else { None } }).collect()
+            prev_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig().borrow().number == start_num && connection.strand == start_strand { Some(i) } else { None } }).collect()
         };
 
         // Remove the elements from end unitig
@@ -823,13 +828,13 @@ impl UnitigGraph {
         let end_rc = self.unitig_index.get(&end_num).unwrap();
         {
             let mut start = start_rc.borrow_mut();
-            let connection = UnitigStrand { unitig: Rc::clone(end_rc), strand: end_strand };
+            let connection = UnitigStrand { unitig: Rc::downgrade(end_rc), strand: end_strand };
             let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
             next_unitigs.push(connection);
         }
         {
             let mut end = end_rc.borrow_mut();
-            let reverse_connection = UnitigStrand { unitig: Rc::clone(start_rc), strand: start_strand };
+            let reverse_connection = UnitigStrand { unitig: Rc::downgrade(start_rc), strand: start_strand };
             let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
             prev_unitigs.push(reverse_connection);
         }

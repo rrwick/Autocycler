@@ -14,7 +14,7 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use crate::kmer_graph::Kmer;
 use crate::misc::{quit_with_error, reverse_complement, strand};
@@ -204,13 +204,13 @@ impl Unitig {
     pub fn hairpin_start(&self) -> bool {
         self.reverse_next.len() == 1 &&
         self.reverse_next[0].strand == strand::FORWARD &&
-        self.reverse_next[0].unitig.borrow().number == self.number
+        self.reverse_next[0].unitig().borrow().number == self.number
     }
 
     pub fn hairpin_end(&self) -> bool {
         self.forward_next.len() == 1 &&
         self.forward_next[0].strand == strand::REVERSE &&
-        self.forward_next[0].unitig.borrow().number == self.number
+        self.forward_next[0].unitig().borrow().number == self.number
     }
 
     pub fn remove_seq_from_start(&mut self, amount: usize) {
@@ -312,54 +312,59 @@ impl fmt::Debug for Unitig {
 // (via a reference-counted reference) along with its strand.
 #[derive(Clone)]
 pub struct UnitigStrand {
-    pub unitig: Rc<RefCell<Unitig>>,
+    pub unitig: Weak<RefCell<Unitig>>,
     pub strand: bool,
 }
 
 impl UnitigStrand {
     pub fn new(unitig: &Rc<RefCell<Unitig>>, strand: bool) -> Self {
-        UnitigStrand {
-            unitig: Rc::clone(unitig),
-            strand,
-        }
+        Self { unitig: Rc::downgrade(unitig), strand }
+    }
+
+    pub fn from_weak(unitig: &Weak<RefCell<Unitig>>, strand: bool) -> Self {
+        Self { unitig: unitig.clone(), strand }
+    }
+
+    pub fn unitig(&self) -> Rc<RefCell<Unitig>> {
+        self.unitig.upgrade().expect("unitig was dropped")
     }
 
     pub fn number(&self) -> u32 {
-        self.unitig.borrow().number
+        self.unitig().borrow().number
     }
 
     pub fn signed_number(&self) -> i32 {
         if self.strand {
-            self.unitig.borrow().number as i32
+            self.unitig().borrow().number as i32
         } else {
-            -(self.unitig.borrow().number as i32)
+            -(self.unitig().borrow().number as i32)
         }
     }
 
     pub fn length(&self) -> u32 {
-        self.unitig.borrow().length()
+        self.unitig().borrow().length()
     }
 
     pub fn depth(&self) -> f64 {
-        self.unitig.borrow().depth
+        self.unitig().borrow().depth
     }
 
     pub fn get_seq(&self) -> Vec<u8> {
-        self.unitig.borrow().get_seq(self.strand)
+        self.unitig().borrow().get_seq(self.strand)
     }
 
     pub fn is_anchor(&self) -> bool {
-        self.unitig.borrow().unitig_type == UnitigType::Anchor
+        self.unitig().borrow().unitig_type == UnitigType::Anchor
     }
 
     pub fn is_consentig(&self) -> bool {
-        self.unitig.borrow().unitig_type == UnitigType::Consentig
+        self.unitig().borrow().unitig_type == UnitigType::Consentig
     }
 }
 
 impl fmt::Display for UnitigStrand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.unitig.borrow().number, if self.strand { "+" } else { "-" })
+        write!(f, "{}{}", self.unitig().borrow().number, if self.strand { "+" } else { "-" })
     }
 }
 
