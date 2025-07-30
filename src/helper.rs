@@ -717,7 +717,7 @@ fn load_canu_assembly_depth(assembly_info: &Path) -> HashMap<String, String> {
         let cols: Vec<&str> = line.split('\t').collect();
         if cols.len() < 3 { continue; }
         let id: u64 = match cols[0].parse() { Ok(n) => n, Err(_) => continue };
-        let name = format!("tig{:08}", id);
+        let name = format!("tig{id:08}");
         let depth = cols[2].to_string();
         info.insert(name, depth);
     }
@@ -752,7 +752,7 @@ fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) 
     let mut w = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
     writeln!(w, "PROJECT=necat").unwrap();
     writeln!(w, "ONT_READ_LIST=read_list.txt").unwrap();
-    writeln!(w, "GENOME_SIZE={}", genome_size).unwrap();
+    writeln!(w, "GENOME_SIZE={genome_size}").unwrap();
     writeln!(w, "THREADS={threads}").unwrap();
     writeln!(w, "MIN_READ_LENGTH=3000").unwrap();
     writeln!(w, "PREP_OUTPUT_COVERAGE=40").unwrap();
@@ -906,7 +906,7 @@ fn depth_filter(out_prefix: &Path, min_depth_abs: &Option<f64>, min_depth_rel: &
     if let Some(r) = min_depth_rel { threshold = threshold.max(r * longest_depth); }
     eprintln!();
     underline("Autocycler helper depth filter");
-    eprintln!("threshold = {:.3}", threshold);
+    eprintln!("threshold = {threshold:.3}");
 
     let kept: Vec<_> = records.into_iter().filter_map(|(name, header, seq, depth)| {
         let pass = depth >= threshold;

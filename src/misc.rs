@@ -55,7 +55,7 @@ pub fn load_file_lines(filename: &Path) -> Vec<String> {
     let reader = BufReader::new(file);
     reader.lines().map(|line_result| {
         line_result.unwrap_or_else(|e| {
-            quit_with_error(&format!("failed to read line\n{}", e));
+            quit_with_error(&format!("failed to read line\n{e}"));
         })
     }).collect()
 }
@@ -131,7 +131,7 @@ pub fn check_if_dir_is_not_dir(dir: &Path) {
 pub fn quit_with_error(text: &str) -> ! {
     // For friendly error messages, this function normally just prints the error and quits.
     eprintln!();
-    eprintln!("Error: {}", text);
+    eprintln!("Error: {text}");
     std::process::exit(1);
 }
 #[cfg(test)]
@@ -347,7 +347,7 @@ pub fn format_duration(duration: std::time::Duration) -> String {
     let seconds =      duration.as_micros() / 1000000 % 60;
     let minutes =      duration.as_micros() / 1000000 / 60 % 60;
     let hours =        duration.as_micros() / 1000000 / 60 / 60;
-    format!("{}:{:02}:{:02}.{:06}", hours, minutes, seconds, microseconds)
+    format!("{hours}:{minutes:02}:{seconds:02}.{microseconds:06}")
 }
 
 
@@ -362,7 +362,7 @@ pub fn usize_division_rounded(dividend: usize, divisor: usize) -> usize {
 
 pub fn format_float(num: f64) -> String {
     // Formats a float with up to six decimal places but then drops trailing zeros.
-    let mut formatted = format!("{:.6}", num);
+    let mut formatted = format!("{num:.6}");
     if !formatted.contains('.') { return formatted }
     while formatted.ends_with('0') { formatted.pop(); }
     if formatted.ends_with('.') { formatted.pop(); }
@@ -381,7 +381,7 @@ pub fn format_float_sigfigs(value: f64, sigfigs: usize) -> String {
     if decimals > 0 {
         format!("{:.*}", decimals as usize, rounded_value)
     } else {
-        format!("{}", rounded_value)
+        format!("{rounded_value}")
     }
 }
 

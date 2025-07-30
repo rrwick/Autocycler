@@ -54,7 +54,7 @@ fn parse_fields(comma_delimited_fields: String) -> Vec<String> {
     valid_fields.extend(TrimmedClusterMetrics::get_field_names());
     for field in &fields {
         if !valid_fields.contains(field) {
-            quit_with_error(&format!("{} is not a valid field name", field));
+            quit_with_error(&format!("{field} is not a valid field name"));
         }
     }
     fields
@@ -70,7 +70,7 @@ fn print_values(autocycler_dir: &Path, name: String, fields: Vec<String>, sigfig
     if name.contains('\t') {
         quit_with_error("--name cannot contain tab characters")
     }
-    print!("{}", name);
+    print!("{name}");
 
     let yaml_files = find_all_yaml_files(autocycler_dir);
     let subsample_yaml = get_one_copy_yaml(&yaml_files, "subsample.yaml");
@@ -146,12 +146,12 @@ fn get_one_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Option<PathBuf> 
     let found_files = yaml_files.iter()
         .filter(|path| path.file_name().is_some_and(|name| name == filename)).collect::<Vec<_>>();
     if found_files.is_empty() {
-        eprintln!("Warning: {} not found", filename);
+        eprintln!("Warning: {filename} not found");
     }
     match found_files.len() {
         0 => None,
         1 => Some(found_files[0].clone()),
-        _ => quit_with_error(&format!("Multiple {} files found", filename)),
+        _ => quit_with_error(&format!("Multiple {filename} files found")),
     }
 }
 
@@ -163,7 +163,7 @@ fn get_multi_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Vec<PathBuf> {
         .filter(|path| {path.file_name().is_some_and(|name| name == filename) &&
                         !path.to_string_lossy().contains("/qc_fail/")}).cloned().collect();
     if found_files.is_empty() {
-        eprintln!("Warning: {} not found", filename);
+        eprintln!("Warning: {filename} not found");
     }
     found_files
 }

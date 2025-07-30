@@ -31,13 +31,13 @@ use crate::unitig_graph::UnitigGraph;
 
 pub fn assert_almost_eq(a: f64, b: f64, epsilon: f64) {
     assert!((a - b).abs() < epsilon,
-            "Numbers are not within {:?} of each other: {} vs {}", epsilon, a, b);
+            "Numbers are not within {epsilon:?} of each other: {a} vs {b}");
 }
 
 
 pub fn make_test_file(file_path: &Path, contents: &str) {
     let mut file = File::create(file_path).unwrap();
-    write!(file, "{}", contents).unwrap();
+    write!(file, "{contents}").unwrap();
 }
 
 
@@ -152,7 +152,7 @@ fn test_fixed_seqs() {
 fn test_random_seqs() {
     for length in [10, 20, 50, 100] {
         for seed in [0, 5, 10, 15, 20] {
-            eprintln!("{}", seed);
+            eprintln!("{seed}");
             let seq_a = format!(">a\n{}\n", random_seq(length, seed));
             let seq_b = format!(">b\n{}\n", random_seq(length, seed+1));
             let seq_c = format!(">c\n{}\n", random_seq(length, seed+2));

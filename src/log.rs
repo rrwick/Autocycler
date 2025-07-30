@@ -17,7 +17,7 @@ use colored::Colorize;
 
 pub fn section_header(text: &str) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let date = format!("({})", now);
+    let date = format!("({now})");
     eprintln!();
     eprintln!("{} {}", text.bold().bright_yellow().underline(), date.dimmed());
 }
@@ -28,7 +28,7 @@ pub fn explanation(text: &str) {
     if let Some((w, _)) = term_size::dimensions_stderr() {
         term_width = w;
     }
-    let indented_text = format!("    {}", text);
+    let indented_text = format!("    {text}");
     eprintln!("{}", textwrap::fill(&indented_text, term_width).dimmed());
     eprintln!();
 }

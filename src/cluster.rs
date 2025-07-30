@@ -101,11 +101,11 @@ fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --cutoff {}", format_float(cutoff));
     if min_assemblies_option.is_none() {
-        eprintln!("  --min_assemblies {} (automatically set)", min_assemblies);
+        eprintln!("  --min_assemblies {min_assemblies} (automatically set)");
     } else {
-        eprintln!("  --min_assemblies {}", min_assemblies);
+        eprintln!("  --min_assemblies {min_assemblies}");
     }
-    eprintln!("  --max_contigs {}", max_contigs);
+    eprintln!("  --max_contigs {max_contigs}");
     if !manual_clusters.is_empty() {
         eprintln!("  --manual {}", manual_clusters.iter().map(|c| c.to_string())
                                                   .collect::<Vec<String>>() .join(","));
@@ -122,9 +122,8 @@ fn check_sequence_count(sequences: &[Sequence], max_contigs: u32) {
     }
     let mean_seqs_per_assembly = sequence_count / assembly_count;
     if mean_seqs_per_assembly > max_contigs as f64 {
-        let e = format!("the mean number of contigs per input assembly ({:.1}) exceeds the allowed \
-                         threshold ({}). Are your input assemblies fragmented or contaminated?",
-                        mean_seqs_per_assembly, max_contigs);
+        let e = format!("the mean number of contigs per input assembly ({mean_seqs_per_assembly:.1}) exceeds the allowed \
+                         threshold ({max_contigs}). Are your input assemblies fragmented or contaminated?");
         quit_with_error(&e);
     }
 }
@@ -170,7 +169,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Se
     let mut f = File::create(file_path).unwrap();
     writeln!(f, "{}", sequences.len()).unwrap();
     for seq_a in sequences {
-        write!(f, "{}", seq_a).unwrap();
+        write!(f, "{seq_a}").unwrap();
         for seq_b in sequences {
             write!(f, "\t{:.8}", distances.get(&(seq_a.id, seq_b.id)).unwrap()).unwrap();
         }
@@ -376,9 +375,9 @@ fn save_tree_to_newick(root: &TreeNode, sequences: &[Sequence], file_path: &Path
     let mut file = File::create(file_path).unwrap();
     if root.distance < 0.5 {
         let root_length = 0.5 - root.distance;
-        writeln!(file, "({}:{});", newick_string, root_length).unwrap();
+        writeln!(file, "({newick_string}:{root_length});").unwrap();
     } else {
-        writeln!(file, "{};", newick_string).unwrap();
+        writeln!(file, "{newick_string};").unwrap();
     }
     eprintln!("  {}", file_path.display());
     eprintln!();
@@ -538,7 +537,7 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
             }
             qc_results.insert(current_cluster, qc);
         } else {
-            quit_with_error(&format!("clustering tree does not contain a node with id {}", n));
+            quit_with_error(&format!("clustering tree does not contain a node with id {n}"));
         }
     }
 
@@ -568,7 +567,7 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
             let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
                                                             &qc_results);
             if container > 0 && !cluster_is_trusted(sequences, c) {
-                let fail_reason = format!("contained within cluster {}", container);
+                let fail_reason = format!("contained within cluster {container}");
                 qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
             }
         }
@@ -675,7 +674,7 @@ fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
     let manual_clusters = manual_clusters.unwrap().replace(' ', "");
     let mut clusters: Vec<_> = manual_clusters.split(',')
             .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
-                &format!("failed to parse '{}' as a node number", s)))).collect();
+                &format!("failed to parse '{s}' as a node number")))).collect();
     clusters.sort();
     clusters
 }
@@ -734,7 +733,7 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &[Sequence],
 
 
 fn save_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
-                 clustering_dir: &Path, gfa_lines: &Vec<String>) {
+                 clustering_dir: &Path, gfa_lines: &[String]) {
     let pass_dir = clustering_dir.join("qc_pass");
     let fail_dir = clustering_dir.join("qc_fail");
     save_qc_pass_clusters(sequences, qc_results, gfa_lines, &pass_dir);
@@ -743,15 +742,15 @@ fn save_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
 
 
 fn save_qc_pass_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &Vec<String>, pass_dir: &Path) {
+                         gfa_lines: &[String], pass_dir: &Path) {
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();
         if qc.pass() {
-            eprintln!("Cluster {:03}:", c);
+            eprintln!("Cluster {c:03}:");
             let mut seq_count = 0;
             let mut seq_lengths = Vec::new();
             for s in sequences.iter().filter(|s| s.cluster == c) {
-                eprintln!("  {}", s);
+                eprintln!("  {s}");
                 seq_count += 1;
                 seq_lengths.push(s.length);
             }
@@ -759,7 +758,7 @@ fn save_qc_pass_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, Clust
                 eprintln!("  cluster distance: {}", format_float(qc.cluster_dist));
             }
             eprintln!("{}", "  passed QC".green());
-            let cluster_dir = pass_dir.join(format!("cluster_{:03}", c));
+            let cluster_dir = pass_dir.join(format!("cluster_{c:03}"));
             create_dir(&cluster_dir);
             save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
             save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
@@ -771,11 +770,11 @@ fn save_qc_pass_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, Clust
 
 
 fn save_qc_fail_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &Vec<String>, fail_dir: &Path) {
+                         gfa_lines: &[String], fail_dir: &Path) {
     for c in 1..=get_max_cluster(sequences) {
         let qc = qc_results.get(&c).unwrap();
         if qc.fail() {
-            eprintln!("Cluster {:03}:", c);
+            eprintln!("Cluster {c:03}:");
             let mut seq_count = 0;
             let mut seq_lengths = Vec::new();
             for s in sequences.iter().filter(|s| s.cluster == c) {
@@ -788,9 +787,9 @@ fn save_qc_fail_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, Clust
                 eprintln!("  {}", s.to_string().dimmed());
             }
             for f in &qc.failure_reasons {
-                eprintln!("  {}", format!("failed QC: {}", f).red());
+                eprintln!("  {}", format!("failed QC: {f}").red());
             }
-            let cluster_dir = fail_dir.join(format!("cluster_{:03}", c));
+            let cluster_dir = fail_dir.join(format!("cluster_{c:03}"));
             create_dir(&cluster_dir);
             save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
             save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
@@ -801,7 +800,7 @@ fn save_qc_fail_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, Clust
 }
 
 
-fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<String>,
+fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &[String],
                     out_gfa: PathBuf) {
     let cluster_seqs: Vec<Sequence> = sequences.iter().filter(|s| s.cluster == cluster_num)
                                                .cloned().collect();
@@ -816,7 +815,7 @@ fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &Vec<St
 }
 
 
-fn filter_gfa_lines(gfa_lines: &Vec<String>, paths_to_remove: &[u16]) -> Vec<String> {
+fn filter_gfa_lines(gfa_lines: &[String], paths_to_remove: &[u16]) -> Vec<String> {
     // This function produces a new set of GFA lines, excluding specified path lines.
     gfa_lines.iter().filter(|line| {
         if let Some(rest) = line.strip_prefix("P\t") {

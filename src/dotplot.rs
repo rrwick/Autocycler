@@ -90,8 +90,8 @@ fn starting_message() {
 fn print_settings(input: &Path, res: u32, kmer: u32) {
     eprintln!("Settings:");
     eprintln!("  --input {}", input.display());
-    eprintln!("  --res {}", res);
-    eprintln!("  --kmer {}", kmer);
+    eprintln!("  --res {res}");
+    eprintln!("  --kmer {kmer}");
     eprintln!();
 }
 
@@ -137,7 +137,7 @@ fn load_from_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
     explanation("Sequences are now loaded from the provided unitig graph.");
     let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
     for s in &sequences {
-        eprintln!("{}", s);
+        eprintln!("{s}");
     }
     eprintln!();
     (unitig_graph, sequences)

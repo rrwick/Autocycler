@@ -66,10 +66,10 @@ fn print_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_co
     eprintln!("Settings:");
     eprintln!("  --reads {}", fastq_file.display());
     eprintln!("  --out_dir {}", out_dir.display());
-    eprintln!("  --genome_size {}", genome_size);
-    eprintln!("  --count {}", subset_count);
+    eprintln!("  --genome_size {genome_size}");
+    eprintln!("  --count {subset_count}");
     eprintln!("  --min_read_depth {}", format_float(min_read_depth));
-    eprintln!("  --seed {}", seed);
+    eprintln!("  --seed {seed}");
     eprintln!();
 }
 
@@ -116,8 +116,8 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
     explanation("Autocycler will now calculate the number of reads to put in each subset.");
     let total_depth = read_bases as f64 / genome_size as f64;
     let mean_read_length = (read_bases as f64 / read_count as f64).round() as u64;
-    eprintln!("Total read depth: {:.1}×", total_depth);
-    eprintln!("Mean read length: {} bp", mean_read_length);
+    eprintln!("Total read depth: {total_depth:.1}×");
+    eprintln!("Mean read length: {mean_read_length} bp");
     eprintln!();
     if total_depth < min_depth {
         quit_with_error("input reads are too shallow to subset");
@@ -126,10 +126,10 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
     eprintln!("  subset_depth = {} * log_2(4 * total_depth / {}) / 2",
               format_float(min_depth), format_float(min_depth));
     let subset_depth = min_depth * (4.0 * total_depth / min_depth).log2() / 2.0;
-    eprintln!("               = {:.1}x", subset_depth);
+    eprintln!("               = {subset_depth:.1}x");
     let subset_ratio = subset_depth / total_depth;
     let reads_per_subset = (subset_ratio * read_count as f64).round() as usize;
-    eprintln!("  reads per subset: {}", reads_per_subset);
+    eprintln!("  reads per subset: {reads_per_subset}");
     eprintln!();
     reads_per_subset
 }

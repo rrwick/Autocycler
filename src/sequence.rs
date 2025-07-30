@@ -38,7 +38,7 @@ impl Sequence {
         // substituting this padding with real sequence (as much as possible).
         let mut forward_seq = seq.into_bytes();
         if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
-            quit_with_error(&format!("{} contains non-ACGT characters", filename));
+            quit_with_error(&format!("{filename} contains non-ACGT characters"));
         }
 
         let padding = vec![b'.'; half_k as usize];

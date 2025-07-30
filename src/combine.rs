@@ -111,13 +111,12 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:Z:orangered".to_string();
             }
-            writeln!(gfa_file, "S\t{}\t{}{}{}",
-                     unitig_num, unitig_seq, depth_tag, colour_tag).unwrap();
+            writeln!(gfa_file, "S\t{unitig_num}\t{unitig_seq}{depth_tag}{colour_tag}").unwrap();
             writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), circ).unwrap();
-            writeln!(fasta_file, "{}", unitig_seq).unwrap();
+            writeln!(fasta_file, "{unitig_seq}").unwrap();
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {
-            writeln!(gfa_file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand).unwrap();
+            writeln!(gfa_file, "L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M").unwrap();
         }
         offset += graph.max_unitig_number();
         let component_length = graph.total_length();

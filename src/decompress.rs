@@ -108,8 +108,8 @@ pub fn save_original_seqs_to_dir(out_dir: &Path, unitig_graph: &UnitigGraph,
 fn write_sequences<W: Write>(mut writer: BufWriter<W>, headers_seqs: &Vec<(String, String)>) {
     for (header, seq) in headers_seqs {
         eprintln!("  {} ({} bp)", up_to_first_space(header), seq.len());
-        writeln!(writer, ">{}", header).unwrap();
-        writeln!(writer, "{}", seq).unwrap();
+        writeln!(writer, ">{header}").unwrap();
+        writeln!(writer, "{seq}").unwrap();
     }
 }
 
@@ -130,8 +130,8 @@ fn save_original_seqs_to_file(out_file: &Path, unitig_graph: &UnitigGraph,
         let clean_filename = filename.replace(" ", "_");
         for (header, seq) in headers_seqs {
             eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(header), seq.len());
-            writeln!(buf_writer, ">{}__{}", clean_filename, header).unwrap();
-            writeln!(buf_writer, "{}", seq).unwrap();
+            writeln!(buf_writer, ">{clean_filename}__{header}").unwrap();
+            writeln!(buf_writer, "{seq}").unwrap();
         }
     }
     eprintln!();

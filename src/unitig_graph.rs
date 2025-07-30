@@ -106,10 +106,10 @@ impl UnitigGraph {
                     if strand_2 {unitig_2.borrow_mut().forward_prev.push(UnitigStrand::new(unitig_1, strand_1));
                          } else {unitig_2.borrow_mut().reverse_prev.push(UnitigStrand::new(unitig_1, strand_1));}
                 } else {
-                    quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_2));
+                    quit_with_error(&format!("link refers to nonexistent unitig: {seg_2}"));
                 }
             } else {
-                quit_with_error(&format!("link refers to nonexistent unitig: {}", seg_1));
+                quit_with_error(&format!("link refers to nonexistent unitig: {seg_1}"));
             }
         }
     }
@@ -167,7 +167,7 @@ impl UnitigGraph {
                 positions.push(Position::new(seq_id, path_strand, pos as usize));
                 pos += u.length();
             } else {
-                quit_with_error(&format!("unitig {} not found in unitig index", unitig_num));
+                quit_with_error(&format!("unitig {unitig_num} not found in unitig index"));
             }
         }
         assert!(pos == length, "Position calculation mismatch");
@@ -322,7 +322,7 @@ impl UnitigGraph {
             writeln!(file, "{}", unitig.borrow().gfa_segment_line(use_other_colour))?;
         }
         for (a, a_strand, b, b_strand) in self.get_links_for_gfa(0) {
-            writeln!(file, "L\t{}\t{}\t{}\t{}\t0M", a, a_strand, b, b_strand)?;
+            writeln!(file, "L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M")?;
         }
         for s in sequences {
             writeln!(file, "{}", self.get_gfa_path_line(s))?;
@@ -663,8 +663,7 @@ impl UnitigGraph {
             if unitig_num != link.number() { links.push(link); }
         }
         if links.len() != 2 {
-            quit_with_error(&format!("unitig {} does not contain exactly two non-self links",
-                                     unitig_num));
+            quit_with_error(&format!("unitig {unitig_num} does not contain exactly two non-self links"));
         }
     }
 

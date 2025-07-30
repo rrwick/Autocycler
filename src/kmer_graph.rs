@@ -65,7 +65,7 @@ impl fmt::Display for Kmer {
         let seq = std::str::from_utf8(self.seq()).unwrap();
         let positions = self.positions.iter().map(|p| p.to_string())
                                       .collect::<Vec<String>>().join(",");
-        write!(f, "{}:{}", seq, positions)
+        write!(f, "{seq}:{positions}")
     }
 }
 
@@ -193,7 +193,7 @@ mod tests {
         let mut k = Kmer::new(raw, 4, 2);
         k.add_position(1, strand::FORWARD, 123);
         k.add_position(2, strand::REVERSE, 456);
-        assert_eq!(format!("{}", k), "ACGA:1+123,2-456");
+        assert_eq!(format!("{k}"), "ACGA:1+123,2-456");
     }
 
     #[test]

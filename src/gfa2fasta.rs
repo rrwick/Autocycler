@@ -70,7 +70,7 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
             "".to_string()
         };
         writeln!(fasta_file, ">{} length={}{}", unitig.number, unitig.length(), circ).unwrap();
-        writeln!(fasta_file, "{}", seq).unwrap();
+        writeln!(fasta_file, "{seq}").unwrap();
     }
     eprintln!("{} circular sequence{}", circ_count, if circ_count == 1 { "" } else { "s" });
     eprintln!("{} non-circular sequence{}", non_circ_count,

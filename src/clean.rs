@@ -133,7 +133,7 @@ fn parse_tig_numbers(tig_num_str: Option<String>) -> Vec<u32> {
     let tig_num_str = tig_num_str.unwrap().replace(' ', "");
     let mut tig_numbers: Vec<_> = tig_num_str.split(',')
             .map(|s| s.parse::<u32>().unwrap_or_else(|_| quit_with_error(
-                &format!("failed to parse '{}' as a node number", s)))).collect();
+                &format!("failed to parse '{s}' as a node number")))).collect();
     tig_numbers.sort();
     tig_numbers
 }

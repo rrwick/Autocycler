@@ -173,7 +173,7 @@ fn create_bridges(graph: &UnitigGraph, sequences: &[Sequence], anchors: &[u32], 
     // it can contribute its path multiple times to give more weight in the consensus sequence.
     let sequence_paths: Vec<_> = sequences.iter().flat_map(|s| {
         let weight = s.consensus_weight();
-        if verbose { eprintln!("{} consensus weight = {}", s, weight); }
+        if verbose { eprintln!("{s} consensus weight = {weight}"); }
         (0..weight).map(move |_| graph.get_unitig_path_for_sequence_i32(s))
     }).collect();
     if verbose { eprintln!(); }
@@ -298,7 +298,7 @@ fn cull_ambiguity(bridges: &mut Vec<Bridge>, verbose: bool) -> usize {
     while !ambi_bridges.is_empty() {
         let to_cull = ambi_bridges[0];
         if verbose {
-            eprintln!("  {}", to_cull);
+            eprintln!("  {to_cull}");
         }
         bridges.remove(bridges.iter().position(|b| b.start == to_cull.start && b.end == to_cull.end).unwrap());
         cull_count += 1;
@@ -321,7 +321,7 @@ fn print_bridges(bridges: &Vec<Bridge>, verbose: bool) {
             eprintln!("Unique bridges:");
             for b in bridges {
                 if !b.conflicting {
-                    eprintln!("  {}", b);
+                    eprintln!("  {b}");
                 }
             }
         }
@@ -329,13 +329,13 @@ fn print_bridges(bridges: &Vec<Bridge>, verbose: bool) {
             eprintln!("\nConflicting bridges:");
             for b in bridges {
                 if b.conflicting {
-                    eprintln!("  {}", b);
+                    eprintln!("  {b}");
                 }
             }
         }
     } else {
-        eprintln!("     Unique bridges: {}", unique_count);
-        eprintln!("Conflicting bridges: {}", conflicting_count);
+        eprintln!("     Unique bridges: {unique_count}");
+        eprintln!("Conflicting bridges: {conflicting_count}");
     }
     eprintln!();
 }

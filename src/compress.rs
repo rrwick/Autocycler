@@ -74,8 +74,8 @@ fn print_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, thr
     eprintln!("Settings:");
     eprintln!("  --assemblies_dir {}", assemblies_dir.display());
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
-    eprintln!("  --kmer {}", k_size);
-    eprintln!("  --threads {}", threads);
+    eprintln!("  --kmer {k_size}");
+    eprintln!("  --threads {threads}");
     eprintln!();
 }
 
@@ -87,9 +87,8 @@ fn check_sequence_count(sequences: &[Sequence], assembly_count: usize, max_conti
     }
     let mean_seqs_per_assembly = sequence_count / (assembly_count as f64);
     if mean_seqs_per_assembly > max_contigs as f64 {
-        let e = format!("the mean number of contigs per input assembly ({:.1}) exceeds the allowed \
-                         threshold ({}). Are your input assemblies fragmented or contaminated?",
-                        mean_seqs_per_assembly, max_contigs);
+        let e = format!("the mean number of contigs per input assembly ({mean_seqs_per_assembly:.1}) exceeds the allowed \
+                         threshold ({max_contigs}). Are your input assemblies fragmented or contaminated?");
         quit_with_error(&e);
     }
 }
@@ -115,7 +114,7 @@ pub fn load_sequences(assemblies_dir: &Path, k_size: u32, metrics: &mut InputAss
             let contig_header = header.split_whitespace().collect::<Vec<&str>>().join(" ");
             let filename = assembly.file_name().unwrap().to_string_lossy().into_owned();
             let seq = Sequence::new_with_seq(seq_id, seq, filename, contig_header, seq_len, half_k);
-            eprintln!(" {:>3}: {}", seq_id, seq);
+            eprintln!(" {seq_id:>3}: {seq}");
             assembly_details.contigs.push(InputContigDetails::new(&seq));
             if !seq.is_ignored() {
                 sequences.push(seq);

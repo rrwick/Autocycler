@@ -90,9 +90,9 @@ fn print_settings(cluster_dir: &Path, min_identity: f64, max_unitigs: usize, mad
     eprintln!("Settings:");
     eprintln!("  --cluster_dir {}", cluster_dir.display());
     eprintln!("  --min_identity {}", format_float(min_identity));
-    eprintln!("  --max_unitigs {}", max_unitigs);
+    eprintln!("  --max_unitigs {max_unitigs}");
     eprintln!("  --mad {}", format_float(mad));
-    eprintln!("  --threads {}", threads);
+    eprintln!("  --threads {threads}");
     eprintln!();
     if max_unitigs == 0 {
         eprintln!("Since --max_unitigs was set to 0, trimming is disabled.");
@@ -123,13 +123,13 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
         let trimmed_path = trim_path_start_end(path, weights, min_identity, max_unitigs);
         if let Some(trimmed_path) = trimmed_path {
             let trimmed_length: u32 = trimmed_path.iter().map(|&u| weights[&u.abs()]).sum();
-            (Some((trimmed_path, trimmed_length)), format!("{}: {}", seq, format!("trimmed to {} bp", trimmed_length).red()))
+            (Some((trimmed_path, trimmed_length)), format!("{}: {}", seq, format!("trimmed to {trimmed_length} bp").red()))
         } else {
             (None, format!("{}: {}", seq, "not trimmed".green()))
         }
     }).collect();
     for (_, message) in &results {
-        eprintln!("{}", message);
+        eprintln!("{message}");
     }
     eprintln!();
     results.into_iter().map(|(result, _)| result).collect()
@@ -173,17 +173,17 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
             let message;
             let trimmed_length: u32 = path_3.iter().map(|&u| weights[&u.abs()]).sum();
             if trimmed_start && trimmed_end {
-                message = format!("{}: {}", seq, format!("trimmed from start and end to {} bp", trimmed_length).red());
+                message = format!("{}: {}", seq, format!("trimmed from start and end to {trimmed_length} bp").red());
             } else if trimmed_start {
-                message = format!("{}: {}", seq, format!("trimmed from start to {} bp", trimmed_length).red());
+                message = format!("{}: {}", seq, format!("trimmed from start to {trimmed_length} bp").red());
             } else {
-                message = format!("{}: {}", seq, format!("trimmed from end to {} bp", trimmed_length).red());
+                message = format!("{}: {}", seq, format!("trimmed from end to {trimmed_length} bp").red());
             }
             (Some((path_3, trimmed_length)), message)
         }
     }).collect();
     for (_, message) in &results {
-        eprintln!("{}", message);
+        eprintln!("{message}");
     }
     eprintln!();
     results.into_iter().map(|(result, _)| result).collect()
@@ -242,9 +242,9 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
     let median_absolute_deviation = mad_isize(&lengths);
     let min_length = (median as f64 - (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     let max_length = (median as f64 + (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
-    eprintln!("Median sequence length:    {} bp", median);
-    eprintln!("Median absolute deviation: {} bp", median_absolute_deviation);
-    eprintln!("Allowed length range:      {}-{} bp", min_length, max_length);
+    eprintln!("Median sequence length:    {median} bp");
+    eprintln!("Median absolute deviation: {median_absolute_deviation} bp");
+    eprintln!("Allowed length range:      {min_length}-{max_length} bp");
     eprintln!();
     let mut new_sequences = vec![];
     for seq in sequences {
@@ -252,7 +252,7 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
             new_sequences.push(seq.clone());
             eprintln!("{}: {}", seq, "kept".green());
         } else {
-            eprintln!("{} {}", format!("{}:", seq).dimmed(), "excluded".red());
+            eprintln!("{} {}", format!("{seq}:").dimmed(), "excluded".red());
             graph.remove_sequence_from_graph(seq.id);
         }
     }
@@ -344,7 +344,7 @@ impl fmt::Display for AlignmentPiece {
         let b_unitig = if self.b_unitig == 0 { "GAP".to_string() } else { self.b_unitig.to_string() };
         let a_index = if self.a_index == usize::MAX { "NONE".to_string() } else { self.a_index.to_string() };
         let b_index = if self.b_index == usize::MAX { "NONE".to_string() } else { self.b_index.to_string() };
-        write!(f, "{},{},{},{}", a_unitig, a_index, b_unitig, b_index)
+        write!(f, "{a_unitig},{a_index},{b_unitig},{b_index}")
     }
 }
 
