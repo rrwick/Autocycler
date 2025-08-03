@@ -18,7 +18,10 @@ threads=$2               # threads per job
 jobs=$3                  # number of simultaneous jobs
 read_type=${4:-ont_r10}  # read type (default = ont_r10)
 
-# Validate input parameters.
+# Input assembly jobs that exceed this time limit will be killed
+max_time="8h"
+
+# Validate input parameters
 if [[ -z "$reads" || -z "$threads" || -z "$jobs" ]]; then
     echo "Usage: $0 <read_fastq> <threads> <jobs> [read_type]" 1>&2
     exit 1
@@ -47,7 +50,7 @@ for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; 
     done
 done
 set +e
-nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.tsv --results assemblies/logs < assemblies/jobs.txt
+nice -n 19 parallel --jobs "$jobs" --joblog assemblies/joblog.tsv --results assemblies/logs --timeout "$max_time" < assemblies/jobs.txt
 set -e
 
 # Give circular contigs from Plassembler extra clustering weight
