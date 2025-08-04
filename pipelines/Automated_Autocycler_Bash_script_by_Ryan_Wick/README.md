@@ -16,6 +16,7 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 * Runs multiple assemblies in parallel using [GNU Parallel](https://github.com/rrwick/Autocycler/wiki/Parallelising-input-assemblies#gnu-parallel).
 * Assemblies are run via the [Autocycler helper](https://github.com/rrwick/Autocycler/wiki/Autocycler-helper) command.
 * Assemblies are run with `nice -n 19` to reduce their impact on other system processes.
+* Assemblies are run using GNU Parallel's `--timeout` option, which kills any job that takes too long to complete. The timeout is hard-coded to a generous 8 hours by default, but you can change the `max_time` variable near the top of the script to adjust this.
 * [Plassembler](https://github.com/gbouras13/plassembler) is included to help recover small plasmids that other long-read assemblers may miss.
   * Plassembler requires a reference database. Its helper will look for it via the `PLASSEMBLER_DB` environment variable, or else in a `plassembler_db` directory inside the active conda environment.
   * Circular Plassembler contigs are given extra clustering weight which helps small plasmids (which may only be assembled by Plassembler) to be included in the final assembly.
