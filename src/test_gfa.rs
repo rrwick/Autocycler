@@ -17,13 +17,13 @@ pub fn get_test_gfa_1() -> Vec<String> {
     // Branching structure
     // Includes a hairpin link
     vec!["H\tVN:Z:1.0\tKM:i:9",
-         "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:1",
-         "S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:1",
+         "S\t1\tTTCGCTGCGCTCGCTTCGCTTT\tDP:f:5",
+         "S\t2\tTGCCGTCGTCGCTGTGCA\tDP:f:4",
          "S\t3\tTGCCTGAATCGCCTA\tDP:f:1",
-         "S\t4\tGCTCGGCTCG\tDP:f:1",
-         "S\t5\tCGAACCAT\tDP:f:1",
+         "S\t4\tGCTCGGCTCG\tDP:f:4",
+         "S\t5\tCGAACCAT\tDP:f:2",
          "S\t6\tTACTTGT\tDP:f:1",
-         "S\t7\tGCCTT\tDP:f:1",
+         "S\t7\tGCCTT\tDP:f:2",
          "S\t8\tATCT\tDP:f:1",
          "S\t9\tGC\tDP:f:1",
          "S\t10\tT\tDP:f:1",

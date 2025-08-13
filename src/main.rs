@@ -83,6 +83,10 @@ enum Commands {
         /// Tig numbers to duplicate in the input graph
         #[clap(short = 'd', long = "duplicate")]
         duplicate: Option<String>,
+
+        /// Automatically remove tigs up to this depth
+        #[clap(short = 'm', long = "min_depth")]
+        min_depth: Option<f64>,
     },
 
     /// cluster contigs in the unitig graph based on similarity
@@ -323,8 +327,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Clean { in_gfa, out_gfa, remove, duplicate }) => {
-            clean::clean(in_gfa, out_gfa, remove, duplicate);
+        Some(Commands::Clean { in_gfa, out_gfa, remove, duplicate, min_depth }) => {
+            clean::clean(in_gfa, out_gfa, remove, duplicate, min_depth);
         },
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);

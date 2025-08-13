@@ -667,6 +667,59 @@ impl UnitigGraph {
         }
     }
 
+    pub fn remove_low_depth_unitigs(&mut self, min_depth: f64) {
+        // Removes unitigs with a depth at or below the specified threshold, but only if doing so
+        // would not create a dead end.
+        if self.unitigs.is_empty() { return; }
+        let indices: Vec<usize> = (0..self.unitigs.len()).collect();
+        for idx in indices.into_iter().rev() {  // loop in reverse to keep longer unitigs
+            if idx >= self.unitigs.len() { continue; }
+            let u_rc = self.unitigs[idx].clone();
+            let (u_num, u_depth, forward_next, forward_prev) = {
+                let u = u_rc.borrow();
+                (u.number, u.depth, u.forward_next.clone(), u.forward_prev.clone())
+            };
+            if u_depth > min_depth { continue; }
+            let mut ok_to_delete = true;
+
+            for next_us in &forward_next {
+                let next_rc = next_us.unitig();
+                let next_num = { next_rc.borrow().number };
+                if next_num == u_num { continue; }
+                let has_other = {
+                    let next_u = next_rc.borrow();
+                    if next_us.strand {
+                        next_u.forward_prev.iter().any(|lk| lk.unitig().borrow().number != u_num)
+                    } else {
+                        next_u.reverse_prev.iter().any(|lk| lk.unitig().borrow().number != u_num)
+                    }
+                };
+                if !has_other { ok_to_delete = false; break; }
+            }
+            if !ok_to_delete { continue; }
+
+            for prev_us in &forward_prev {
+                let prev_rc = prev_us.unitig();
+                let prev_num = { prev_rc.borrow().number };
+                if prev_num == u_num { continue; }
+                let has_other = {
+                    let prev_u = prev_rc.borrow();
+                    if prev_us.strand {
+                        prev_u.forward_next.iter().any(|lk| lk.unitig().borrow().number != u_num)
+                    } else {
+                        prev_u.reverse_next.iter().any(|lk| lk.unitig().borrow().number != u_num)
+                    }
+                };
+                if !has_other { ok_to_delete = false; break; }
+            }
+            if !ok_to_delete { continue; }
+
+            self.unitigs.retain(|x| x.borrow().number != u_num);
+            self.delete_dangling_links();
+            self.build_unitig_index();
+        }
+    }
+
     pub fn link_exists(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
         // Checks if the given link exists (looks for it in forward_next/reverse_next).
         if let Some(unitig_a) = self.unitig_index.get(&a_num) {
@@ -934,6 +987,7 @@ fn reverse_path(path: &[(u32, bool)]) -> Vec<(u32, bool)> {
 #[cfg(test)]
 mod tests {
     use crate::test_gfa::*;
+    use crate::graph_simplification::merge_linear_paths;
     use super::*;
 
     #[test]
@@ -1391,5 +1445,28 @@ mod tests {
         assert_eq!(graph.unitigs.len(), 7);
         assert_eq!(graph.total_length(), 79);
         assert_eq!(graph.link_count(), (8, 4));
+    }
+
+    #[test]
+    fn test_remove_low_depth_unitigs() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        assert_eq!(graph.unitigs.len(), 10);
+        assert_eq!(graph.total_length(), 92);
+        assert_eq!(graph.link_count(), (21, 11));
+
+        graph.remove_low_depth_unitigs(1.0);
+        assert_eq!(graph.unitigs.len(), 8);
+        assert_eq!(graph.total_length(), 70);
+        assert_eq!(graph.link_count(), (16, 8));
+
+        merge_linear_paths(&mut graph, &vec![]);
+        assert_eq!(graph.unitigs.len(), 6);
+        assert_eq!(graph.total_length(), 70);
+        assert_eq!(graph.link_count(), (12, 6));
+
+        graph.remove_low_depth_unitigs(1.0);
+        assert_eq!(graph.unitigs.len(), 5);
+        assert_eq!(graph.total_length(), 65);
+        assert_eq!(graph.link_count(), (10, 5));
     }
 }

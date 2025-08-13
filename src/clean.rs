@@ -20,7 +20,8 @@ use crate::misc::{check_if_file_exists, quit_with_error};
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicate: Option<String>) {
+pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicate: Option<String>,
+             min_depth: Option<f64>) {
     check_settings(&in_gfa);
     starting_message();
     let remove = parse_tig_numbers(remove);
@@ -34,6 +35,9 @@ pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicat
     }
     if !duplicate.is_empty() {
         duplicate_tigs(&mut graph, &duplicate);
+    }
+    if let Some(d) = min_depth {
+        remove_low_depth_tigs(&mut graph, d);
     }
     merge_graph(&mut graph);
     graph.save_gfa(&out_gfa, &vec![], true).unwrap();
@@ -91,6 +95,15 @@ fn duplicate_tigs(graph: &mut UnitigGraph, duplicate: &[u32]) {
     for tig_num in duplicate {
         graph.duplicate_unitig_by_number(tig_num);
     }
+    graph.print_basic_graph_info();
+}
+
+
+fn remove_low_depth_tigs(graph: &mut UnitigGraph, min_depth: f64) {
+    section_header("Removing low depth sequences");
+    explanation("Tigs with a depth below the specified threshold are now removed from the graph, \
+                 if and only if doing so would not create a dead end.");
+    graph.remove_low_depth_unitigs(min_depth);
     graph.print_basic_graph_info();
 }
 
