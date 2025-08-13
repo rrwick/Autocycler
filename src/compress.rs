@@ -140,7 +140,8 @@ fn print_sequence_info(sequence_count: usize, assembly_count: usize) {
 }
 
 
-fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence>) -> KmerGraph {
+fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence>)
+        -> KmerGraph<'_> {
     section_header("Building k-mer De Bruijn graph");
     explanation("K-mers in the input sequences are now hashed to make a De Bruijn graph.");
     let mut kmer_graph = KmerGraph::new(k_size);

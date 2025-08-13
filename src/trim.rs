@@ -149,23 +149,19 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         let mut trimmed_start = false;
         let mut trimmed_end = false;
 
-        let path_2;
-        let trimmed_path_start = trim_path_hairpin_start(path, weights, min_identity, max_unitigs);
-        if trimmed_path_start.is_some() {
+        let path_2 = if let Some(p) = trim_path_hairpin_start(path, weights, min_identity, max_unitigs) {
             trimmed_start = true;
-            path_2 = trimmed_path_start.unwrap();
+            p
         } else {
-            path_2 = path.clone();
-        }
+            path.clone()
+        };
 
-        let path_3;
-        let trimmed_path_end = trim_path_hairpin_end(&path_2, weights, min_identity, max_unitigs);
-        if trimmed_path_end.is_some() {
+        let path_3 = if let Some(p) = trim_path_hairpin_end(&path_2, weights, min_identity, max_unitigs) {
             trimmed_end = true;
-            path_3 = trimmed_path_end.unwrap();
+            p
         } else {
-            path_3 = path_2;
-        }
+            path_2
+        };
 
         if !trimmed_start && !trimmed_end {
             (None, format!("{}: {}", seq, "not trimmed".green()))
