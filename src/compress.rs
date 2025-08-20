@@ -53,10 +53,11 @@ pub fn compress(assemblies_dir: PathBuf, autocycler_dir: PathBuf, k_size: u32, m
 fn check_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, threads: usize) {
     check_if_dir_exists(assemblies_dir);
     check_if_dir_is_not_dir(autocycler_dir);
-    if k_size < 11   { quit_with_error("--kmer cannot be less than 11"); }
-    if k_size > 501  { quit_with_error("--kmer cannot be greater than 501"); }
-    if threads < 1   { quit_with_error("--threads cannot be less than 1"); }
-    if threads > 100 { quit_with_error("--threads cannot be greater than 100"); }
+    if k_size < 11     { quit_with_error("--kmer cannot be less than 11"); }
+    if k_size > 501    { quit_with_error("--kmer cannot be greater than 501"); }
+    if k_size % 2 == 0 { quit_with_error("--kmer must be odd"); }
+    if threads < 1     { quit_with_error("--threads cannot be less than 1"); }
+    if threads > 100   { quit_with_error("--threads cannot be greater than 100"); }
     ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
 }
 
