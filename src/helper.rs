@@ -119,8 +119,8 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads:
     run_command(&mut cmd);
 
     copy_canu_fasta(&dir.join("canu.contigs.fasta"), &dir.join("canu.contigs.layout.tigInfo"),
-                    &out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("canu.report"), &out_prefix.with_extension("log"));
+                    &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("canu.report"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -146,9 +146,9 @@ fn flye(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_ty
     run_command(&mut cmd);
 
     copy_flye_fasta(&dir.join("assembly.fasta"), &dir.join("assembly_info.txt"),
-                    &out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("assembly_graph.gfa"), &out_prefix.with_extension("gfa"));
-    copy_output_file(&dir.join("flye.log"), &out_prefix.with_extension("log"));
+                    &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("assembly_graph.gfa"), &add_extension(out_prefix, "gfa"));
+    copy_output_file(&dir.join("flye.log"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -171,8 +171,8 @@ fn hifiasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    gfa_to_fasta(&dir.join("hifiasm.bp.p_ctg.gfa"), &out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("hifiasm.bp.p_ctg.gfa"), &out_prefix.with_extension("gfa"));
+    gfa_to_fasta(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "gfa"));
 }
 
 
@@ -189,9 +189,9 @@ fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_ar
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    copy_fasta(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("mdbg.gfa"), &out_prefix.with_extension("gfa"));
-    copy_output_file(&dir.join("dbg.log"), &out_prefix.with_extension("log"));
+    copy_fasta(&dir.join("assembly.fasta"), &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("mdbg.gfa"), &add_extension(out_prefix, "gfa"));
+    copy_output_file(&dir.join("dbg.log"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -217,8 +217,8 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, rea
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    copy_fasta(&dir.join("contigs.fasta.gz"), &out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("metaMDBG.log"), &out_prefix.with_extension("log"));
+    copy_fasta(&dir.join("contigs.fasta.gz"), &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("metaMDBG.log"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -262,10 +262,10 @@ fn miniasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
        .arg("--minimap2-preset").arg(map_preset)
        .arg(&reads)
        .arg(dir.join("unpolished.gfa"));
-    redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("gfa")));
+    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "gfa")));
     run_command(&mut cmd);
 
-    gfa_to_fasta(&out_prefix.with_extension("gfa"), &out_prefix.with_extension("fasta"));
+    gfa_to_fasta(&add_extension(out_prefix, "gfa"), &add_extension(out_prefix, "fasta"));
 }
 
 
@@ -285,10 +285,10 @@ fn myloasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    copy_fasta(&dir.join("assembly_primary.fa"), &out_prefix.with_extension("fasta"));
-    replace_underscores_with_spaces(&out_prefix.with_extension("fasta"));
-    copy_output_file(&dir.join("final_contig_graph.gfa"), &out_prefix.with_extension("gfa"));
-    copy_output_file(&find_log_file(&dir, "myloasm"), &out_prefix.with_extension("log"));
+    copy_fasta(&dir.join("assembly_primary.fa"), &add_extension(out_prefix, "fasta"));
+    replace_underscores_with_spaces(&add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("final_contig_graph.gfa"), &add_extension(out_prefix, "gfa"));
+    copy_output_file(&find_log_file(&dir, "myloasm"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -307,7 +307,7 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads
     run_command(&mut cmd);
 
     copy_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"),
-               &out_prefix.with_extension("fasta"));
+               &add_extension(out_prefix, "fasta"));
 }
 
 
@@ -334,8 +334,8 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, th
     run_command(&mut cmd);
 
     copy_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"),
-               &out_prefix.with_extension("fasta"));
-    combine_nextdenovo_logs(&dir, &out_prefix.with_extension("log"));
+               &add_extension(out_prefix, "fasta"));
+    combine_nextdenovo_logs(&dir, &add_extension(out_prefix, "log"));
 }
 
 
@@ -362,10 +362,10 @@ fn plassembler(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, 
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    copy_output_file(&dir.join("plassembler_plasmids.gfa"), &out_prefix.with_extension("gfa"));
+    copy_output_file(&dir.join("plassembler_plasmids.gfa"), &add_extension(out_prefix, "gfa"));
     rotate_plassembler_contigs(&dir.join("plassembler_plasmids.fasta"),
-                               &out_prefix.with_extension("fasta"));
-    copy_output_file(&find_log_file(&dir, "plassembler"), &out_prefix.with_extension("log"));
+                               &add_extension(out_prefix, "fasta"));
+    copy_output_file(&find_log_file(&dir, "plassembler"), &add_extension(out_prefix, "log"));
 }
 
 
@@ -377,10 +377,10 @@ fn raven(reads: PathBuf, out_prefix: &Path, threads: usize, extra_args: Vec<Stri
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
-       .arg("--graphical-fragment-assembly").arg(out_prefix.with_extension("gfa"))
+       .arg("--graphical-fragment-assembly").arg(add_extension(out_prefix, "gfa"))
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&out_prefix.with_extension("fasta")));
+    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "fasta")));
     run_command(&mut cmd);
 }
 
@@ -436,7 +436,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
     redirect_stderr_and_stdout(&mut cmd, None);
     run_command(&mut cmd);
 
-    copy_fasta(&dir.join("assembly.fasta"), &out_prefix.with_extension("fasta"));
+    copy_fasta(&dir.join("assembly.fasta"), &add_extension(out_prefix, "fasta"));
 }
 
 
@@ -483,7 +483,7 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
     }
 
     // Ensure that we can create/overwrite prefix.fasta
-    let fasta = prefix.clone().with_extension("fasta");
+    let fasta = add_extension(&prefix, "fasta");
     let writable = match OpenOptions::new().write(true).open(&fasta) {
         Ok(_) => true,
         Err(e) if e.kind() == ErrorKind::NotFound => match OpenOptions::new()
@@ -877,7 +877,7 @@ fn rotate_plassembler_contigs(src: &Path, dest: &Path) {
 fn replace_underscores_with_spaces(filename: &Path) {
     if !filename.exists() || is_file_empty(filename) { return; }
     let in_file = BufReader::new(File::open(filename).unwrap());
-    let tmp_path = filename.with_extension("tmp");
+    let tmp_path = add_extension(filename, "tmp");
     let mut out_file = BufWriter::new(File::create(&tmp_path).unwrap());
     for line in in_file.lines().map_while(Result::ok) {
         writeln!(out_file, "{}", line.replace('_', " ")).unwrap();
@@ -890,7 +890,7 @@ fn depth_filter(out_prefix: &Path, min_depth_abs: &Option<f64>, min_depth_rel: &
     // Filters the final FASTA file by depth, overwriting the original file. If any contig does
     // not have depth, the function does nothing.
     if min_depth_abs.is_none() && min_depth_rel.is_none() { return; }
-    let fasta = out_prefix.with_extension("fasta");
+    let fasta = add_extension(out_prefix, "fasta");
     if !fasta.exists() || is_fasta_empty(&fasta) { return; }
 
     let mut records = Vec::new();
@@ -932,10 +932,18 @@ fn depth_from_header(header: &str) -> Option<f64> {
 
 
 fn delete_fasta_if_empty(out_prefix: &Path) {
-    let fasta = out_prefix.with_extension("fasta");
+    let fasta = add_extension(out_prefix, "fasta");
     if fasta.exists() && is_fasta_empty(&fasta) {
         let _ = std::fs::remove_file(&fasta);
     }
+}
+
+
+fn add_extension(p: &Path, extension: &str) -> PathBuf {
+    let mut os = p.as_os_str().to_os_string();
+    os.push(".");
+    os.push(extension);
+    PathBuf::from(os)
 }
 
 
@@ -979,7 +987,7 @@ mod tests {
     fn test_depth_filter() {
         let dir = tempdir().unwrap();
         let out_prefix = dir.path().join("test");
-        let fasta = out_prefix.with_extension("fasta");
+        let fasta = add_extension(&out_prefix, "fasta");
 
         make_test_file(&fasta, ">a depth=20\nACGT\n\
                                 >b depth=120\nCGA\n\
