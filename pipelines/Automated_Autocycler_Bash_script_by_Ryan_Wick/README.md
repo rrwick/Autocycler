@@ -11,8 +11,8 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 * No quality control is performed on the input reads – they must be ready for assembly.
 * Genome size is estimated using Raven ([details](https://github.com/rrwick/Autocycler/wiki/Genome-size-estimation)).
 * Uses four read subsets to generate input assemblies.
-* Uses eight assemblers in this order: Raven, miniasm, Flye, metaMDBG, NECAT, NextDenovo, Plassembler and Canu. Faster assemblers come first so you can preview results early in a run.
-* With 4 read subsets × 8 assemblers, the script generates 32 input assemblies.
+* Uses nine assemblers in this order: Raven, Myloasm, miniasm, Flye, metaMDBG, NECAT, NextDenovo, Plassembler and Canu. Faster assemblers come first so you can preview results early in a run.
+* With 4 read subsets × 9 assemblers, the script generates 36 input assemblies.
 * Runs multiple assemblies in parallel using [GNU Parallel](https://github.com/rrwick/Autocycler/wiki/Parallelising-input-assemblies#gnu-parallel).
 * Assemblies are run via the [Autocycler helper](https://github.com/rrwick/Autocycler/wiki/Autocycler-helper) command.
 * Assemblies are run with `nice -n 19` to reduce their impact on other system processes.
@@ -31,9 +31,9 @@ I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it
 This script assumes the following are available in your `$PATH`:
 * `autocycler`
 * [GNU Parallel](https://www.gnu.org/software/parallel): `parallel`
-* Long-read assemblers and supporting tools: `canu`, `flye`, `metaMDBG`, `miniasm`, `minimap2`, `minipolish`, `necat`, `nextDenovo`, `nextPolish`, `plassembler`, `racon`, `raven`
+* Long-read assemblers and supporting tools: `canu`, `flye`, `metaMDBG`, `miniasm`, `minimap2`, `minipolish`, `myloasm`, `necat`, `nextDenovo`, `nextPolish`, `plassembler`, `racon`, `raven`
 
-Installing all of these into a single conda environment is possible but may take some fiddling – see [Autocycler's installation instructions](https://github.com/rrwick/Autocycler/wiki/Software-requirements-and-installation).
+Installing all of these into a single conda environment is usually possible – see [Conda environment file (by Ryan Wick)](https://github.com/rrwick/Autocycler/tree/main/pipelines/Conda_environment_file_by_Ryan_Wick).
 
 If you use separate conda environments for each assembler, modify Step 2 of the script to activate/deactivate as needed. For example:
 ```bash

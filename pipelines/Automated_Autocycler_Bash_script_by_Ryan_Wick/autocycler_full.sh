@@ -44,7 +44,7 @@ autocycler subsample --reads "$reads" --out_dir subsampled_reads --genome_size "
 # Step 2: assemble each subsampled file
 mkdir -p assemblies
 rm -f assemblies/jobs.txt
-for assembler in raven miniasm flye metamdbg necat nextdenovo plassembler canu; do
+for assembler in raven myloasm miniasm flye metamdbg necat nextdenovo plassembler canu; do
     for i in 01 02 03 04; do
         echo "autocycler helper $assembler --reads subsampled_reads/sample_$i.fastq --out_prefix assemblies/${assembler}_$i --threads $threads --genome_size $genome_size --read_type $read_type" --min_depth_rel 0.1 >> assemblies/jobs.txt
     done
@@ -56,7 +56,7 @@ set -e
 # Give circular contigs from Plassembler extra clustering weight
 shopt -s nullglob
 for f in assemblies/plassembler*.fasta; do
-    sed -i 's/circular=True/circular=True Autocycler_cluster_weight=2/' "$f"
+    sed -i 's/circular=True/circular=True Autocycler_cluster_weight=3/' "$f"
 done
 
 # Give contigs from Canu and Flye extra consensus weight
