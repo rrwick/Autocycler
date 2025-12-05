@@ -233,6 +233,10 @@ enum Commands {
         #[clap(long = "args", value_parser = clap::builder::NonEmptyStringValueParser::new(),
                num_args = 1.., action = clap::ArgAction::Append, allow_hyphen_values = true)]
         args: Vec<String>,
+
+        /// Assembler to use (for genome_size task)
+        #[clap(long = "assembler")]
+        assembler: Option<String>,
     },
 
     /// resolve repeats in the the unitig graph
@@ -349,9 +353,9 @@ fn main() {
             gfa2fasta::gfa2fasta(in_gfa, out_fasta);
         },
         Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type,
-                                min_depth_abs, min_depth_rel, args }) => {
+                                min_depth_abs, min_depth_rel, args, assembler }) => {
             helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type,
-                           min_depth_abs, min_depth_rel, args);
+                           min_depth_abs, min_depth_rel, args, assembler);
         },
         Some(Commands::Resolve { cluster_dir, verbose }) => {
             resolve::resolve(cluster_dir, verbose);

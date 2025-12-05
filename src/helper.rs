@@ -37,12 +37,18 @@ use crate::subsample::parse_genome_size;
 #[allow(clippy::too_many_arguments)]
 pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
               threads: usize, dir: Option<PathBuf>, read_type: ReadType,
-              min_depth_abs: Option<f64>, min_depth_rel: Option<f64>, extra_args: Vec<String>) {
+              min_depth_abs: Option<f64>, min_depth_rel: Option<f64>, extra_args: Vec<String>,
+              assembler: Option<String>) {
     check_if_file_exists(&reads);
     let (dir, _guard) = get_working_dir(dir);
 
     if task == Task::GenomeSize {
-        genome_size_raven(reads, threads, dir, extra_args);
+        let assembler = assembler.unwrap_or_else(|| "raven".to_string());
+        match assembler.to_lowercase().as_str() {
+            "raven" => genome_size_raven(reads, threads, dir, extra_args),
+            "lja" => genome_size_lja(reads, threads, dir, extra_args),
+            _ => quit_with_error(&format!("unknown assembler: {assembler}")),
+        }
         return;
     }
 
@@ -400,6 +406,28 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
         quit_with_error("Raven assembly failed");
     }
     println!("{}", total_fasta_length(&dir.join("assembly.fasta")));
+}
+
+
+fn genome_size_lja(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: Vec<String>) {
+    check_requirements(&["lja"]);
+
+    let assembly_path = dir.join("assembly.fasta");
+
+    let mut cmd = Command::new("lja");
+    
+    cmd.arg("--threads").arg(threads.to_string())
+       .arg("--output-dir").arg(&dir)
+       .arg("--reads").arg(&reads);    
+
+    for token in extra_args { cmd.arg(token); }
+
+    run_command(&mut cmd);
+
+    if is_fasta_empty(&assembly_path) {
+        quit_with_error("LJA assembly failed");
+    }
+    println!("{}", total_fasta_length(&assembly_path));
 }
 
 
