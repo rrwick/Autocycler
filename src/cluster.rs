@@ -405,7 +405,7 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) ->
     let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
     let mut cluster_distances: HashMap<(u16, u16), f64> = distances.clone();
     let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
-    let mut internal_node_num: u16 = sequences.iter().map(|s| (s.id)).max().unwrap();
+    let mut internal_node_num: u16 = sequences.iter().map(|s| s.id).max().unwrap();
 
     // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences {
