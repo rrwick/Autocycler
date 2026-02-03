@@ -180,9 +180,10 @@ fn create_bridges(graph: &UnitigGraph, sequences: &[Sequence], anchors: &[u32], 
 
     let anchor_to_anchor_paths = get_anchor_to_anchor_paths(&sequence_paths, &anchor_set);
     let grouped_paths = group_paths_by_start_end(anchor_to_anchor_paths);
+    let unitig_lengths: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
     let mut bridges = Vec::new();
     for ((start, end), paths) in grouped_paths {
-        bridges.push(Bridge::new(start, end, paths));
+        bridges.push(Bridge::new(start, end, paths, &unitig_lengths));
     }
     bridges.sort();
     bridges
@@ -220,8 +221,7 @@ fn determine_ambiguity(bridges: &mut [Bridge]) -> usize {
 
 
 fn apply_bridges(graph: &mut UnitigGraph, bridges: &Vec<Bridge>, bridge_depth: f64) {
-    // This function applies bridges to the graph. If keep_all_paths is true, then unitigs in all
-    // bridge paths are kept. If keep_all_paths is false, then only the best path is kept.
+    // This function applies bridges to the graph.
     graph.clear_positions();
     for bridge in bridges {
         if bridge.conflicting {
@@ -379,10 +379,42 @@ fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>)
 
 fn compare_paths(path_a: &Vec<i32>, path_b: &Vec<i32>) -> bool {
     // Returns true if path_a is 'better' than path_b. Used to break ties when two paths are equally
-    // common in a bridge.
-
-    // TODO: explore different tie-breaking strategies (just using lexographic order at the moment).
+    // common in a bridge. Just uses lexographic order.
     path_a < path_b
+}
+
+
+fn global_alignment_distance(path_a: &[i32], path_b: &[i32], weights: &HashMap<i32, u32>) -> u32 {
+    // This function performs a dynamic-programming alignment to find the distance between two
+    // paths, using unitig lengths as weights for gaps and mismatches.
+    let n = path_a.len();
+    let m = path_b.len();
+    let mut prev = vec![0u32; m + 1];
+    let mut curr = vec![0u32; m + 1];
+
+    for j in 1..=m {
+        let weight_j = *weights.get(&path_b[j - 1].abs()).unwrap();
+        prev[j] = prev[j - 1] + weight_j;  // initialise top edge (gaps in A)
+    }
+
+    for i in 1..=n {
+        let weight_i = *weights.get(&path_a[i - 1].abs()).unwrap();
+        curr[0] = prev[0] + weight_i;  // initialise left edge (gaps in B)
+
+        for j in 1..=m {
+            let weight_j = *weights.get(&path_b[j - 1].abs()).unwrap();
+            let sub_cost = if path_a[i - 1] == path_b[j - 1] { 0 }  // match distance is 0
+                           else { weight_i.max(weight_j) };  // mismatch distance is the longer tig
+            let match_or_mismatch = prev[j - 1] + sub_cost;
+            let delete_cost = prev[j] + weight_i;
+            let insert_cost = curr[j - 1] + weight_j;
+            curr[j] = match_or_mismatch.min(delete_cost).min(insert_cost);
+        }
+
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[m]
 }
 
 
@@ -395,8 +427,8 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    fn new(start: i32, end: i32, all_paths: Vec<Vec<i32>>) -> Self {
-
+    fn new(start: i32, end: i32, all_paths: Vec<Vec<i32>>, unitig_lengths: &HashMap<i32, u32>)
+            -> Self {
         // Remove the start and end unitigs from the paths.
         let mut trimmed_paths = all_paths;
         for path in &mut trimmed_paths {
@@ -404,15 +436,21 @@ impl Bridge {
             path.pop();
         }
 
-        // Set the best path to the most common path, using compare_paths to break ties.
-        let mut path_counts = HashMap::new();
-        for path in &trimmed_paths { *path_counts.entry(path).or_insert(0) += 1; }
+        // Choose the path with the lowest sum of distances to all other paths.
         let mut best_path = Vec::new();
-        let mut max_count = 0;
-        for (path, count) in path_counts {
-            if count > max_count || (count == max_count && compare_paths(path, &best_path)) {
-                best_path = path.clone();
-                max_count = count;
+        let mut best_total = u32::MAX;
+        for (i, path_i) in trimmed_paths.iter().enumerate() {
+            let mut total = 0u32;
+            for (j, path_j) in trimmed_paths.iter().enumerate() {
+                if i == j { continue; }
+                total += global_alignment_distance(path_i.as_slice(), path_j.as_slice(),
+                                                   unitig_lengths);
+            }
+            eprintln!("Bridge {} → {}: path {:?} has total distance {}", 
+                      sign_at_end(start), sign_at_end(end), sign_at_end_vec(path_i), total);  // TEMP
+            if total < best_total || (total == best_total && compare_paths(path_i, &best_path)) {
+                best_total = total;
+                best_path = path_i.clone();
             }
         }
 
@@ -512,11 +550,13 @@ mod tests {
 
     #[test]
     fn test_bridge_unitig_nums() {
+        let unitig_lengths = hashmap!{1 => 10, 12 => 10, 23 => 10, 8 => 10, 41 => 10, 2 => 10,
+                                      17 => 10, 123 => 10};
         let paths = vec![vec![1, 12, -23, -8, 41, 2],
                          vec![1, 12, -23, -8, 41, 2],
                          vec![1, 12, -23, -8, 41, 2],
                          vec![1, 12, 17, 123, 41, 2]];
-        let bridge = Bridge::new(1, 2, paths);
+        let bridge = Bridge::new(1, 2, paths, &unitig_lengths);
         assert_eq!(bridge.rev_start(), -2);
         assert_eq!(bridge.rev_end(), -1);
         assert_eq!(bridge.depth(), 4);
@@ -524,11 +564,13 @@ mod tests {
 
     #[test]
     fn test_determine_ambiguity_1() {
-        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]]);
-        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]]);
-        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]]);
-        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]]);
-        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]]);
+        let unitig_lengths = hashmap!{1 => 10, 2 => 10, 4 => 10, 5 => 10,
+                                      6 => 10, 11 => 10, 12 => 10};
+        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]], &unitig_lengths);
+        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]], &unitig_lengths);
+        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]], &unitig_lengths);
+        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]], &unitig_lengths);
+        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]], &unitig_lengths);
         let mut bridges = vec![bridge_a, bridge_b, bridge_c, bridge_d, bridge_e];
         determine_ambiguity(&mut bridges);
         assert!(!bridges[0].conflicting);
@@ -540,14 +582,16 @@ mod tests {
 
     #[test]
     fn test_determine_ambiguity_2() {
-        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]]);
-        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]]);
-        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]]);
-        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]]);
-        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]]);
-        let bridge_f = Bridge::new(-4, 7, vec![vec![-4, 13, 7]]);
-        let bridge_g = Bridge::new(1, 8, vec![vec![1, 14, 8]]);
-        let bridge_h = Bridge::new(4, -8, vec![vec![4, 9, -8]]);
+        let unitig_lengths = hashmap!{1 => 10, 2 => 10, 4 => 10, 5 => 10, 6 => 10, 7 => 10,
+                                      8 => 10, 9 => 10, 11 => 10, 12 => 10, 13 => 10, 14 => 10};
+        let bridge_a = Bridge::new(1, -2, vec![vec![1, 12, 2]], &unitig_lengths);
+        let bridge_b = Bridge::new(-2, 5, vec![vec![-2, 6, 5]], &unitig_lengths);
+        let bridge_c = Bridge::new(4, -5, vec![vec![4, -5]], &unitig_lengths);
+        let bridge_d = Bridge::new(-4, 6, vec![vec![-4, 12, 6]], &unitig_lengths);
+        let bridge_e = Bridge::new(-1, -6, vec![vec![-1, 11, -6]], &unitig_lengths);
+        let bridge_f = Bridge::new(-4, 7, vec![vec![-4, 13, 7]], &unitig_lengths);
+        let bridge_g = Bridge::new(1, 8, vec![vec![1, 14, 8]], &unitig_lengths);
+        let bridge_h = Bridge::new(4, -8, vec![vec![4, 9, -8]], &unitig_lengths);
         let mut bridges = vec![bridge_a, bridge_b, bridge_c, bridge_d,
                                bridge_e, bridge_f, bridge_g, bridge_h];
         determine_ambiguity(&mut bridges);
@@ -559,5 +603,102 @@ mod tests {
         assert!(bridges[5].conflicting);
         assert!(bridges[6].conflicting);
         assert!(bridges[7].conflicting);
+    }
+
+    #[test]
+    fn test_best_path_1() {
+        // Easy case: 3 vs 1
+        let unitig_lengths = hashmap!{1 => 10, 12 => 10, 23 => 10, 8 => 10, 41 => 10, 2 => 10,
+                                      17 => 10, 123 => 10};
+
+        let paths = vec![vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, 17, 123, 41, 2]];
+        let bridge = Bridge::new(1, 2, paths, &unitig_lengths);
+        assert_eq!(bridge.best_path, vec![12, -23, -8, 41]);
+    }
+
+    #[test]
+    fn test_best_path_2() {
+        // 2 vs 2 tie, go with the lexographically smaller path.
+        let unitig_lengths = hashmap!{1 => 10, 12 => 10, 23 => 10, 8 => 10, 41 => 10, 2 => 10,
+                                      17 => 10, 123 => 10};
+
+        let paths = vec![vec![1, 12, 17, 123, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, -23, -8, 41, 2],
+                         vec![1, 12, 17, 123, 41, 2]];
+        let bridge = Bridge::new(1, 2, paths, &unitig_lengths);
+        assert_eq!(bridge.best_path, vec![12, -23, -8, 41]);
+    }
+
+    #[test]
+    fn test_best_path_3() {
+        // Tricky case: the most common path is the not the best. Even though 1,13,12 appears twice,
+        // the best path should be 1,2,3,4,5,6,7,8,9,10,11,12 since it minimises the total distance
+        // to all paths.
+        let unitig_lengths = hashmap!{1 => 10, 2 => 10, 3 => 10, 4 => 10, 5 => 10, 6 => 10,
+                                      7 => 10, 8 => 10, 9 => 10, 10 => 10, 11 => 10, 12 => 10,
+                                      13 => 10, 14 => 10, 15 => 10, 16 => 10, 17 => 10, 18 => 10,
+                                      19 => 10, 20 => 10, 21 => 10};
+
+        let paths = vec![vec![1, 2, 3, 4, 5, 6, 7, 8, 20, 10, 11, 12],
+                         vec![1, 13, 12],
+                         vec![1, 2, 3, 4, 16, 6, 7, 8, 9, 10, 11, 12],
+                         vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 21, 11, 12],
+                         vec![1, 2, 3, 4, 5, 17, 7, 8, 9, 10, 11, 12],
+                         vec![1, 13, 12],
+                         vec![1, 2, 3, 4, 5, 6, 18, 8, 9, 10, 11, 12],
+                         vec![1, 2, 14, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                         vec![1, 2, 3, 15, 5, 6, 7, 8, 9, 10, 11, 12],
+                         vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                         vec![1, 2, 3, 4, 5, 6, 7, 19, 9, 10, 11, 12]];
+        let bridge = Bridge::new(1, 2, paths, &unitig_lengths);
+        assert_eq!(bridge.best_path, vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    }
+
+    #[test]
+    fn test_global_alignment_distance_1() {
+        // Two identical paths have a distance of 0.
+        let unitig_lengths = hashmap!{1 => 10, 2 => 1, 3 => 2, 4 => 3, 5 => 4, 6 => 10};
+        let a = vec![1, 2, 3, 4, 5, 6];
+        let b = vec![1, 2, 3, 4, 5, 6];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 0);
+        let a = vec![];
+        let b = vec![];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 0);
+    }
+
+    #[test]
+    fn test_global_alignment_distance_2() {
+        // Gaps create distance equal to their unitig lengths.
+        let unitig_lengths = hashmap!{1 => 10, 2 => 1, 3 => 2, 4 => 3, 5 => 4, 6 => 10};
+        let a = vec![1, 2, 3, 4, 5, 6];
+        let b = vec![1, 2, 3, 4, 6];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 4);
+        assert_eq!(global_alignment_distance(b.as_slice(), a.as_slice(), &unitig_lengths), 4);
+        let a = vec![1, 2, 4, 5, 6];
+        let b = vec![1, 2, 3, 4, 5, 6];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 2);
+        assert_eq!(global_alignment_distance(b.as_slice(), a.as_slice(), &unitig_lengths), 2);
+        let a = vec![1, 3, 4, 5, 6];
+        let b = vec![1, 2, 3, 5, 6];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 4);
+        assert_eq!(global_alignment_distance(b.as_slice(), a.as_slice(), &unitig_lengths), 4);
+        let a = vec![1, 2, 3, 4, 5, 6];
+        let b = vec![];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 30);
+        assert_eq!(global_alignment_distance(b.as_slice(), a.as_slice(), &unitig_lengths), 30);
+    }
+
+    #[test]
+    fn test_global_alignment_distance_3() {
+        // Mismatches create distance equal to the longer unitig length.
+        let unitig_lengths = hashmap!{1 => 10, 2 => 1, 3 => 2, 4 => 3, 5 => 4, 6 => 10};
+        let a = vec![1, 2, 3, 5, 6];
+        let b = vec![1, 2, 4, 5, 6];
+        assert_eq!(global_alignment_distance(a.as_slice(), b.as_slice(), &unitig_lengths), 3);
+        assert_eq!(global_alignment_distance(b.as_slice(), a.as_slice(), &unitig_lengths), 3);
     }
 }
