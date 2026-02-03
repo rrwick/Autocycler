@@ -391,8 +391,8 @@ pub fn median_usize(values: &[usize]) -> usize {
     let mut sorted_values = values.to_vec();
     sorted_values.sort();
     let len = sorted_values.len();
-    if len % 2 == 0 { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
-               else { sorted_values[len / 2] }
+    if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
+                        else { sorted_values[len / 2] }
 }
 
 
@@ -401,8 +401,8 @@ pub fn median_isize(values: &[isize]) -> isize {
     let mut sorted_values = values.to_vec();
     sorted_values.sort();
     let len = sorted_values.len();
-    if len % 2 == 0 { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
-               else { sorted_values[len / 2] }
+    if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
+                        else { sorted_values[len / 2] }
 }
 
 
