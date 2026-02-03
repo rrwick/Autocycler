@@ -6,7 +6,7 @@ edition = "2021"
 description = "consensus bacterial genome assemblies"
 homepage = "https://github.com/rrwick/Autocycler"
 documentation = "https://github.com/rrwick/Autocycler/wiki"
-rust-version = "1.78"
+rust-version = "1.93"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
