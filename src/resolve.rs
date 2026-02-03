@@ -446,8 +446,6 @@ impl Bridge {
                 total += global_alignment_distance(path_i.as_slice(), path_j.as_slice(),
                                                    unitig_lengths);
             }
-            eprintln!("Bridge {} → {}: path {:?} has total distance {}", 
-                      sign_at_end(start), sign_at_end(end), sign_at_end_vec(path_i), total);  // TEMP
             if total < best_total || (total == best_total && compare_paths(path_i, &best_path)) {
                 best_total = total;
                 best_path = path_i.clone();
