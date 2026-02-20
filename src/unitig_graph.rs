@@ -1385,6 +1385,35 @@ mod tests {
     }
 
     #[test]
+    fn test_is_isolated_and_linear() {
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
+        assert!(!graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+        assert!(graph.unitig_index.get(&2).unwrap().borrow().is_isolated_and_linear());
+        assert!(!graph.unitig_index.get(&3).unwrap().borrow().is_isolated_and_linear());
+        assert!(!graph.unitig_index.get(&4).unwrap().borrow().is_isolated_and_linear());
+        assert!(!graph.unitig_index.get(&5).unwrap().borrow().is_isolated_and_linear());
+        assert!(!graph.unitig_index.get(&6).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());
+        assert!(!graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        assert!(graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_10());
+        assert!(graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_11());
+        assert!(graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_12());
+        assert!(graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
+        assert!(!graph.unitig_index.get(&1).unwrap().borrow().is_isolated_and_linear());
+    }
+
+    #[test]
     fn test_topology() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
         assert_eq!(graph.topology(), "fragmented".to_string());

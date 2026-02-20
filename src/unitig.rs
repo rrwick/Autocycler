@@ -274,12 +274,21 @@ impl Unitig {
 
     pub fn is_isolated_and_circular(&self) -> bool {
         // Returns whether or not this unitig has a circularising link and no other links.
-        if self.forward_next.len() != 1 || self.forward_prev.len() != 1 {
-            return false;
-        }
+        if self.forward_next.len() != 1 || self.forward_prev.len() != 1 { return false; }
         let next = &self.forward_next[0];
         let prev = &self.forward_prev[0];
         next.number() == self.number && next.strand && prev.number() == self.number && prev.strand
+    }
+
+    pub fn is_isolated_and_linear(&self) -> bool {
+        // Returns whether or not this unitig has no links except optional hairpin-end links.
+        if self.forward_next.len() > 1 || self.forward_prev.len() > 1 { return false; }
+        if self.is_isolated_and_circular() { return false; }
+        let valid_fn = self.forward_next.iter().all(|u| u.number() == self.number && !u.strand);
+        let valid_fp = self.forward_prev.iter().all(|u| u.number() == self.number && !u.strand);
+        let valid_rn = self.reverse_next.iter().all(|u| u.number() == self.number && u.strand);
+        let valid_rp = self.reverse_prev.iter().all(|u| u.number() == self.number && u.strand);
+        valid_fn && valid_fp && valid_rn && valid_rp
     }
 
     pub fn clear_all_links(&mut self) {

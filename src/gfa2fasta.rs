@@ -57,24 +57,27 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
     section_header("Saving to FASTA");
     explanation("The unitig graph is now saved to a FASTA file.");
     let mut fasta_file = File::create(out_fasta).unwrap();
-    let (mut circ_count, mut non_circ_count) = (0, 0);
+    let (mut circ_count, mut linear_count, mut other_count) = (0, 0, 0);
     for unitig in &graph.unitigs {
         let unitig = unitig.borrow();
         let seq = String::from_utf8_lossy(&unitig.forward_seq);
         if seq.is_empty() { continue; }
-        let circ = if unitig.is_isolated_and_circular() {
+        let topology = if unitig.is_isolated_and_circular() {
             circ_count += 1;
-            " circular=true".to_string()
+            " circular=true topology=circular".to_string()
+        } else if unitig.is_isolated_and_linear() {
+            linear_count += 1;
+            " circular=false topology=linear".to_string()
         } else {
-            non_circ_count += 1;
+            other_count += 1;
             "".to_string()
         };
-        writeln!(fasta_file, ">{} length={}{}", unitig.number, unitig.length(), circ).unwrap();
+        writeln!(fasta_file, ">{} length={}{}", unitig.number, unitig.length(), topology).unwrap();
         writeln!(fasta_file, "{seq}").unwrap();
     }
     eprintln!("{} circular sequence{}", circ_count, if circ_count == 1 { "" } else { "s" });
-    eprintln!("{} non-circular sequence{}", non_circ_count,
-              if non_circ_count == 1 { "" } else { "s" });
+    eprintln!("{} linear sequence{}", linear_count, if linear_count == 1 { "" } else { "s" });
+    eprintln!("{} other sequence{}", other_count, if other_count == 1 { "" } else { "s" });
     eprintln!();
 }
 
@@ -126,9 +129,9 @@ mod tests {
         save_graph_to_fasta(&graph, &fasta_file);
         let contents = std::fs::read_to_string(&fasta_file).unwrap();
         assert_eq!(contents, ">1 length=19\nAGCATCGACATCGACTACG\n\
-                              >2 length=15\nAGCATCAGCATCAGC\n\
+                              >2 length=15 circular=false topology=linear\nAGCATCAGCATCAGC\n\
                               >3 length=9\nGTCGCATTT\n\
-                              >4 length=7 circular=true\nTCGCGAA\n\
+                              >4 length=7 circular=true topology=circular\nTCGCGAA\n\
                               >5 length=6\nTTAAAC\n\
                               >6 length=4\nCACA\n");
     }
@@ -141,6 +144,36 @@ mod tests {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());
         save_graph_to_fasta(&graph, &fasta_file);
         let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 circular=true\nAGCATCGACATCGACTACG\n");
+        assert_eq!(contents, ">1 length=19 circular=true topology=circular\nAGCATCGACATCGACTACG\n");
+    }
+
+    #[test]
+    fn test_gfa2fasta_9() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=19 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
+    }
+
+    #[test]
+    fn test_gfa2fasta_10() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_10());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=19 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
+    }
+
+    #[test]
+    fn test_gfa2fasta_13() {
+        let temp_dir = tempdir().unwrap();
+        let fasta_file = temp_dir.path().join("temp.fasta");
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
+        save_graph_to_fasta(&graph, &fasta_file);
+        let contents = std::fs::read_to_string(&fasta_file).unwrap();
+        assert_eq!(contents, ">1 length=19\nAGCATCGACATCGACTACG\n");
     }
 }

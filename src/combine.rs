@@ -104,15 +104,20 @@ fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta:
             let unitig = unitig.borrow();
             let unitig_num = unitig.number + offset;
             let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
-            let circ = if unitig.is_isolated_and_circular() { " circular=true".to_string() }
-                                                       else { "".to_string() };
+            let topology = if unitig.is_isolated_and_circular() {
+                " circular=true topology=circular".to_string()
+            } else if unitig.is_isolated_and_linear() {
+                " circular=false topology=linear".to_string()
+            } else {
+                "".to_string()
+            };
             let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
             let mut colour_tag = unitig.colour_tag(true);
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:Z:orangered".to_string();
             }
             writeln!(gfa_file, "S\t{unitig_num}\t{unitig_seq}{depth_tag}{colour_tag}").unwrap();
-            writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), circ).unwrap();
+            writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), topology).unwrap();
             writeln!(fasta_file, "{unitig_seq}").unwrap();
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {
