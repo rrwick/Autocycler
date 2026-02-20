@@ -8,7 +8,7 @@ git clone https://github.com/rrwick/Autocycler.wiki.git
 mdbook init --force
 
 # Set some build options:
-echo "\n[output.html]" >> book.toml
+printf '\n[output.html]\n' >> book.toml
 echo "no-section-label = true" >> book.toml
 echo "preferred-dark-theme = \"ayu\"" >> book.toml
 
