@@ -593,7 +593,7 @@ fn cluster_assembly_count(sequences: &[Sequence], c: u16) -> usize {
 
 fn cluster_is_trusted(sequences: &[Sequence], c: u16) -> bool {
     // This function checks if the cluster is trusted, i.e. it contains at least one sequence with
-    // "Autocyler_trusted" in its contig header.
+    // "Autocycler_trusted" in its contig header.
     sequences.iter().any(|s| s.cluster == c && s.is_trusted())
 }
 

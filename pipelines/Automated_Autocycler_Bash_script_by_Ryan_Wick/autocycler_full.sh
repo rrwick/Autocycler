@@ -3,7 +3,7 @@
 # This script is a wrapper for running a fully-automated Autocycler assembly.
 
 # Usage:
-#   autocycler_full.sh <read_fastq> <threads> <jobs>
+#   autocycler_full.sh <read_fastq> <threads> <jobs> [read_type]
 
 # Copyright 2025 Ryan Wick (rrwick@gmail.com)
 # Licensed under the GNU General Public License v3.

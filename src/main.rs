@@ -45,7 +45,7 @@ mod tests;
 #[clap(name = "Autocycler",
        version = concat!("v", crate_version!()),
        about = "a tool for generating consensus bacterial genome assemblies\n\
-                Documenation: https://github.com/rrwick/Autocycler/wiki",
+                Documentation: https://github.com/rrwick/Autocycler/wiki",
        before_help = concat!(r#"                _                        _           "#, "\n",
                              r#"     /\        | |                      | |          "#, "\n",
                              r#"    /  \  _   _| |_ ___   ___ _   _  ___| | ___ _ __ "#, "\n",
@@ -66,7 +66,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
 
-    /// manual manipulation of the final consensus assebly graph
+    /// manual manipulation of the final consensus assembly graph
     Clean {
         /// Autocycler GFA file (required)
         #[clap(short = 'i', long = "in_gfa", required = true)]
@@ -235,7 +235,7 @@ enum Commands {
         args: Vec<String>,
     },
 
-    /// resolve repeats in the the unitig graph
+    /// resolve repeats in the unitig graph
     Resolve {
         /// Autocycler directory (required)
         #[clap(short = 'c', long = "cluster_dir", required = true)]

@@ -48,8 +48,8 @@ fn check_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_co
                   min_read_depth: f64) {
     check_if_file_exists(fastq_file);
     check_if_dir_is_not_dir(out_dir);
-    if genome_size < 1 {       quit_with_error("--genome_size must be at least 1"); }
-    if subset_count < 1 {      quit_with_error("--count must be at least 2"); }
+    if genome_size < 1       { quit_with_error("--genome_size must be at least 1"); }
+    if subset_count < 2      { quit_with_error("--count must be at least 2"); }
     if min_read_depth <= 0.0 { quit_with_error("--min_read_depth must be greater than 0"); }
 }
 

@@ -1,4 +1,4 @@
-// This file contains the code for the autocycler combine subcommand.
+// This file contains the code for the autocycler clean subcommand.
 
 // Copyright 2024 Ryan Wick (rrwick@gmail.com)
 // https://github.com/rrwick/Autocycler
@@ -66,8 +66,8 @@ fn print_settings(in_gfa: &Path, out_gfa: &Path, remove: &[u32], duplicate: &[u3
                                          .collect::<Vec<String>>() .join(","));
     }
     if !duplicate.is_empty() {
-        eprintln!("  --remove {}", duplicate.iter().map(|c| c.to_string())
-                                            .collect::<Vec<String>>() .join(","));
+        eprintln!("  --duplicate {}", duplicate.iter().map(|c| c.to_string())
+                                               .collect::<Vec<String>>() .join(","));
     }
     eprintln!();
 }
