@@ -400,7 +400,7 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
 
 fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
     section_header("Clustering sequences");
-    explanation("Contigs are organise into a tree using UPGMA. Then clusters are defined from the \
+    explanation("Contigs are organised into a tree using UPGMA. Then clusters are defined from the \
                  tree using the distance cutoff.");
     let mut clusters: HashMap<u16, HashSet<u16>> = HashMap::new();
     let mut cluster_distances: HashMap<(u16, u16), f64> = distances.clone();
