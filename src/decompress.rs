@@ -90,7 +90,7 @@ pub fn save_original_seqs_to_dir(out_dir: &Path, unitig_graph: &UnitigGraph,
     filenames.sort();
     for filename in filenames {
         let headers_seqs = &original_seqs[filename];
-        let file_path = out_dir.join(filename.clone());
+        let file_path = out_dir.join(filename);
         let file = File::create(&file_path).unwrap();
         eprintln!("{}:", file_path.display());
         if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {

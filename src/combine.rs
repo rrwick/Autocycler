@@ -49,7 +49,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
 }
 
 
-fn check_settings(in_gfas: &Vec<PathBuf>) {
+fn check_settings(in_gfas: &[PathBuf]) {
     for gfa in in_gfas {
         check_if_file_exists(gfa);
     }
@@ -87,7 +87,7 @@ fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &Combin
 }
 
 
-fn combine_clusters(in_gfas: &Vec<PathBuf>, combined_gfa: &Path, combined_fasta: &Path,
+fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &Path,
                     metrics: &mut CombineMetrics) {
     section_header("Combining clusters");
     explanation("This command combines different clusters into a single assembly file.");

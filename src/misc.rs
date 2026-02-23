@@ -434,7 +434,7 @@ pub fn spinner(message: &str) -> ProgressBar {
                 .tick_strings(&["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"])  // dots3 from github.com/sindresorhus/cli-spinners
                 .template("{spinner} {msg}").unwrap(),
         );
-        pb.set_message(message.to_string().clone());
+        pb.set_message(message.to_string());
         pb
     }
 }

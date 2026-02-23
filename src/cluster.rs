@@ -142,11 +142,10 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, fil
     let mut distances: HashMap<(u16, u16), f64> = HashMap::new();
     for seq_a in sequences {
         let a = sequence_unitigs.get(&seq_a.id).unwrap();
-        let a_len = total_unitig_length(a, &unitig_lengths) as f64;
+        let a_len = f64::from(a.iter().map(|u| unitig_lengths[u]).sum::<u32>());
         for seq_b in sequences {
             let b = sequence_unitigs.get(&seq_b.id).unwrap();
-            let ab: HashSet<u32> = a.intersection(b).cloned().collect();
-            let ab_len = total_unitig_length(&ab, &unitig_lengths) as f64;
+            let ab_len: f64 = a.intersection(b).map(|u| f64::from(unitig_lengths[u])).sum();
             let distance = 1.0 - (ab_len / a_len);
             distances.insert((seq_a.id, seq_b.id), distance);
         }
@@ -155,11 +154,6 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, fil
     eprintln!();
     save_distance_matrix(&distances, sequences, file_path);
     distances
-}
-
-
-fn total_unitig_length(unitigs: &HashSet<u32>, unitig_lengths: &HashMap<u32, u32>) -> u32 {
-    unitigs.iter().map(|u| unitig_lengths.get(u).unwrap()).sum()
 }
 
 
@@ -668,11 +662,8 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequenc
 
 
 fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
-    if manual_clusters.is_none() {
-        return Vec::new();
-    }
-    let manual_clusters = manual_clusters.unwrap().replace(' ', "");
-    let mut clusters: Vec<_> = manual_clusters.split(',')
+    let Some(manual_clusters) = manual_clusters else { return Vec::new(); };
+    let mut clusters: Vec<_> = manual_clusters.replace(' ', "").split(',')
             .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
                 &format!("failed to parse '{s}' as a node number")))).collect();
     clusters.sort();
@@ -1229,6 +1220,7 @@ mod tests {
     #[test]
     fn test_parse_manual_clusters() {
         assert_eq!(parse_manual_clusters(Some("1,2,3".to_string())), vec![1, 2, 3]);
+        assert_eq!(parse_manual_clusters(Some("4, 5, 6".to_string())), vec![4, 5, 6]);
         assert_eq!(parse_manual_clusters(None), Vec::<u16>::new());
         assert!(panic::catch_unwind(|| {
             parse_manual_clusters(Some("x,y,z".to_string()));
@@ -1237,7 +1229,6 @@ mod tests {
             parse_manual_clusters(Some("^&%^*".to_string()));
         }).is_err());
     }
-
 
     #[test]
     fn test_cluster_assembly_count_1() {

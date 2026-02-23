@@ -140,13 +140,28 @@ fn check_tig_numbers_are_valid(in_gfa: &Path, graph: &UnitigGraph, tig_numbers: 
 
 
 fn parse_tig_numbers(tig_num_str: Option<String>) -> Vec<u32> {
-    if tig_num_str.is_none() {
-        return Vec::new();
-    }
-    let tig_num_str = tig_num_str.unwrap().replace(' ', "");
-    let mut tig_numbers: Vec<_> = tig_num_str.split(',')
+    let Some(tig_num_str) = tig_num_str else { return Vec::new(); };
+    let mut tig_numbers: Vec<_> = tig_num_str.replace(' ', "").split(',')
             .map(|s| s.parse::<u32>().unwrap_or_else(|_| quit_with_error(
                 &format!("failed to parse '{s}' as a node number")))).collect();
     tig_numbers.sort();
     tig_numbers
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic;
+
+    #[test]
+    fn test_parse_tig_numbers() {
+        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("".to_string())); }).is_err());
+        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("ABC".to_string())); }).is_err());
+        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("1,X,3".to_string())); }).is_err());
+        assert_eq!(parse_tig_numbers(None), Vec::<u32>::new());
+        assert_eq!(parse_tig_numbers(Some("1,2,3".to_string())), vec![1, 2, 3]);
+        assert_eq!(parse_tig_numbers(Some("4, 5, 6".to_string())), vec![4, 5, 6]);
+        assert_eq!(parse_tig_numbers(Some("  5 , 10 ,15 ".to_string())), vec![5, 10, 15]);
+    }
 }
