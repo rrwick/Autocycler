@@ -43,7 +43,7 @@ fn check_settings(autocycler_dir: &Option<PathBuf>, sigfigs: usize) {
 
 
 fn parse_fields(comma_delimited_fields: String) -> Vec<String> {
-    let fields = comma_delimited_fields.replace(" ", "").split(',')
+    let fields: Vec<String> = comma_delimited_fields.replace(" ", "").split(',')
                                        .map(|s| s.to_string()).collect();
     let mut valid_fields = HashSet::new();
     valid_fields.extend(SubsampleMetrics::get_field_names());
@@ -52,7 +52,7 @@ fn parse_fields(comma_delimited_fields: String) -> Vec<String> {
     valid_fields.extend(CombineMetrics::get_field_names());
     valid_fields.extend(UntrimmedClusterMetrics::get_field_names());
     valid_fields.extend(TrimmedClusterMetrics::get_field_names());
-    for field in &fields {
+    for field in fields.iter() {
         if !valid_fields.contains(field) {
             quit_with_error(&format!("{field} is not a valid field name"));
         }
