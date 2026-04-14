@@ -130,9 +130,9 @@ impl ClusteringMetrics {
     }
 
     pub fn calculate_scores(&mut self, cluster_filenames: HashMap<u16, Vec<String>>,
-                            pass_cluster_distances: Vec<f64>) {
+                            pass_cluster_stats: Vec<(f64, usize)>) {
         self.calculate_balance(cluster_filenames);
-        self.calculate_tightness(pass_cluster_distances);
+        self.calculate_tightness(pass_cluster_stats);
         self.overall_clustering_score = (self.cluster_balance_score +
                                          self.cluster_tightness_score) / 2.0;
     }
@@ -167,17 +167,22 @@ impl ClusteringMetrics {
             .sum::<f64>() / total_weight;
     }
 
-    pub fn calculate_tightness(&mut self, pass_cluster_distances: Vec<f64>) {
+    pub fn calculate_tightness(&mut self, pass_cluster_stats: Vec<(f64, usize)>) {
         // Calculates the tightness score for clustering, indicating how tight the QC-pass clusters
         // are. Each QC-pass cluster gets a score using this formula: 
         // https://www.desmos.com/calculator/jfplrrjeyu
-        // And the overall tightness score is the mean of these scores.
-        if pass_cluster_distances.is_empty() {
+        // The overall tightness score is the cluster-size-weighted mean of these scores.
+        if pass_cluster_stats.is_empty() {
             self.cluster_tightness_score = 0.0;
         } else {
-            let sum_scores: f64 = pass_cluster_distances.iter()
-                .map(|d| 1.0 - d.sqrt()).sum();
-            self.cluster_tightness_score = sum_scores / pass_cluster_distances.len() as f64;
+            let mut sum_scores = 0.0;
+            let mut total_weight = 0.0;
+            for (distance, cluster_size) in pass_cluster_stats {
+                let weight = cluster_size as f64;
+                sum_scores += (1.0 - distance.sqrt()) * weight;
+                total_weight += weight;
+            }
+            self.cluster_tightness_score = sum_scores / total_weight;
         }
     }
 }
@@ -327,6 +332,17 @@ mod tests {
         assert!(metrics_4.cluster_balance_score < metrics_3.cluster_balance_score);
         assert!(metrics_5.cluster_balance_score < metrics_4.cluster_balance_score);
         assert!(metrics_6.cluster_balance_score < metrics_5.cluster_balance_score);
+    }
+
+    #[test]
+    fn test_calculate_tightness_weights_by_cluster_size() {
+        let mut combined = ClusteringMetrics::default();
+        let mut split = ClusteringMetrics::default();
+
+        combined.calculate_tightness(vec![(0.0, 4), (0.25, 8)]);
+        split.calculate_tightness(vec![(0.0, 1), (0.0, 1), (0.0, 1), (0.0, 1), (0.25, 8)]);
+
+        assert_almost_eq(combined.cluster_tightness_score, split.cluster_tightness_score, 1e-8);
     }
 
     #[test]

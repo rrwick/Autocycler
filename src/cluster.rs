@@ -619,7 +619,7 @@ fn refine_auto_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
         for alt_clusters in tree.split_clusters(&best_clusters) {
             let alt_score = score_clustering(tree, sequences, distances, &alt_clusters, cutoff,
                                              min_assemblies);
-            if alt_score > best_score {
+            if alt_score > best_score + 1e-12 {  // add a tolerance to avoid floating point issues
                 best_clusters = alt_clusters;
                 best_score = alt_score;
                 improved = true;
@@ -852,16 +852,6 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
 fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>)
         -> ClusteringMetrics {
     let mut metrics = ClusteringMetrics::default();
-    let mut pass_cluster_distances = Vec::new();
-    for c in 1..=get_max_cluster(sequences) {
-        let qc = qc_results.get(&c).unwrap();
-        if qc.pass() {
-            metrics.pass_cluster_count += 1;
-            pass_cluster_distances.push(qc.cluster_dist);
-        } else {
-            metrics.fail_cluster_count += 1;
-        }
-    }
     let mut cluster_filenames = HashMap::new();
     for seq in sequences {
         let qc = qc_results.get(&seq.cluster).unwrap();
@@ -872,8 +862,19 @@ fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Clust
             metrics.fail_contig_count += 1;
         }
     }
+    let mut pass_cluster_stats = Vec::new();
+    for c in 1..=get_max_cluster(sequences) {
+        let qc = qc_results.get(&c).unwrap();
+        if qc.pass() {
+            metrics.pass_cluster_count += 1;
+            let cluster_size = cluster_filenames.get(&c).map_or(0, Vec::len);
+            pass_cluster_stats.push((qc.cluster_dist, cluster_size));
+        } else {
+            metrics.fail_cluster_count += 1;
+        }
+    }
     metrics.calculate_fractions();
-    metrics.calculate_scores(cluster_filenames, pass_cluster_distances);
+    metrics.calculate_scores(cluster_filenames, pass_cluster_stats);
     metrics
 }
 
