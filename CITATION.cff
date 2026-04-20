@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the associated preprint listed below."
+message: "If you use this software, please cite the manuscript listed below."
 title: "Autocycler"
 authors:
   - family-names: "Wick"
@@ -19,7 +19,10 @@ preferred-citation:
       given-names: "Timothy P"
       orcid: "https://orcid.org/0000-0003-0150-123X"
   title: "Autocycler: long-read consensus assembly for bacterial genomes"
-  journal: "bioRxiv"
+  journal: "Bioinformatics"
   year: 2025
-  month: 5
-  doi: "10.1101/2025.05.12.653612"
+  month: 9
+  volume: 41
+  issue: 9
+  pages: "btaf474"
+  doi: "10.1093/bioinformatics/btaf474"
