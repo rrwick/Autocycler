@@ -8,7 +8,7 @@ It extends/changes the functionality in the following ways:
 - Each assembly job is submitted to the Slurm job scheduler using [`ssubmit`](https://github.com/mbhall88/ssubmit/). In the original script, each assembly job was run using `parallel` in batches based on the `jobs` value provided to the script. This script therefore allows running all assemblies concurrently (depending on job queues on your cluster). The script will wait for the jobs to complete, exiting if any of the jobs failed. This ultimately makes the full autocycler process faster - I am impatient...
 - There is a resume-after-assembly functionality. Sometimes I would find an assembly job might fail due to memory (or other) issues and then it is a bit annoying to manually run the remaining steps of the original script. This script has an option `-R` that allows you to manually complete that assembly job outside of this script and then rerun the autocycler process, skipping the filtering, subsampling, and assembly parts.
 - It provides flexible assembler selection. You can specify a custom list of assemblers, or simply include/exclude specific ones from the default set.
-- The number of subsamples can be adjusted with the `-c` option (default is 4).
+- The number of subsamples can be adjusted with the `-c` option (default is 4). This script supports a count of 1 by manually preparing the subsample directory, bypassing the internal Autocycler requirement for at least 2 subsamples.
 
 ## Dependencies
 

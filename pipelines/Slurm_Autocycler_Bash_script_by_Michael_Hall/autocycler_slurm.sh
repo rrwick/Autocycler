@@ -239,12 +239,55 @@ if [[ "$resume_after_assembly" == false ]]; then
     # Subsample reads
     # ------------------------------
     echo "[INFO] Subsampling reads..."
-    autocycler subsample \
-        --reads "$reads" \
-        --out_dir subsampled_reads \
-        --genome_size "$genome_size" \
-        --count "$subsample_count" \
-        2>>autocycler.stderr
+    if [[ "$subsample_count" -eq 1 ]]; then
+        echo "[INFO] count=1: skipping autocycler subsample and creating manual metrics..."
+        mkdir -p subsampled_reads
+        cp "$reads" subsampled_reads/sample_01.fastq
+
+        # Manually calculate metrics for subsample.yaml
+        # We need input_read_count, input_read_bases, input_read_n50
+        # and output_reads (count, bases, n50)
+        read_stats=$(awk 'NR%4==2 {len=length($0); print len}' "$reads" | sort -n | awk '
+            {
+                lengths[NR]=$1; 
+                sum+=$1;
+            } 
+            END {
+                count=NR;
+                target=sum/2;
+                current=0;
+                n50=0;
+                for(i=count; i>=1; i--) {
+                    current+=lengths[i];
+                    if(current>=target) {
+                        n50=lengths[i];
+                        break;
+                    }
+                }
+                print count, sum, n50
+            }')
+        
+        read_count=$(echo "$read_stats" | cut -d' ' -f1)
+        read_bases=$(echo "$read_stats" | cut -d' ' -f2)
+        read_n50=$(echo "$read_stats" | cut -d' ' -f3)
+
+        cat <<EOF >subsampled_reads/subsample.yaml
+input_read_count: $read_count
+input_read_bases: $read_bases
+input_read_n50: $read_n50
+output_reads:
+- count: $read_count
+  bases: $read_bases
+  n50: $read_n50
+EOF
+    else
+        autocycler subsample \
+            --reads "$reads" \
+            --out_dir subsampled_reads \
+            --genome_size "$genome_size" \
+            --count "$subsample_count" \
+            2>>autocycler.stderr
+    fi
 
     # ------------------------------
     # Submit assembly jobs to Slurm
