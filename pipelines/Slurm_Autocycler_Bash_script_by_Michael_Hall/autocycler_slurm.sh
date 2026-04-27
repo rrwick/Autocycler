@@ -13,18 +13,30 @@ echo_usage() {
     echo "  -r, --read-type <type>      Read type: ont_r9 | ont_r10 | pacbio_clr | pacbio_hifi [default: ont_r10]"
     echo "  -k, --keep-intermediate     Keep subsampled and filtered FASTQ files after assembly"
     echo "  -w, --overwrite             Delete output directory if it exists (use with caution!)"
+    echo "  -c, --count <int>           Number of subsamples to create [default: 4]"
     echo "  -T, --max-time <duration>   Slurm time limit per job [default: 8h]"
     echo "  -M, --max-mem <size>        Slurm memory per job [default: 32g]"
     echo "  -R, --resume-after-assembly Resume pipeline after assembly step (skip read filtering, subsampling, and assembly)"
     echo
+    echo "Assembler selection:"
+    echo "  -A, --assemblers <list>     Comma-separated list of assemblers to use (overrides default)"
+    echo "  --include-assemblers <list> Comma-separated list to add to default/specified list"
+    echo "  --exclude-assemblers <list> Comma-separated list to remove from default/specified list"
+    echo "  -L, --list-assemblers       List the default assemblers and exit"
+    echo
     echo "Read filtering with filtlong:"
     echo "  -l, --min-length <int>      Filter out reads shorter than this length"
     echo "  -b, --target-bases <int>    Keep top reads until total base count is reached"
-    echo "  -p, --keep-percent <float>  Keep best X%% of reads (e.g. 90)"
+    echo "  -p, --keep-percent <float>  Keep best X% of reads (e.g. 90)"
     echo
     echo "Help:"
     echo "  -h, --help                  Show this help message and exit"
 }
+# ------------------------------
+# Default Assemblers
+# ------------------------------
+DEFAULT_ASSEMBLERS=(raven myloasm miniasm flye metamdbg necat nextdenovo plassembler canu)
+
 # ------------------------------
 # Parse args
 # ------------------------------
@@ -40,6 +52,10 @@ keep_percent=""
 outdir="."
 overwrite=false
 resume_after_assembly=false
+subsample_count="4"
+custom_assemblers=""
+include_assemblers=""
+exclude_assemblers=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -66,6 +82,30 @@ while [[ $# -gt 0 ]]; do
     -w | --overwrite)
         overwrite=true
         shift
+        ;;
+    -c | --count)
+        if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[ERROR] --count must be a positive integer" >&2
+            exit 1
+        fi
+        subsample_count="$2"
+        shift 2
+        ;;
+    -L | --list-assemblers)
+        (IFS=','; echo "${DEFAULT_ASSEMBLERS[*]}")
+        exit 0
+        ;;
+    -A | --assemblers)
+        custom_assemblers="$2"
+        shift 2
+        ;;
+    --include-assemblers)
+        include_assemblers="$2"
+        shift 2
+        ;;
+    --exclude-assemblers)
+        exclude_assemblers="$2"
+        shift 2
         ;;
     -T | --max-time)
         max_time="$2"
@@ -124,6 +164,39 @@ if [[ "$overwrite" == true && "$resume_after_assembly" == true ]]; then
     exit 1
 fi
 
+# ------------------------------
+# Resolve final list of assemblers
+# ------------------------------
+if [[ -n "$custom_assemblers" ]]; then
+    IFS=',' read -r -a ACTIVE_ASSEMBLERS <<<"$custom_assemblers"
+else
+    ACTIVE_ASSEMBLERS=("${DEFAULT_ASSEMBLERS[@]}")
+fi
+
+if [[ -n "$include_assemblers" ]]; then
+    IFS=',' read -r -a to_include <<<"$include_assemblers"
+    ACTIVE_ASSEMBLERS+=("${to_include[@]}")
+fi
+
+if [[ -n "$exclude_assemblers" ]]; then
+    IFS=',' read -r -a to_exclude <<<"$exclude_assemblers"
+    for ex in "${to_exclude[@]}"; do
+        for i in "${!ACTIVE_ASSEMBLERS[@]}"; do
+            if [[ "${ACTIVE_ASSEMBLERS[$i]}" == "$ex" ]]; then
+                unset 'ACTIVE_ASSEMBLERS[i]'
+            fi
+        done
+    done
+fi
+
+# Re-index and deduplicate
+mapfile -t ACTIVE_ASSEMBLERS < <(printf "%s\n" "${ACTIVE_ASSEMBLERS[@]}" | sort -u)
+
+if ((${#ACTIVE_ASSEMBLERS[@]} == 0)); then
+    echo "[ERROR] No assemblers selected. Exiting." >&2
+    exit 1
+fi
+
 if [[ -d "$outdir" && "$overwrite" == true ]]; then
     echo "[WARN] Output directory '$outdir' exists and will be overwritten."
     rm -rf "$outdir"
@@ -166,11 +239,55 @@ if [[ "$resume_after_assembly" == false ]]; then
     # Subsample reads
     # ------------------------------
     echo "[INFO] Subsampling reads..."
-    autocycler subsample \
-        --reads "$reads" \
-        --out_dir subsampled_reads \
-        --genome_size "$genome_size" \
-        2>>autocycler.stderr
+    if [[ "$subsample_count" -eq 1 ]]; then
+        echo "[INFO] count=1: skipping autocycler subsample and creating manual metrics..."
+        mkdir -p subsampled_reads
+        cp "$reads" subsampled_reads/sample_01.fastq
+
+        # Manually calculate metrics for subsample.yaml
+        # We need input_read_count, input_read_bases, input_read_n50
+        # and output_reads (count, bases, n50)
+        read_stats=$(awk 'NR%4==2 {len=length($0); print len}' "$reads" | sort -n | awk '
+            {
+                lengths[NR]=$1; 
+                sum+=$1;
+            } 
+            END {
+                count=NR;
+                target=sum/2;
+                current=0;
+                n50=0;
+                for(i=count; i>=1; i--) {
+                    current+=lengths[i];
+                    if(current>=target) {
+                        n50=lengths[i];
+                        break;
+                    }
+                }
+                print count, sum, n50
+            }')
+        
+        read_count=$(echo "$read_stats" | cut -d' ' -f1)
+        read_bases=$(echo "$read_stats" | cut -d' ' -f2)
+        read_n50=$(echo "$read_stats" | cut -d' ' -f3)
+
+        cat <<EOF >subsampled_reads/subsample.yaml
+input_read_count: $read_count
+input_read_bases: $read_bases
+input_read_n50: $read_n50
+output_reads:
+- count: $read_count
+  bases: $read_bases
+  n50: $read_n50
+EOF
+    else
+        autocycler subsample \
+            --reads "$reads" \
+            --out_dir subsampled_reads \
+            --genome_size "$genome_size" \
+            --count "$subsample_count" \
+            2>>autocycler.stderr
+    fi
 
     # ------------------------------
     # Submit assembly jobs to Slurm
@@ -179,12 +296,13 @@ if [[ "$resume_after_assembly" == false ]]; then
     rm -f assemblies/job_ids.txt
 
     echo "[INFO] Submitting assembly jobs..."
-    for assembler in raven myloasm miniasm flye metamdbg necat nextdenovo plassembler canu; do
-        for i in 01 02 03 04; do
-            sample="subsampled_reads/sample_${i}.fastq"
-            out_prefix="assemblies/${assembler}_${i}"
+    for assembler in "${ACTIVE_ASSEMBLERS[@]}"; do
+        for ((i = 1; i <= subsample_count; i++)); do
+            suffix=$(printf "%02d" "$i")
+            sample="subsampled_reads/sample_${suffix}.fastq"
+            out_prefix="assemblies/${assembler}_${suffix}"
             cmd="autocycler helper $assembler --reads $sample --out_prefix $out_prefix --threads $threads --genome_size $genome_size --read_type $read_type --min_depth_rel 0.1"
-            jobname="ac_${assembler}_${i}"
+            jobname="ac_${assembler}_${suffix}"
 
             # Submit and extract job ID
             jobid=$(ssubmit \
@@ -214,13 +332,17 @@ if [[ "$resume_after_assembly" == false ]]; then
 
     start_time=$(date +%s)
     mapfile -t job_ids <assemblies/job_ids.txt
+    job_list=$(IFS=,; echo "${job_ids[*]}")
 
     while true; do
         sleep 60
 
+        # Query all jobs in one API call
+        active_jobs=$(squeue -j "$job_list" -h -o "%A" 2>/dev/null || true)
+
         still_running=()
         for jobid in "${job_ids[@]}"; do
-            if squeue -j "$jobid" 2>/dev/null | grep -q "$jobid"; then
+            if echo "$active_jobs" | grep -q "^${jobid}$"; then
                 still_running+=("$jobid")
             fi
         done
@@ -236,15 +358,18 @@ if [[ "$resume_after_assembly" == false ]]; then
         echo "[INFO] ${#still_running[@]} job(s) still running after ${minutes}m ${seconds}s: ${still_running[*]}"
     done
 
-    # Check final state with sacct
+    # Check final state with sacct (batched)
     fail_count=0
-    while read -r jobid; do
-        status=$(sacct -j "$jobid" --format=State --noheader | awk '{print $1}' | head -n 1)
+    sacct_output=$(sacct -j "$job_list" --format=JobID,State --noheader -P)
+    
+    for jobid in "${job_ids[@]}"; do
+        # Extract state for the main job ID (ignoring .batch, .extern, etc.)
+        status=$(echo "$sacct_output" | grep "^${jobid}|" | head -n 1 | cut -d'|' -f2)
         if [[ "$status" != "COMPLETED" ]]; then
             echo "[ERROR] Job $jobid failed with status: $status" >&2
             ((fail_count++))
         fi
-    done <assemblies/job_ids.txt
+    done
 
     if ((fail_count > 0)); then
         echo "[FATAL] $fail_count job(s) failed. Exiting." >&2
@@ -286,14 +411,28 @@ echo "[INFO] Running Autocycler compression, clustering, and resolution..."
 autocycler compress -i assemblies -a autocycler_out 2>>autocycler.stderr
 autocycler cluster -a autocycler_out 2>>autocycler.stderr
 
-for c in autocycler_out/clustering/qc_pass/cluster_*; do
-    autocycler trim -c "$c" 2>>autocycler.stderr
-    autocycler resolve -c "$c" 2>>autocycler.stderr
-done
+shopt -s nullglob
+clusters=(autocycler_out/clustering/qc_pass/cluster_*)
+shopt -u nullglob
 
-autocycler combine \
-    -a autocycler_out \
-    -i autocycler_out/clustering/qc_pass/cluster_*/5_final.gfa \
-    2>>autocycler.stderr
+if ((${#clusters[@]} > 0)); then
+    for c in "${clusters[@]}"; do
+        autocycler trim -c "$c" 2>>autocycler.stderr
+        autocycler resolve -c "$c" 2>>autocycler.stderr
+    done
+
+    # Collect final GFA files
+    final_gfas=()
+    for c in "${clusters[@]}"; do
+        final_gfas+=("$c/5_final.gfa")
+    done
+
+    autocycler combine \
+        -a autocycler_out \
+        -i "${final_gfas[@]}" \
+        2>>autocycler.stderr
+else
+    echo "[WARN] No clusters found in autocycler_out/clustering/qc_pass/. Skipping resolution and combine steps."
+fi
 
 echo "[INFO] Autocycler pipeline completed successfully."

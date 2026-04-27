@@ -7,6 +7,8 @@ It extends/changes the functionality in the following ways:
 - It estimates genome size with [`lrge`](https://github.com/mbhall88/lrge). This reduces the memory and time requirements of this step drastically.
 - Each assembly job is submitted to the Slurm job scheduler using [`ssubmit`](https://github.com/mbhall88/ssubmit/). In the original script, each assembly job was run using `parallel` in batches based on the `jobs` value provided to the script. This script therefore allows running all assemblies concurrently (depending on job queues on your cluster). The script will wait for the jobs to complete, exiting if any of the jobs failed. This ultimately makes the full autocycler process faster - I am impatient...
 - There is a resume-after-assembly functionality. Sometimes I would find an assembly job might fail due to memory (or other) issues and then it is a bit annoying to manually run the remaining steps of the original script. This script has an option `-R` that allows you to manually complete that assembly job outside of this script and then rerun the autocycler process, skipping the filtering, subsampling, and assembly parts.
+- It provides flexible assembler selection. You can specify a custom list of assemblers, or simply include/exclude specific ones from the default set.
+- The number of subsamples can be adjusted with the `-c` option (default is 4). This script supports a count of 1 by manually preparing the subsample directory, bypassing the internal Autocycler requirement for at least 2 subsamples.
 
 ## Dependencies
 
@@ -40,14 +42,21 @@ General options:
   -r, --read-type <type>      Read type: ont_r9 | ont_r10 | pacbio_clr | pacbio_hifi [default: ont_r10]
   -k, --keep-intermediate     Keep subsampled and filtered FASTQ files after assembly
   -w, --overwrite             Delete output directory if it exists (use with caution!)
+  -c, --count <int>           Number of subsamples to create [default: 4]
   -T, --max-time <duration>   Slurm time limit per job [default: 8h]
   -M, --max-mem <size>        Slurm memory per job [default: 32g]
   -R, --resume-after-assembly Resume pipeline after assembly step (skip read filtering, subsampling, and assembly)
 
+Assembler selection:
+  -A, --assemblers <list>     Comma-separated list of assemblers to use (overrides default)
+  --include-assemblers <list> Comma-separated list to add to default/specified list
+  --exclude-assemblers <list> Comma-separated list to remove from default/specified list
+  -L, --list-assemblers       List the default assemblers and exit
+
 Read filtering with filtlong:
   -l, --min-length <int>      Filter out reads shorter than this length
   -b, --target-bases <int>    Keep top reads until total base count is reached
-  -p, --keep-percent <float>  Keep best X%% of reads (e.g. 90)
+  -p, --keep-percent <float>  Keep best X% of reads (e.g. 90)
 
 Help:
   -h, --help                  Show this help message and exit
