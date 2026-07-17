@@ -21,6 +21,7 @@ use std::io;
 use std::io::{prelude::*, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tempfile::{tempdir, TempDir};
 
 
 pub mod strand {
@@ -204,6 +205,31 @@ pub fn fastq_reader(fastq_file: &Path)
         Box::new(file)
     };
     Reader::new(BufReader::new(reader))
+}
+
+
+pub fn decompress_if_gzipped(filename: &Path) -> Option<(PathBuf, TempDir)> {
+    // The returned temporary directory is automatically deleted when dropped.
+    if !is_file_gzipped(filename) { return None; }
+    let file = File::open(filename).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to open {}: {e}", filename.display()))
+    });
+    let temp_dir = tempdir().unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to create temporary directory: {e}"))
+    });
+    let uncompressed_name = if filename.extension().unwrap_or_default() == "gz" {
+        filename.file_stem().unwrap_or_default()
+    } else {
+        filename.file_name().unwrap_or_default()
+    };
+    let temp_path = temp_dir.path().join(uncompressed_name);
+    let mut temp_file = File::create(&temp_path).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to create temporary file: {e}"))
+    });
+    io::copy(&mut MultiGzDecoder::new(file), &mut temp_file).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to decompress {}: {e}", filename.display()))
+    });
+    Some((temp_path, temp_dir))
 }
 
 
@@ -522,6 +548,25 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::tests::{make_test_file, make_gzipped_test_file};
+
+    #[test]
+    fn test_decompress_if_gzipped() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("reads.fastq.gz");
+        make_gzipped_test_file(&filename, "@read\nACGT\n+\nIIII\n");
+
+        let temp_file = decompress_if_gzipped(&filename).unwrap();
+        let temp_path = temp_file.0.clone();
+        assert_eq!(temp_path.file_name().unwrap(), "reads.fastq");
+        assert_eq!(std::fs::read_to_string(&temp_path).unwrap(),
+                   "@read\nACGT\n+\nIIII\n");
+        drop(temp_file);
+        assert!(!temp_path.exists());
+
+        let filename = dir.path().join("reads.fastq");
+        make_test_file(&filename, "@read\nACGT\n+\nIIII\n");
+        assert!(decompress_if_gzipped(&filename).is_none());
+    }
 
     #[test]
     fn test_format_duration() {

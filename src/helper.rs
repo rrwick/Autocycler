@@ -30,7 +30,7 @@ use tempfile::{tempdir, NamedTempFile, TempDir};
 
 use crate::log::{bold, underline};
 use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta,
-                  is_file_empty, is_fasta_empty};
+                  is_file_empty, is_fasta_empty, decompress_if_gzipped};
 use crate::subsample::parse_genome_size;
 
 
@@ -57,6 +57,9 @@ pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_si
         }
         Task::Hifiasm => {
             hifiasm(reads, &out_prefix, threads, dir, read_type, extra_args);
+        }
+        Task::Ilesta => {
+            ilesta(reads, &out_prefix, threads, dir, read_type, extra_args);
         }
         Task::Lja => {
             lja(reads, &out_prefix, threads, dir, extra_args);
@@ -173,6 +176,45 @@ fn hifiasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
 
     gfa_to_fasta(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "fasta"));
     copy_output_file(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "gfa"));
+}
+
+
+fn ilesta(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+          extra_args: Vec<String>) {
+    // https://github.com/yvlaere/Ilesta
+    // https://github.com/rrwick/Minipolish
+
+    check_requirements(&["Ilesta", "minipolish", "minimap2", "racon"]);
+
+    let map_preset = match read_type {
+        ReadType::OntR9      => "map-ont",
+        ReadType::OntR10     => "lr:hq",
+        ReadType::PacbioClr  => "map-pb",
+        ReadType::PacbioHifi => "map-hifi",
+    };
+
+    let unzipped_reads = decompress_if_gzipped(&reads);
+    let input_reads = unzipped_reads.as_ref().map_or(reads.as_path(), |(p, _)| p.as_path());
+
+    let mut cmd = Command::new("Ilesta");
+    cmd.arg("assemble")
+       .arg("--output-dir").arg(&dir)
+       .arg("--reads-fq").arg(input_reads)
+       .arg("--threads").arg(threads.to_string());
+    for token in extra_args { cmd.arg(token); }
+    redirect_stderr_and_stdout(&mut cmd, None);
+    run_command(&mut cmd);
+    drop(unzipped_reads);
+
+    let mut cmd = Command::new("minipolish");
+    cmd.arg("--threads").arg(threads.to_string())
+       .arg("--minimap2-preset").arg(map_preset)
+       .arg(&reads)
+       .arg(dir.join("unitigs.gfa"));
+    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "gfa")));
+    run_command(&mut cmd);
+
+    gfa_to_fasta(&add_extension(out_prefix, "gfa"), &add_extension(out_prefix, "fasta"));
 }
 
 
@@ -447,6 +489,7 @@ pub enum Task {
     Canu,         // assemble using Canu and clean results
     Flye,         // assemble using Flye
     Hifiasm,      // assemble using Hifiasm
+    Ilesta,       // assemble using Ilesta
     Lja,          // assemble using LJA
     Metamdbg,     // assemble using metaMDBG
     Miniasm,      // assemble using miniasm and Minipolish
