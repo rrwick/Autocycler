@@ -83,3 +83,19 @@ The script creates the following outputs in the working directory:
   * `logs/`: full stdout/stderr for each job
 * **`autocycler_out/`**: Output directory for Autocycler. Final results are saved as `consensus_assembly.gfa` and `consensus_assembly.fasta`.
 * **`autocycler.stderr`**: stderr output from all Autocycler steps.
+
+
+
+
+## Fast version
+
+The `autocycler_full_fast.sh` script is a faster alternative to `autocycler_full.sh`, with the following changes:
+* Uses two read subsets instead of four.
+* Uses six assemblers (Plassembler, Raven, Myloasm, miniasm, Flye and metaMDBG), omitting Canu, NECAT and NextDenovo. Of the omitted assemblers, Canu is the slowest and therefore accounts for much of the reduced runtime. Despite being somewhat slow to run, Plassembler is retained because it helps to reliably recover small plasmids.
+* Generates 12 input assemblies instead of 36 (2 read subsets × 6 assemblers).
+* Uses a default per-assembly timeout of 4 hours instead of 8 hours.
+
+The fast script otherwise has the same command-line arguments and produces the same outputs as the full script:
+```bash
+autocycler_full_fast.sh reads.fastq.gz 16 4
+```
