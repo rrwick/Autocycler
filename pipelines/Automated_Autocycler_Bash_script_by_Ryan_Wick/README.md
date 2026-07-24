@@ -89,7 +89,7 @@ The script creates the following outputs in the working directory:
 
 ## Fast version
 
-The `autocycler_full_fast.sh` script is a faster alternative to `autocycler_full.sh`, with the following changes:
+The `autocycler_fast.sh` script is a faster alternative to `autocycler_full.sh`, with the following changes:
 * Uses two read subsets instead of four.
 * Uses six assemblers (Plassembler, Raven, Myloasm, miniasm, Flye and metaMDBG), omitting Canu, NECAT and NextDenovo. Of the omitted assemblers, Canu is the slowest and therefore accounts for much of the reduced runtime. Despite being somewhat slow to run, Plassembler is retained because it helps to reliably recover small plasmids.
 * Generates 12 input assemblies instead of 36 (2 read subsets × 6 assemblers).
@@ -97,5 +97,5 @@ The `autocycler_full_fast.sh` script is a faster alternative to `autocycler_full
 
 The fast script otherwise has the same command-line arguments and produces the same outputs as the full script:
 ```bash
-autocycler_full_fast.sh reads.fastq.gz 16 4
+autocycler_fast.sh reads.fastq.gz 16 4
 ```
