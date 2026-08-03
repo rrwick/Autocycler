@@ -20,7 +20,7 @@ use crate::misc::{reverse_complement, strand};
 use crate::position::Position;
 use crate::sequence::Sequence;
 
-pub static ALPHABET: [u8; 5] = [b'.', b'A', b'C', b'G', b'T'];
+pub static ALPHABET: [u8; 5] = *b".ACGT";
 
 
 pub struct Kmer {
