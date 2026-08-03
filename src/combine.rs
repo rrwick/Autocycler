@@ -12,6 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
+use std::cmp::Reverse;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -37,10 +38,6 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
     // TODO: add an optional argument for reads. When used, the reads will be used to set unitig
     //       depths (instead of input assembly count). Find unique k-mers in the combined assembly
     //       and then count the occurrences of those k-mers in the reads.
-
-    // TODO: sort the input GFA files in order of decreasing size. They may already be in this
-    //       order (from the clustering step), but not necessarily (e.g. due to small plasmid
-    //       duplication).
 
     let mut metrics = CombineMetrics::default();
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
@@ -91,14 +88,23 @@ fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &P
                     metrics: &mut CombineMetrics) {
     section_header("Combining clusters");
     explanation("This command combines different clusters into a single assembly file.");
+
+    // Sort the input GFAs in order of decreasing size. They are probably already in this order
+    // (from the clustering step), but not necessarily (e.g. due to small plasmid duplication).
+    let mut clusters: Vec<_> = in_gfas.iter().map(|gfa| {
+        let (graph, _) = UnitigGraph::from_gfa_file(gfa);
+        let length = graph.total_length();
+        (gfa, graph, length)
+    }).collect();
+    clusters.sort_by_key(|(_, _, length)| Reverse(*length));
+
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();
     metrics.consensus_assembly_fully_resolved = true;
     let mut offset = 0;
-    for gfa in in_gfas {
+    for (gfa, graph, component_length) in clusters {
         eprintln!("{}", gfa.display());
-        let (graph, _) = UnitigGraph::from_gfa_file(gfa);
         graph.print_basic_graph_info_with_topology();
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();
@@ -124,7 +130,6 @@ fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &P
             writeln!(gfa_file, "L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M").unwrap();
         }
         offset += graph.max_unitig_number();
-        let component_length = graph.total_length();
         let unitig_count = graph.unitigs.len() as u32;
         metrics.consensus_assembly_bases += component_length;
         metrics.consensus_assembly_unitigs += unitig_count;
