@@ -132,6 +132,6 @@ fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &P
                                                        unitigs: unitig_count,
                                                        topology: graph.topology() };
         metrics.consensus_assembly_clusters.push(cluster_metrics);
-        if unitig_count > 1 { metrics.consensus_assembly_fully_resolved = false; }
+        if unitig_count != 1 { metrics.consensus_assembly_fully_resolved = false; }
     }
 }
