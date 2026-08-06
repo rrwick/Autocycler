@@ -12,6 +12,7 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use colored::Colorize;
+use rayon::ThreadPoolBuilder;
 use std::cmp::Reverse;
 use std::fs::File;
 use std::io::Write;
@@ -19,25 +20,24 @@ use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
 use crate::metrics::{CombineMetrics, ResolvedClusterDetails};
-use crate::misc::{check_if_file_exists, create_dir};
+use crate::misc::{check_if_file_exists, create_dir, quit_with_error};
 use crate::unitig_graph::UnitigGraph;
 
 
-pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
+pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>, reads: Vec<PathBuf>, k_size: u32,
+               threads: usize) {
     let combined_gfa = autocycler_dir.join("consensus_assembly.gfa");
     let combined_fasta = autocycler_dir.join("consensus_assembly.fasta");
     let combined_yaml = autocycler_dir.join("consensus_assembly.yaml");
 
-    check_settings(&in_gfas);
+    check_settings(&in_gfas, &reads, k_size, threads);
     if let Some(parent) = combined_gfa.parent() {
         create_dir(parent);
     }
     starting_message();
-    print_settings(&autocycler_dir, &in_gfas);
+    print_settings(&autocycler_dir, &in_gfas, &reads, k_size, threads);
 
-    // TODO: add an optional argument for reads. When used, the reads will be used to set unitig
-    //       depths (instead of input assembly count). Find unique k-mers in the combined assembly
-    //       and then count the occurrences of those k-mers in the reads.
+    // TODO: when reads are given, use them to set unitig depths (instead of input assembly count).
 
     let mut metrics = CombineMetrics::default();
     combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
@@ -46,10 +46,15 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>) {
 }
 
 
-fn check_settings(in_gfas: &[PathBuf]) {
-    for gfa in in_gfas {
-        check_if_file_exists(gfa);
-    }
+fn check_settings(in_gfas: &[PathBuf], reads: &[PathBuf], k_size: u32, threads: usize) {
+    for gfa in in_gfas     { check_if_file_exists(gfa); }
+    for read_file in reads { check_if_file_exists(read_file); }
+    if k_size < 11              { quit_with_error("--depth_kmer cannot be less than 11"); }
+    if k_size > 31              { quit_with_error("--depth_kmer cannot be greater than 31"); }
+    if k_size.is_multiple_of(2) { quit_with_error("--depth_kmer must be odd"); }
+    if threads < 1              { quit_with_error("--threads cannot be less than 1"); }
+    if threads > 100            { quit_with_error("--threads cannot be greater than 100"); }
+    ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
 }
 
 
@@ -59,12 +64,21 @@ fn starting_message() {
 }
 
 
-fn print_settings(autocycler_dir: &Path, in_gfas: &[PathBuf]) {
+fn print_settings(autocycler_dir: &Path, in_gfas: &[PathBuf], reads: &[PathBuf], k_size: u32,
+                  threads: usize) {
     eprintln!("Settings:");
     eprintln!("  --autocycler_dir {}", autocycler_dir.display());
     eprintln!("  --in_gfas {}", in_gfas[0].display());
     for gfa in &in_gfas[1..] {
         eprintln!("            {}", gfa.display());
+    }
+    if !reads.is_empty() {
+        eprintln!("  --reads {}", reads[0].display());
+        for read_file in &reads[1..] {
+            eprintln!("          {}", read_file.display());
+        }
+        eprintln!("  --depth_kmer {k_size}");
+        eprintln!("  --threads {threads}");
     }
     eprintln!();
 }

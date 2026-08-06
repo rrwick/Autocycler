@@ -121,6 +121,18 @@ enum Commands {
         /// Autocycler cluster GFA files (one or more required)
         #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
         in_gfas: Vec<PathBuf>,
+
+        /// Reads in FASTA/FASTQ format to set consentig depths [default: none]
+        #[clap(short = 'r', long = "reads", num_args = 1..)]
+        reads: Vec<PathBuf>,
+
+        /// K-mer size used for read-based depths
+        #[clap(long = "depth_kmer", default_value = "19")]
+        depth_kmer: u32,
+
+        /// Number of CPU threads
+        #[clap(short = 't', long = "threads", default_value = "8")]
+        threads: usize,
     },
 
     /// compress input contigs into a unitig graph
@@ -333,8 +345,8 @@ fn main() {
         Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
             cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);
         },
-        Some(Commands::Combine { autocycler_dir, in_gfas }) => {
-            combine::combine(autocycler_dir, in_gfas);
+        Some(Commands::Combine { autocycler_dir, in_gfas, reads, depth_kmer, threads }) => {
+            combine::combine(autocycler_dir, in_gfas, reads, depth_kmer, threads);
         },
         Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, max_contigs, threads }) => {
             compress::compress(assemblies_dir, autocycler_dir, kmer, max_contigs, threads);
