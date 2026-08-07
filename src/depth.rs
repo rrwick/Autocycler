@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::log::{section_header, explanation};
-use crate::misc::fastq_reader_with_capacity;
+use crate::misc::{fastq_reader_with_capacity, quit_with_error};
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -33,7 +33,7 @@ static MIN_READ_HIT_RATE: f64 = 0.005;
 static READ_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 
-pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) -> DepthInfo {
+pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) {
     // Sets the depth of each tig in the given graphs using the given reads. The graphs are all
     // handled together (not one at a time) because repeats must be found across the entire
     // consensus assembly, not just within a single cluster.
@@ -58,14 +58,11 @@ pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) 
     }
     eprintln!();
 
-    // TODO: set each tig's depth from its k-mer counts.
-
-    for graph in graphs {
-        for unitig in &graph.unitigs {
-            unitig.borrow_mut().depth = 1.0;  // TEMP
-        }
-    }
-    DepthInfo { mean_depth: 1.0 }
+    // A read k-mer only matches the assembly if it is error-free, and a read holds fewer k-mers
+    // than bases, so k-mer counts fall short of read depth on both counts. The reads' own totals
+    // measure the combined shortfall: the bases they cover per k-mer hit.
+    let scale = if totals.hits > 0 { totals.span_bases as f64 / totals.hits as f64 } else { 0.0 };
+    set_tig_depths(graphs, k_size, &kmers, &repeats, scale);
 }
 
 
@@ -119,6 +116,59 @@ fn each_kmer(seq: &[u8], k_size: u32, circular: bool, mut f: impl FnMut(usize, u
 }
 
 
+fn set_tig_depths(graphs: &[&UnitigGraph], k_size: u32, kmers: &FxHashMap<u64, AtomicU32>,
+                  repeats: &FxHashSet<u64>, scale: f64) {
+    // Gives each tig a depth from the read counts of its k-mers. Tigs with no usable k-mers (i.e.
+    // tigs shorter than the k-mer size, or tigs whose sequence all occurs elsewhere in the
+    // consensus assembly) are left without a depth.
+    for graph in graphs {
+        for tig in &graph.unitigs {
+            // The tig is borrowed immutably here and mutably below, because a circular tig links
+            // to itself, and following that link borrows the tig again.
+            let counts = {
+                let tig = tig.borrow();
+                tig_kmer_counts(&tig.forward_seq, k_size, tig.is_isolated_and_circular(),
+                                kmers, repeats)
+            };
+            let depth = clipped_mean(&counts).map(|mean| mean * scale);
+            tig.borrow_mut().read_depth = depth;
+        }
+    }
+}
+
+
+fn tig_kmer_counts(seq: &[u8], k_size: u32, circular: bool, kmers: &FxHashMap<u64, AtomicU32>,
+                   repeats: &FxHashSet<u64>) -> Vec<u32> {
+    // Returns the read count of each of a tig's k-mers, skipping any which occur more than once in
+    // the consensus assembly, as their counts include reads from their other occurrences.
+    let mut counts = Vec::new();
+    each_kmer(seq, k_size, circular, |_, kmer| {
+        if !repeats.contains(&kmer) {
+            if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
+        }
+    });
+    counts
+}
+
+
+fn clipped_mean(counts: &[u32]) -> Option<f64> {
+    // Returns the mean of the counts, with high outliers pulled down to a limit. This discards
+    // counts inflated by sequence which is repeated in the reads but not in the assembly (e.g. a
+    // collapsed repeat), while leaving the estimate unbiased when counts are low, which a trimmed
+    // mean or a median wouldn't.
+    // The limit is whichever is higher of six standard deviations above the mean (counts are
+    // roughly Poisson distributed, so the standard deviation is the square root of the mean) and
+    // twice the mean. The first covers low counts, where the scatter is large relative to the
+    // mean. The second covers high counts, where six standard deviations is a narrow margin that
+    // ordinary variation in read depth would exceed.
+    if counts.is_empty() { return None; }
+    let count = counts.len() as f64;
+    let mean = counts.iter().map(|&c| c as f64).sum::<f64>() / count;
+    let limit = (mean + 6.0 * mean.sqrt()).max(2.0 * mean);
+    Some(counts.iter().map(|&c| (c as f64).min(limit)).sum::<f64>() / count)
+}
+
+
 fn count_read_kmers(reads: &[PathBuf], k_size: u32,
                     kmers: &FxHashMap<u64, AtomicU32>) -> ReadTotals {
     // Tallies the reads' k-mers into the assembly's k-mer table. Reads are processed in parallel
@@ -128,7 +178,9 @@ fn count_read_kmers(reads: &[PathBuf], k_size: u32,
         let mut reader = fastq_reader_with_capacity(read_file, READ_BUFFER_SIZE);
         let mut record_set = RecordSet::default();
         while let Some(result) = reader.read_record_set(&mut record_set) {
-            result.expect("Error reading FASTQ file");
+            result.unwrap_or_else(|e| quit_with_error(
+                &format!("unable to read {}: {e}\nAre you sure this is a FASTQ file?",
+                         read_file.display())));
             let records: Vec<_> = record_set.into_iter().collect();
             totals = totals + records.par_iter()
                 .map_init(Vec::new, |hits, r| count_one_read(r.seq(), k_size, kmers, hits))
@@ -213,20 +265,12 @@ impl std::ops::Add for ReadTotals {
 }
 
 
-#[derive(Debug, Default)]
-pub struct DepthInfo {
-    // Assembly-wide values which will go into the log and the metrics file. More will be added
-    // here later, e.g. the implied read accuracy and how well the reads are explained by the
-    // consensus assembly.
-    pub mean_depth: f64, // length-weighted mean depth of the consensus assembly
-}
-
-
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
     use crate::misc::reverse_complement;
     use crate::test_gfa::*;
+    use crate::tests::assert_almost_eq;
     use super::*;
 
     fn kmer(seq: &str) -> u64 {
@@ -417,6 +461,83 @@ mod tests {
         assert_eq!(totals.read_bases, 38);
         assert_eq!(totals.span_bases, 38);
         assert_eq!(kmers[&kmer("ATCGA")].load(Relaxed), 4);
+    }
+
+    #[test]
+    fn test_clipped_mean() {
+        assert_eq!(clipped_mean(&[]), None);
+        assert_eq!(clipped_mean(&[7]), Some(7.0));
+        assert_eq!(clipped_mean(&[10, 10, 10, 10]), Some(10.0));
+        assert_eq!(clipped_mean(&[0, 0, 0, 0]), Some(0.0));
+        assert_eq!(clipped_mean(&[8, 9, 10, 11, 12]), Some(10.0));
+    }
+
+    #[test]
+    fn test_clipped_mean_clips_outlier() {
+        // One wildly high count (e.g. from sequence repeated in the reads but not the assembly)
+        // is pulled down to the limit, so it can't drag the depth up with it.
+        let mut counts = vec![10; 100];
+        assert_eq!(clipped_mean(&counts), Some(10.0));
+        counts.push(10000);
+        let mean: f64 = 11000.0 / 101.0;               // the mean before clipping
+        let limit = 2.0 * mean;                        // higher than six standard deviations here
+        assert_almost_eq(clipped_mean(&counts).unwrap(), (1000.0 + limit) / 101.0, 1e-9);
+        assert!(clipped_mean(&counts).unwrap() < 13.0);
+    }
+
+    #[test]
+    fn test_clipped_mean_limit_at_high_counts() {
+        // At high counts, six standard deviations is a narrow margin (here 5% of the mean), so
+        // the limit of twice the mean applies instead and ordinary variation survives untouched.
+        let mut counts = vec![10000; 100];
+        counts.extend([5000, 15000]);  // well beyond six sigma, but ordinary variation in depth
+        let mean = counts.iter().sum::<u32>() as f64 / counts.len() as f64;
+        assert_almost_eq(clipped_mean(&counts).unwrap(), mean, 1e-9);
+    }
+
+    #[test]
+    fn test_clipped_mean_keeps_ordinary_variation() {
+        // Poisson-like scatter around a depth of 10 is well within six sigma, so nothing is
+        // clipped and the mean is unchanged.
+        let counts = vec![4, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 16];
+        let mean = counts.iter().sum::<u32>() as f64 / counts.len() as f64;
+        assert_almost_eq(clipped_mean(&counts).unwrap(), mean, 1e-9);
+    }
+
+    #[test]
+    fn test_set_tig_depths() {
+        // Three reads of the tig's sequence, so each of its k-mers is seen three times.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());  // linear 19 bp tig
+        let mut kmers = build_kmer_table(&[&graph], 5);
+        let repeats = find_repeats_and_reset_counts(&mut kmers);
+        for _ in 0..3 { count_read("AGCATCGACATCGACTACG", &kmers); }
+        set_tig_depths(&[&graph], 5, &kmers, &repeats, 1.0);
+        assert_eq!(graph.unitigs[0].borrow().read_depth, Some(3.0));
+    }
+
+    #[test]
+    fn test_set_tig_depths_scaled() {
+        // The scale factor converts mean k-mer counts into read depths.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        let mut kmers = build_kmer_table(&[&graph], 5);
+        let repeats = find_repeats_and_reset_counts(&mut kmers);
+        count_read("AGCATCGACATCGACTACG", &kmers);
+        set_tig_depths(&[&graph], 5, &kmers, &repeats, 2.5);
+        assert_eq!(graph.unitigs[0].borrow().read_depth, Some(2.5));
+    }
+
+    #[test]
+    fn test_set_tig_depths_no_kmers() {
+        // This graph has tigs shorter than the k-mer size, which cannot be given a depth.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        let mut kmers = build_kmer_table(&[&graph], 5);
+        let repeats = find_repeats_and_reset_counts(&mut kmers);
+        set_tig_depths(&[&graph], 5, &kmers, &repeats, 1.0);
+        let depths: Vec<_> = graph.unitigs.iter()
+            .map(|tig| (tig.borrow().length(), tig.borrow().read_depth)).collect();
+        for (length, depth) in depths {
+            if length < 5 { assert_eq!(depth, None); } else { assert!(depth.is_some()); }
+        }
     }
 
     #[test]

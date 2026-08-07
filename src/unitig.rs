@@ -35,6 +35,7 @@ pub struct Unitig {
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
+    pub read_depth: Option<f64>,  // set by autocycler combine when the user supplies reads
     pub unitig_type: UnitigType,  // anchor, bridge, consentig or other
     pub forward_positions: Vec<Position>,
     pub reverse_positions: Vec<Position>,

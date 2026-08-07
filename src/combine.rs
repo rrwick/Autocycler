@@ -42,11 +42,13 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>, reads: Vec<PathBu
     let clusters = load_clusters(&in_gfas);
     if !reads.is_empty() {
         let graphs: Vec<&UnitigGraph> = clusters.iter().collect();
-        let depth_info = set_read_depths(&graphs, &reads, k_size);
-        eprintln!("Mean read depth: {:.2}x", depth_info.mean_depth);
-        eprintln!();
+        set_read_depths(&graphs, &reads, k_size);
     }
-    combine_clusters(clusters, &combined_gfa, &combined_fasta, &mut metrics, !reads.is_empty());
+    let tigs = combine_clusters(clusters, &combined_gfa, &combined_fasta, &mut metrics,
+                                !reads.is_empty());
+    if !reads.is_empty() {
+        print_read_depths(&tigs);
+    }
     metrics.save_to_yaml(&combined_yaml);
     finished_message(&combined_gfa, &combined_fasta, &metrics);
 }
@@ -90,6 +92,18 @@ fn print_settings(autocycler_dir: &Path, in_gfas: &[PathBuf], reads: &[PathBuf],
 }
 
 
+fn print_read_depths(tigs: &[(u32, u32, Option<f64>)]) {
+    eprintln!("Sequence depths:");
+    for (number, length, depth) in tigs {
+        let depth_str = match depth {
+            Some(d) => format!("{d:.1}"),
+            None => "unavailable".to_string(),
+        };
+        eprintln!("  {number} length={length} depth={depth_str}");
+    }
+}
+
+
 fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &CombineMetrics) {
     section_header("Finished!");
     eprintln!("Combined graph: {}", combined_gfa.display());
@@ -124,11 +138,15 @@ fn load_clusters(in_gfas: &[PathBuf]) -> Vec<UnitigGraph> {
 
 
 fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fasta: &Path,
-                    metrics: &mut CombineMetrics, read_depths: bool) {
+                    metrics: &mut CombineMetrics, read_depths: bool)
+                    -> Vec<(u32, u32, Option<f64>)> {
+    // Returns each tig's number, length and read depth, using the tig numbers of the combined
+    // assembly, not the per-cluster numbers of the input graphs.
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();
     metrics.consensus_assembly_fully_resolved = true;
+    let mut tigs = Vec::new();
     let mut offset = 0;
     for graph in clusters {
         let component_length = graph.total_length();
@@ -143,9 +161,15 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
             } else {
                 "".to_string()
             };
-            let depth_header = if read_depths { format!(" depth={:.1}", unitig.depth) }
-                                         else { String::new() };
-            let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
+            // Tigs without a read depth (too short, or all of their sequence occurs elsewhere in
+            // the assembly) get no depth in the FASTA header and a zero depth in the GFA, as the
+            // GFA format requires a depth tag.
+            let depth = if read_depths { unitig.read_depth.unwrap_or(0.0) } else { unitig.depth };
+            let depth_header = match unitig.read_depth {
+                Some(d) => format!(" depth={d:.1}"),
+                None => String::new(),
+            };
+            let depth_tag = format!("\tDP:f:{depth:.2}");
             let mut colour_tag = unitig.colour_tag(true);
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:Z:orangered".to_string();
@@ -154,6 +178,7 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
             writeln!(fasta_file, ">{} length={}{}{}", unitig_num, unitig.length(), depth_header,
                      topology).unwrap();
             writeln!(fasta_file, "{unitig_seq}").unwrap();
+            tigs.push((unitig_num, unitig.length(), unitig.read_depth));
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {
             writeln!(gfa_file, "L\t{a}\t{a_strand}\t{b}\t{b_strand}\t0M").unwrap();
@@ -168,4 +193,5 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
         metrics.consensus_assembly_clusters.push(cluster_metrics);
         if unitig_count != 1 { metrics.consensus_assembly_fully_resolved = false; }
     }
+    tigs
 }
