@@ -20,6 +20,7 @@ mod cluster;
 mod combine;
 mod compress;
 mod decompress;
+mod depth;
 mod dotplot;
 mod gfa2fasta;
 mod graph_simplification;

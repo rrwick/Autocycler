@@ -18,6 +18,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::depth::set_read_depths;
 use crate::log::{section_header, explanation};
 use crate::metrics::{CombineMetrics, ResolvedClusterDetails};
 use crate::misc::{check_if_file_exists, create_dir, quit_with_error};
@@ -37,10 +38,15 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>, reads: Vec<PathBu
     starting_message();
     print_settings(&autocycler_dir, &in_gfas, &reads, k_size, threads);
 
-    // TODO: when reads are given, use them to set unitig depths (instead of input assembly count).
-
     let mut metrics = CombineMetrics::default();
-    combine_clusters(&in_gfas, &combined_gfa, &combined_fasta, &mut metrics);
+    let clusters = load_clusters(&in_gfas);
+    if !reads.is_empty() {
+        let graphs: Vec<&UnitigGraph> = clusters.iter().map(|(_, graph, _)| graph).collect();
+        let depth_info = set_read_depths(&graphs, &reads, k_size);
+        eprintln!("Mean read depth: {:.2}x", depth_info.mean_depth);
+        eprintln!();
+    }
+    combine_clusters(clusters, &combined_gfa, &combined_fasta, &mut metrics, !reads.is_empty());
     metrics.save_to_yaml(&combined_yaml);
     finished_message(&combined_gfa, &combined_fasta, &metrics);
 }
@@ -98,19 +104,24 @@ fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &Combin
 }
 
 
-fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &Path,
-                    metrics: &mut CombineMetrics) {
-    section_header("Combining clusters");
-    explanation("This command combines different clusters into a single assembly file.");
-
-    // Sort the input GFAs in order of decreasing size. They are probably already in this order
-    // (from the clustering step), but not necessarily (e.g. due to small plasmid duplication).
+fn load_clusters(in_gfas: &[PathBuf]) -> Vec<(&PathBuf, UnitigGraph, u64)> {
+    // Loads each of the input GFAs, sorted in order of decreasing size. They are probably already
+    // in this order (from the clustering step), but not necessarily (e.g. due to small plasmid
+    // duplication).
     let mut clusters: Vec<_> = in_gfas.iter().map(|gfa| {
         let (graph, _) = UnitigGraph::from_gfa_file(gfa);
         let length = graph.total_length();
         (gfa, graph, length)
     }).collect();
     clusters.sort_by_key(|(_, _, length)| Reverse(*length));
+    clusters
+}
+
+
+fn combine_clusters(clusters: Vec<(&PathBuf, UnitigGraph, u64)>, combined_gfa: &Path,
+                    combined_fasta: &Path, metrics: &mut CombineMetrics, read_depths: bool) {
+    section_header("Combining clusters");
+    explanation("This command combines different clusters into a single assembly file.");
 
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
@@ -131,13 +142,16 @@ fn combine_clusters(in_gfas: &[PathBuf], combined_gfa: &Path, combined_fasta: &P
             } else {
                 "".to_string()
             };
+            let depth_header = if read_depths { format!(" depth={:.1}", unitig.depth) }
+                                         else { String::new() };
             let depth_tag = format!("\tDP:f:{:.2}", unitig.depth);
             let mut colour_tag = unitig.colour_tag(true);
             if colour_tag.is_empty() {
                 colour_tag = "\tCL:Z:orangered".to_string();
             }
             writeln!(gfa_file, "S\t{unitig_num}\t{unitig_seq}{depth_tag}{colour_tag}").unwrap();
-            writeln!(fasta_file, ">{} length={}{}", unitig_num, unitig.length(), topology).unwrap();
+            writeln!(fasta_file, ">{} length={}{}{}", unitig_num, unitig.length(), depth_header,
+                     topology).unwrap();
             writeln!(fasta_file, "{unitig_seq}").unwrap();
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {
