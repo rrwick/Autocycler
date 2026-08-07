@@ -57,6 +57,7 @@ pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) 
                   100.0 * totals.hits as f64 / totals.span_kmers as f64, k_size);
     }
     eprintln!();
+    check_read_totals(&totals, reads);
 
     // A read k-mer only matches the assembly if it is error-free, and a read holds fewer k-mers
     // than bases, so k-mer counts fall short of read depth on both counts. The reads' own totals
@@ -188,6 +189,15 @@ fn count_read_kmers(reads: &[PathBuf], k_size: u32,
         }
     }
     totals
+}
+
+
+fn check_read_totals(totals: &ReadTotals, reads: &[PathBuf]) {
+    if totals.reads == 0 {
+        let read_str = reads.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ");
+        quit_with_error(&format!("no reads were found in {} which match the consensus assembly",
+                                 read_str));
+    }
 }
 
 
