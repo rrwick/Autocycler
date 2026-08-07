@@ -244,6 +244,7 @@ pub struct ResolvedClusterDetails {
     pub length: u64,
     pub unitigs: u32,
     pub topology: String,
+    pub read_depth: serde_yaml::Value,  // a number, or 'unavailable' if there is no read depth
 }
 
 

@@ -104,6 +104,29 @@ fn print_read_depths(tigs: &[(u32, u32, Option<f64>)]) {
 }
 
 
+fn cluster_depth(graph: &UnitigGraph) -> Option<f64> {
+    // Returns the length-weighted mean read depth of a cluster's tigs, ignoring any tigs which
+    // have no depth. Clusters usually contain a single tig, in which case this is just its depth.
+    let (mut total, mut length) = (0.0, 0);
+    for tig in &graph.unitigs {
+        let tig = tig.borrow();
+        if let Some(depth) = tig.read_depth {
+            total += depth * tig.length() as f64;
+            length += tig.length() as u64;
+        }
+    }
+    if length > 0 { Some(total / length as f64) } else { None }
+}
+
+
+fn read_depth_value(depth: Option<f64>) -> serde_yaml::Value {
+    match depth {
+        Some(d) => format!("{d:.1}").parse::<f64>().unwrap().into(),
+        None => "unavailable".into(),
+    }
+}
+
+
 fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &CombineMetrics) {
     section_header("Finished!");
     eprintln!("Combined graph: {}", combined_gfa.display());
@@ -189,7 +212,9 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
         metrics.consensus_assembly_unitigs += unitig_count;
         let cluster_metrics = ResolvedClusterDetails { length: component_length,
                                                        unitigs: unitig_count,
-                                                       topology: graph.topology() };
+                                                       topology: graph.topology(),
+                                                       read_depth: read_depth_value(
+                                                           cluster_depth(&graph)) };
         metrics.consensus_assembly_clusters.push(cluster_metrics);
         if unitig_count != 1 { metrics.consensus_assembly_fully_resolved = false; }
     }
