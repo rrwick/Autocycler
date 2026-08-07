@@ -198,13 +198,21 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path)
 pub fn fastq_reader(fastq_file: &Path)
         -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
     // Returns a reader for a FASTQ file that works on both unzipped and gzipped files.
+    fastq_reader_with_capacity(fastq_file, 64 * 1024)  // seq_io's default buffer size
+}
+
+
+pub fn fastq_reader_with_capacity(fastq_file: &Path, capacity: usize)
+        -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
+    // Same as fastq_reader, but with a chosen buffer size. A big buffer puts more reads in each
+    // batch of records, which helps when the reads are processed in parallel.
     let file = File::open(fastq_file).expect("Error opening file");
     let reader: Box<dyn Read> = if is_file_gzipped(fastq_file) {
         Box::new(MultiGzDecoder::new(file))
     } else {
         Box::new(file)
     };
-    Reader::new(BufReader::new(reader))
+    Reader::with_capacity(BufReader::new(reader), capacity)
 }
 
 

@@ -123,7 +123,7 @@ enum Commands {
         #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
         in_gfas: Vec<PathBuf>,
 
-        /// Reads in FASTA/FASTQ format to set consentig depths [default: none]
+        /// Reads in FASTQ format to set consentig depths [default: none]
         #[clap(short = 'r', long = "reads", num_args = 1..)]
         reads: Vec<PathBuf>,
 
