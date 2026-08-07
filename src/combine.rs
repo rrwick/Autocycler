@@ -41,7 +41,7 @@ pub fn combine(autocycler_dir: PathBuf, in_gfas: Vec<PathBuf>, reads: Vec<PathBu
     let mut metrics = CombineMetrics::default();
     let clusters = load_clusters(&in_gfas);
     if !reads.is_empty() {
-        let graphs: Vec<&UnitigGraph> = clusters.iter().map(|(_, graph, _)| graph).collect();
+        let graphs: Vec<&UnitigGraph> = clusters.iter().collect();
         let depth_info = set_read_depths(&graphs, &reads, k_size);
         eprintln!("Mean read depth: {:.2}x", depth_info.mean_depth);
         eprintln!();
@@ -104,33 +104,34 @@ fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &Combin
 }
 
 
-fn load_clusters(in_gfas: &[PathBuf]) -> Vec<(&PathBuf, UnitigGraph, u64)> {
+fn load_clusters(in_gfas: &[PathBuf]) -> Vec<UnitigGraph> {
     // Loads each of the input GFAs, sorted in order of decreasing size. They are probably already
     // in this order (from the clustering step), but not necessarily (e.g. due to small plasmid
     // duplication).
+    section_header("Loading clusters");
+    explanation("Each of the input cluster graphs is now loaded and sorted by size.");
     let mut clusters: Vec<_> = in_gfas.iter().map(|gfa| {
         let (graph, _) = UnitigGraph::from_gfa_file(gfa);
-        let length = graph.total_length();
-        (gfa, graph, length)
+        (gfa, graph)
     }).collect();
-    clusters.sort_by_key(|(_, _, length)| Reverse(*length));
-    clusters
+    clusters.sort_by_key(|(_, graph)| Reverse(graph.total_length()));
+    clusters.into_iter().map(|(gfa, graph)| {
+        eprintln!("{}", gfa.display());
+        graph.print_basic_graph_info_with_topology();
+        graph
+    }).collect()
 }
 
 
-fn combine_clusters(clusters: Vec<(&PathBuf, UnitigGraph, u64)>, combined_gfa: &Path,
-                    combined_fasta: &Path, metrics: &mut CombineMetrics, read_depths: bool) {
-    section_header("Combining clusters");
-    explanation("This command combines different clusters into a single assembly file.");
-
+fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fasta: &Path,
+                    metrics: &mut CombineMetrics, read_depths: bool) {
     let mut gfa_file = File::create(combined_gfa).unwrap();
     let mut fasta_file = File::create(combined_fasta).unwrap();
     writeln!(gfa_file, "H\tVN:Z:1.0").unwrap();
     metrics.consensus_assembly_fully_resolved = true;
     let mut offset = 0;
-    for (gfa, graph, component_length) in clusters {
-        eprintln!("{}", gfa.display());
-        graph.print_basic_graph_info_with_topology();
+    for graph in clusters {
+        let component_length = graph.total_length();
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();
             let unitig_num = unitig.number + offset;
