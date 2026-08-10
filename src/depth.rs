@@ -15,11 +15,15 @@
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
 use seq_io::fastq::{Record, RecordSet};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::log::{section_header, explanation};
-use crate::misc::{fastq_reader_with_capacity, quit_with_error};
+use crate::misc::{fastq_reader_with_capacity, quit_with_error, reverse_complement};
+use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -31,6 +35,11 @@ static MIN_READ_HIT_RATE: f64 = 0.005;
 // Reads are processed in batches of this many bytes. Bigger batches mean more reads per batch,
 // which matters most for long reads, where seq_io's default 64 kB buffer holds only a handful.
 static READ_BUFFER_SIZE: usize = 4 * 1024 * 1024;
+
+// Walking outward from a tig to find its k-mers stops after this many steps. Hitting this limit
+// means a tig gets fewer k-mers than it might, making its depth less precise. It takes a
+// pathological graph to come close: a long chain of branching sub-k-mer-sized tigs.
+static MAX_WALK_STEPS: usize = 10000;
 
 
 pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) {
@@ -78,6 +87,20 @@ fn build_kmer_table(graphs: &[&UnitigGraph], k_size: u32) -> FxHashMap<u64, Atom
             add_seq_kmers(&tig.forward_seq, k_size, tig.is_isolated_and_circular(), &mut kmers);
         }
     }
+    // K-mers spanning the links between tigs are added after all of the tigs' own k-mers, and
+    // without adding to the counts, because each one is found from both of the tigs it spans.
+    // Counting them would make them look like repeats and exclude them from depths, which would
+    // defeat the point, as short tigs have no other k-mers.
+    for graph in graphs {
+        for tig in &graph.unitigs {
+            if tig.borrow().is_isolated_and_circular() { continue; }
+            for (_, variants) in context_kmers(tig, k_size) {
+                for kmer in variants {
+                    kmers.entry(kmer).or_insert_with(|| AtomicU32::new(1));
+                }
+            }
+        }
+    }
     kmers
 }
 
@@ -117,6 +140,121 @@ fn each_kmer(seq: &[u8], k_size: u32, circular: bool, mut f: impl FnMut(usize, u
 }
 
 
+fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<(i32, Vec<u64>)> {
+    // Returns the k-mers which overlap a tig but don't fit inside it, i.e. those which need
+    // sequence from neighbouring tigs, found by walking outward through the graph. Tigs shorter
+    // than the k-mer size have no k-mers of their own, so these are all they get, and they end up
+    // with none at all only when their whole part of the graph is too short to spell a k-mer.
+    // K-mers are grouped by offset: the position of the k-mer's first base relative to the start
+    // of the tig, which is negative for k-mers starting before it. The k-mers at a single offset
+    // are alternatives, as a read passing through the tig contains exactly one of them.
+    let tig = tig.borrow();
+    let (k, n) = (k_size as usize, tig.forward_seq.len());
+    let mut steps = MAX_WALK_STEPS;
+    let mut left = extensions(&tig.reverse_next, k - 1, &mut steps);
+    let mut right = extensions(&tig.forward_next, k - 1, &mut steps);
+
+    // A walk from the tig's start spells the reverse complement of the sequence preceding it.
+    for seq in &mut left { *seq = reverse_complement(seq); }
+
+    // Tig ends with no links give a single empty context, so that the other end still gets used.
+    if left.is_empty()  { left.push(Vec::new()); }
+    if right.is_empty() { right.push(Vec::new()); }
+
+    let mut kmers = BTreeMap::new();
+    if n >= k {
+        // No k-mer can reach past both ends of the tig, so each end is handled on its own. This
+        // matters for long tigs, where pairing up the contexts would mean walking the whole tig
+        // once per pair just to collect the few k-mers at its ends.
+        for seq in &left {
+            add_context_kmers(&[&seq[..], &tig.forward_seq[..k-1]].concat(),
+                              k_size, -(seq.len() as i32), n, &mut kmers);
+        }
+        for seq in &right {
+            add_context_kmers(&[&tig.forward_seq[n-k+1..], &seq[..]].concat(),
+                              k_size, (n - k + 1) as i32, n, &mut kmers);
+        }
+    } else {
+        // The tig is shorter than a k-mer, so its k-mers can need sequence from both sides at
+        // once and every combination of contexts has to be tried.
+        for l in &left {
+            for r in &right {
+                add_context_kmers(&[&l[..], &tig.forward_seq[..], &r[..]].concat(),
+                                  k_size, -(l.len() as i32), n, &mut kmers);
+            }
+        }
+    }
+    kmers.into_iter().collect()
+}
+
+
+fn add_context_kmers(context: &[u8], k_size: u32, first_offset: i32, tig_length: usize,
+                     kmers: &mut BTreeMap<i32, Vec<u64>>) {
+    // Adds the k-mers of a context sequence, which is a tig with some of its neighbouring
+    // sequence attached. The first_offset argument gives the position of the context's first base
+    // relative to the start of the tig. K-mers which fit inside the tig are skipped, as they need
+    // no context and are taken from the tig's own sequence.
+    let last_inside = tig_length as i32 - k_size as i32;
+    each_kmer(context, k_size, false, |i, kmer| {
+        let offset = first_offset + i as i32;
+        if offset < 0 || offset > last_inside {
+            let variants = kmers.entry(offset).or_default();
+            if !variants.contains(&kmer) { variants.push(kmer); }
+        }
+    });
+}
+
+
+fn extensions(next: &[UnitigStrand], length: usize, steps: &mut usize) -> Vec<Vec<u8>> {
+    // Returns the distinct sequences of up to the given length which follow the given tig ends,
+    // spelled by walking through the graph. Walking stops at the required length, so cycles
+    // (including a tig's own circularising or hairpin links) cannot loop forever. A sequence
+    // shorter than the required length means the walk reached a dead end.
+    let mut seqs: Vec<Vec<u8>> = Vec::new();
+    for strand in next {
+        if *steps == 0 { break; }
+        *steps -= 1;
+        let seq = first_bases(strand, length);
+        if seq.len() == length {
+            push_distinct(&mut seqs, seq);
+            continue;
+        }
+        let further = extensions(&next_strands(strand), length - seq.len(), steps);
+        if further.is_empty() {
+            push_distinct(&mut seqs, seq);
+        } else {
+            for f in further {
+                push_distinct(&mut seqs, [&seq[..], &f[..]].concat());
+            }
+        }
+    }
+    seqs
+}
+
+
+fn push_distinct(seqs: &mut Vec<Vec<u8>>, seq: Vec<u8>) {
+    if !seqs.contains(&seq) { seqs.push(seq); }
+}
+
+
+fn next_strands(strand: &UnitigStrand) -> Vec<UnitigStrand> {
+    // Returns the tig ends which follow the given one, i.e. the next step of a walk.
+    let unitig = strand.unitig();
+    let unitig = unitig.borrow();
+    if strand.strand { unitig.forward_next.clone() } else { unitig.reverse_next.clone() }
+}
+
+
+fn first_bases(strand: &UnitigStrand, length: usize) -> Vec<u8> {
+    // Returns up to the given number of bases from the start of a tig end's sequence. Taking just
+    // these avoids copying the whole sequence, which for a chromosome-sized tig is megabytes.
+    let unitig = strand.unitig();
+    let unitig = unitig.borrow();
+    let seq = if strand.strand { &unitig.forward_seq } else { &unitig.reverse_seq };
+    seq[..length.min(seq.len())].to_vec()
+}
+
+
 fn set_tig_depths(graphs: &[&UnitigGraph], k_size: u32, kmers: &FxHashMap<u64, AtomicU32>,
                   repeats: &FxHashSet<u64>, scale: f64) {
     // Gives each tig a depth from the read counts of its k-mers. Tigs with no usable k-mers (i.e.
@@ -124,13 +262,9 @@ fn set_tig_depths(graphs: &[&UnitigGraph], k_size: u32, kmers: &FxHashMap<u64, A
     // consensus assembly) are left without a depth.
     for graph in graphs {
         for tig in &graph.unitigs {
-            // The tig is borrowed immutably here and mutably below, because a circular tig links
-            // to itself, and following that link borrows the tig again.
-            let counts = {
-                let tig = tig.borrow();
-                tig_kmer_counts(&tig.forward_seq, k_size, tig.is_isolated_and_circular(),
-                                kmers, repeats)
-            };
+            // The counts are gathered before the tig is borrowed mutably, because gathering them
+            // involves walking the graph, which can come back to this same tig.
+            let counts = tig_kmer_counts(tig, k_size, kmers, repeats);
             let depth = clipped_mean(&counts).map(|mean| mean * scale);
             tig.borrow_mut().read_depth = depth;
         }
@@ -138,16 +272,35 @@ fn set_tig_depths(graphs: &[&UnitigGraph], k_size: u32, kmers: &FxHashMap<u64, A
 }
 
 
-fn tig_kmer_counts(seq: &[u8], k_size: u32, circular: bool, kmers: &FxHashMap<u64, AtomicU32>,
+fn tig_kmer_counts(tig: &Rc<RefCell<Unitig>>, k_size: u32, kmers: &FxHashMap<u64, AtomicU32>,
                    repeats: &FxHashSet<u64>) -> Vec<u32> {
-    // Returns the read count of each of a tig's k-mers, skipping any which occur more than once in
-    // the consensus assembly, as their counts include reads from their other occurrences.
+    // Returns a read count for each of a tig's k-mer positions: those which fit inside the tig,
+    // plus those which overlap its ends and so need sequence from neighbouring tigs. Positions are
+    // skipped when a k-mer occurs more than once in the consensus assembly, as its count includes
+    // reads from its other occurrences.
+    let circular = tig.borrow().is_isolated_and_circular();
     let mut counts = Vec::new();
-    each_kmer(seq, k_size, circular, |_, kmer| {
-        if !repeats.contains(&kmer) {
-            if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
-        }
-    });
+    {
+        let tig = tig.borrow();
+        each_kmer(&tig.forward_seq, k_size, circular, |_, kmer| {
+            if !repeats.contains(&kmer) {
+                if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
+            }
+        });
+    }
+    // A circular tig's only neighbour is itself, and each_kmer has already wrapped around its
+    // start-end junction, so looking outward would just find the same k-mers again.
+    if circular { return counts; }
+
+    // A read passing through the tig contains exactly one of the k-mers at a given position, so
+    // the counts of the alternatives at that position are added together. Averaging them instead
+    // would drag the depth down whenever a neighbouring path exists in the graph but not in the
+    // reads, which is common where the graph is unresolved.
+    for (_, variants) in context_kmers(tig, k_size) {
+        if variants.iter().any(|kmer| repeats.contains(kmer)) { continue; }
+        counts.push(variants.iter().filter_map(|kmer| kmers.get(kmer))
+                            .map(|count| count.load(Relaxed)).sum());
+    }
     counts
 }
 
@@ -538,16 +691,116 @@ mod tests {
 
     #[test]
     fn test_set_tig_depths_no_kmers() {
-        // This graph has tigs shorter than the k-mer size, which cannot be given a depth.
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        // This graph is a single 19 bp tig with no links, so with a k-mer size of 25 there is no
+        // way to spell a k-mer anywhere in it and it cannot be given a depth.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        let mut kmers = build_kmer_table(&[&graph], 25);
+        let repeats = find_repeats_and_reset_counts(&mut kmers);
+        set_tig_depths(&[&graph], 25, &kmers, &repeats, 1.0);
+        assert_eq!(graph.unitigs[0].borrow().read_depth, None);
+    }
+
+    #[test]
+    fn test_set_tig_depths_short_tigs() {
+        // Tigs 3 and 4 are single bases, too short to hold a k-mer of their own, so their depths
+        // come from k-mers which run out through their neighbours. This read follows the path
+        // through tig 3, so tig 3 gets its depth and tig 4 is shown to have no support.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_15());
         let mut kmers = build_kmer_table(&[&graph], 5);
         let repeats = find_repeats_and_reset_counts(&mut kmers);
+        count_read("ATTGTAGGTACCGATCGATCGT", &kmers);
         set_tig_depths(&[&graph], 5, &kmers, &repeats, 1.0);
-        let depths: Vec<_> = graph.unitigs.iter()
-            .map(|tig| (tig.borrow().length(), tig.borrow().read_depth)).collect();
-        for (length, depth) in depths {
-            if length < 5 { assert_eq!(depth, None); } else { assert!(depth.is_some()); }
-        }
+        assert_eq!(graph.unitig_index[&3].borrow().read_depth, Some(1.0));
+        assert_eq!(graph.unitig_index[&4].borrow().read_depth, Some(0.0));
+    }
+
+    #[test]
+    fn test_set_tig_depths_sums_variants() {
+        // Tig 2 is preceded by either tig 3 or tig 4, so the k-mers reaching back off its start
+        // have two alternatives. Two reads take one path and three take the other, and a read
+        // through tig 2 contains exactly one of the alternatives, so its depth is the total of
+        // the two, not the average.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_15());
+        let mut kmers = build_kmer_table(&[&graph], 5);
+        let repeats = find_repeats_and_reset_counts(&mut kmers);
+        for _ in 0..2 { count_read("ATTGTAGGTACCGATCGATCGT", &kmers); }
+        for _ in 0..3 { count_read("CTTGTAGGTACCGATCGATCGT", &kmers); }
+        set_tig_depths(&[&graph], 5, &kmers, &repeats, 1.0);
+        assert_eq!(graph.unitig_index[&2].borrow().read_depth, Some(5.0));
+        assert_eq!(graph.unitig_index[&3].borrow().read_depth, Some(2.0));
+        assert_eq!(graph.unitig_index[&4].borrow().read_depth, Some(3.0));
+    }
+
+    fn contexts(gfa: &Vec<String>, number: u32, k_size: u32) -> Vec<(i32, Vec<u64>)> {
+        let (graph, _) = UnitigGraph::from_gfa_lines(gfa);
+        context_kmers(&graph.unitig_index[&number], k_size)
+    }
+
+    fn offsets(kmers: &[(i32, Vec<u64>)]) -> Vec<i32> {
+        kmers.iter().map(|(offset, _)| *offset).collect()
+    }
+
+    #[test]
+    fn test_context_kmers_isolated() {
+        // A tig with no links has no neighbouring sequence, so it gets no context k-mers.
+        assert!(contexts(&get_test_gfa_9(), 1, 5).is_empty());
+    }
+
+    #[test]
+    fn test_context_kmers_circular() {
+        // A circular tig links to itself, so its context k-mers are the ones which span its
+        // start-end junction. They are found from both ends, hence the two ranges of offsets.
+        let kmers = contexts(&get_test_gfa_8(), 1, 5);  // 19 bp circular tig
+        assert_eq!(offsets(&kmers), vec![-4, -3, -2, -1, 15, 16, 17, 18]);
+        assert!(kmers.iter().all(|(_, variants)| variants.len() == 1));
+        // TACGA spans the junction: TACG ends the tig and A starts it.
+        assert!(kmers.iter().any(|(_, variants)| variants[0] == kmer("TACGA")));
+    }
+
+    #[test]
+    fn test_context_kmers_hairpin() {
+        // A hairpin link joins a tig to its own reverse complement, so the sequence before the
+        // tig is the reverse complement of the sequence after it.
+        let seq = "AGCATCGACATCGACTACG";
+        let kmers = contexts(&get_test_gfa_10(), 1, 5);  // hairpin links on both ends
+        assert_eq!(offsets(&kmers), vec![-4, -3, -2, -1, 15, 16, 17, 18]);
+        let rev_start = String::from_utf8(reverse_complement(&seq.as_bytes()[..4])).unwrap();
+        assert_eq!(kmers[0].1, vec![kmer(&format!("{}{}", rev_start, &seq[..1]))]);
+    }
+
+    #[test]
+    fn test_context_kmers_dead_end() {
+        // Tigs 3 and 4 are single-base dead ends, so each has exactly one k-mer: the one which
+        // starts at its base and runs out through tig 2 into tig 1. That single k-mer is what
+        // tells the two of them apart.
+        let tig_3 = contexts(&get_test_gfa_15(), 3, 5);
+        let tig_4 = contexts(&get_test_gfa_15(), 4, 5);
+        assert_eq!(tig_3, vec![(0, vec![kmer("ATTGT")])]);
+        assert_eq!(tig_4, vec![(0, vec![kmer("CTTGT")])]);
+        assert_ne!(tig_3, tig_4);
+    }
+
+    #[test]
+    fn test_context_kmers_short_tig() {
+        // Tig 2 is 3 bp, shorter than the k-mer size, so all of its k-mers need context, and
+        // those which reach back into tigs 3 and 4 have a variant for each.
+        let kmers = contexts(&get_test_gfa_15(), 2, 5);
+        assert_eq!(offsets(&kmers), vec![-1, 0, 1, 2]);
+        assert_eq!(kmers[0].1, vec![kmer("ATTGT"), kmer("CTTGT")]);
+        assert_eq!(kmers[1].1, vec![kmer("TTGTA")]);
+        assert_eq!(kmers[2].1, vec![kmer("TGTAG")]);
+        assert_eq!(kmers[3].1, vec![kmer("GTAGG")]);
+    }
+
+    #[test]
+    fn test_context_kmers_long_tig() {
+        // Tig 1 is longer than the k-mer size, so only the k-mers at its two ends need context:
+        // its hairpin end on the left, and the fork into tigs 3 and 4 on the right.
+        let kmers = contexts(&get_test_gfa_15(), 1, 5);  // 18 bp tig
+        assert_eq!(offsets(&kmers), vec![-4, -3, -2, -1, 14, 15, 16, 17]);
+        assert_eq!(kmers[0].1, vec![kmer("TCGTA")]);  // reverse complement of the tig's own start
+        assert_eq!(kmers[4].1, vec![kmer("CCTAC")]);
+        assert_eq!(kmers[7].1, vec![kmer("ACAAT"), kmer("ACAAG")]);  // the fork
     }
 
     #[test]

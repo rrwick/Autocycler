@@ -285,3 +285,23 @@ pub fn get_test_gfa_14() -> Vec<String> {
          "P\t4\t5+,38-,18+,36-,17+,22-,8-,19-,37-,21+,12-,5+,34-,18+,36-,17+,22-,8-,19-\t*\tLN:i:178\tFN:Z:b.fasta\tHD:Z:b_2\tCL:i:2",
          "P\t7\t17-,36+,18-,34+,5-,12+,21-,37+,19+,8+\t*\tLN:i:95\tFN:Z:d.fasta\tHD:Z:d_2\tCL:i:2"].into_iter().map(String::from).collect()
 }
+
+
+#[cfg(test)]
+pub fn get_test_gfa_15() -> Vec<String> {
+    // One connected component, shaped like a fragmented linear plasmid end
+    // Tig 1 has a hairpin link on one end, and frays into short tigs on the other
+    // Tigs 3 and 4 are single-base dead ends, alternatives to each other
+    vec!["H\tVN:Z:1.0\tKM:i:5",
+         "S\t1\tACGATCGATCGGTACCTA\tDP:f:4.00",
+         "S\t2\tTTG\tDP:f:2.00",
+         "S\t3\tA\tDP:f:1.00",
+         "S\t4\tC\tDP:f:1.00",
+         "L\t1\t-\t1\t+\t0M",
+         "L\t1\t+\t2\t-\t0M",
+         "L\t2\t+\t1\t-\t0M",
+         "L\t2\t-\t3\t-\t0M",
+         "L\t3\t+\t2\t+\t0M",
+         "L\t2\t-\t4\t-\t0M",
+         "L\t4\t+\t2\t+\t0M"].into_iter().map(String::from).collect()
+}
