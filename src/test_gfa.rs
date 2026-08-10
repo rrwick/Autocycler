@@ -305,3 +305,24 @@ pub fn get_test_gfa_15() -> Vec<String> {
          "L\t2\t-\t4\t-\t0M",
          "L\t4\t+\t2\t+\t0M"].into_iter().map(String::from).collect()
 }
+
+
+#[cfg(test)]
+pub fn get_test_gfa_16() -> Vec<String> {
+    // One connected component with a bubble
+    // Tigs 3 and 4 are alternative paths which differ only by two extra bases on tig 3, so the
+    // rest of their sequence is spelled by both paths
+    vec!["H\tVN:Z:1.0\tKM:i:5",
+         "S\t1\tAAAACCCCGGGGTTTTACGT\tDP:f:4.00",
+         "S\t2\tCCTTAAGGCCTTAAGGCCTT\tDP:f:4.00",
+         "S\t3\tTTGCATG\tDP:f:2.00",
+         "S\t4\tGCATG\tDP:f:2.00",
+         "L\t1\t+\t3\t+\t0M",
+         "L\t3\t-\t1\t-\t0M",
+         "L\t1\t+\t4\t+\t0M",
+         "L\t4\t-\t1\t-\t0M",
+         "L\t3\t+\t2\t+\t0M",
+         "L\t2\t-\t3\t-\t0M",
+         "L\t4\t+\t2\t+\t0M",
+         "L\t2\t-\t4\t-\t0M"].into_iter().map(String::from).collect()
+}

@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::log::{section_header, explanation};
-use crate::misc::{fastq_reader_with_capacity, quit_with_error, reverse_complement};
+use crate::misc::{fastq_reader_with_capacity, quit_with_error, reverse_complement, strand};
 use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
 
@@ -84,19 +84,48 @@ fn build_kmer_table(graphs: &[&UnitigGraph], k_size: u32) -> FxHashMap<u64, Atom
     for graph in graphs {
         for tig in &graph.unitigs {
             let tig = tig.borrow();
-            add_seq_kmers(&tig.forward_seq, k_size, tig.is_isolated_and_circular(), &mut kmers);
+            add_seq_kmers(&tig.forward_seq, k_size, &mut kmers);
         }
     }
-    // K-mers spanning the links between tigs are added after all of the tigs' own k-mers, and
-    // without adding to the counts, because each one is found from both of the tigs it spans.
-    // Counting them would make them look like repeats and exclude them from depths, which would
-    // defeat the point, as short tigs have no other k-mers.
     for graph in graphs {
         for tig in &graph.unitigs {
-            if tig.borrow().is_isolated_and_circular() { continue; }
-            for (_, variants) in context_kmers(tig, k_size) {
-                for kmer in variants {
-                    kmers.entry(kmer).or_insert_with(|| AtomicU32::new(1));
+            for kmer in junction_kmers(tig, k_size) {
+                *kmers.entry(kmer).or_insert_with(|| AtomicU32::new(0)).get_mut() += 1;
+            }
+        }
+    }
+    kmers
+}
+
+
+fn junction_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<u64> {
+    // Returns the k-mers which start inside a tig and run off its end into a neighbour, i.e. the
+    // ones which span a link and so are missed when each tig is read on its own.
+    // Every such k-mer is spelled twice by the graph, once in each direction, and it is kept only
+    // when spelled in its canonical direction. Together with the tigs' own k-mers, that means each
+    // k-mer of the assembly is counted once for each place it occurs, so a k-mer occurring in more
+    // than one place is still recognised as a repeat. That matters where the graph forks and
+    // rejoins, as the alternative paths often spell some of the same k-mers as each other.
+    let k = k_size as usize;
+    let tig = tig.borrow();
+    let mut kmers = Vec::new();
+    for strand in [strand::FORWARD, strand::REVERSE] {
+        let (seq, next) = if strand == strand::FORWARD { (&tig.forward_seq, &tig.forward_next) }
+                                                  else { (&tig.reverse_seq, &tig.reverse_next) };
+        let mut steps = MAX_WALK_STEPS;
+        let walks = extensions(next, k - 1, &mut steps);
+        for start in seq.len().saturating_sub(k - 1)..seq.len() {
+            let needed = k - (seq.len() - start);
+            for walk in &walks {
+                // A walk which hit a dead end can be too short to finish this k-mer.
+                if needed > walk.len() { continue; }
+                // Each walk counts separately, even when two of them spell the same k-mer. Such a
+                // k-mer occurs in more than one place in the graph, so it cannot say which of the
+                // walks a read took, and counting it once would let each of them claim the
+                // other's reads.
+                if let Some((forward, reverse)) =
+                        encode_kmer(&[&seq[start..], &walk[..needed]].concat()) {
+                    if forward < reverse { kmers.push(forward); }
                 }
             }
         }
@@ -105,27 +134,42 @@ fn build_kmer_table(graphs: &[&UnitigGraph], k_size: u32) -> FxHashMap<u64, Atom
 }
 
 
-fn add_seq_kmers(seq: &[u8], k_size: u32, circular: bool, kmers: &mut FxHashMap<u64, AtomicU32>) {
+fn encode_kmer(seq: &[u8]) -> Option<(u64, u64)> {
+    // Encodes a single k-mer, returning its value and that of its reverse complement, or nothing
+    // if it contains a base which isn't unambiguous.
+    let k = seq.len();
+    let mask = (1u64 << (2 * k)) - 1;
+    let shift = 2 * (k - 1);
+    let (mut forward, mut reverse) = (0u64, 0u64);
+    for &base in seq {
+        let bits = base_to_bits(base)?;
+        forward = ((forward << 2) | bits) & mask;
+        reverse = (reverse >> 2) | ((3 - bits) << shift);
+    }
+    Some((forward, reverse))
+}
+
+
+fn add_seq_kmers(seq: &[u8], k_size: u32, kmers: &mut FxHashMap<u64, AtomicU32>) {
     // Adds each of a sequence's k-mers to the table.
-    each_kmer(seq, k_size, circular, |_, kmer| {
+    each_kmer(seq, k_size, |_, kmer| {
         *kmers.entry(kmer).or_insert_with(|| AtomicU32::new(0)).get_mut() += 1;
     });
 }
 
 
-fn each_kmer(seq: &[u8], k_size: u32, circular: bool, mut f: impl FnMut(usize, u64)) {
+fn each_kmer(seq: &[u8], k_size: u32, mut f: impl FnMut(usize, u64)) {
     // Calls the given function for each of a sequence's k-mers, passing it the k-mer's starting
     // position and its canonical form (the lesser of the k-mer and its reverse complement, so a
-    // sequence gives the same k-mers regardless of which strand it is on). If the sequence is
-    // circular, the k-mers which span its start-end junction are included too.
+    // sequence gives the same k-mers regardless of which strand it is on). K-mers which run off
+    // the end of the sequence are not included, as they need sequence from a neighbouring tig.
     let k = k_size as usize;
     debug_assert!(k <= 31);
     if seq.len() < k { return; }
     let mask = (1u64 << (2 * k)) - 1;
     let shift = 2 * (k - 1);
-    let wrap = if circular { &seq[..k-1] } else { &seq[..0] };
     let (mut forward, mut reverse, mut valid) = (0u64, 0u64, 0usize);
-    for (i, &base) in seq.iter().chain(wrap.iter()).enumerate() {
+    for (i, &base) in seq.iter().enumerate() {
         match base_to_bits(base) {
             Some(bits) => {
                 forward = ((forward << 2) | bits) & mask;
@@ -195,7 +239,7 @@ fn add_context_kmers(context: &[u8], k_size: u32, first_offset: i32, tig_length:
     // relative to the start of the tig. K-mers which fit inside the tig are skipped, as they need
     // no context and are taken from the tig's own sequence.
     let last_inside = tig_length as i32 - k_size as i32;
-    each_kmer(context, k_size, false, |i, kmer| {
+    each_kmer(context, k_size, |i, kmer| {
         let offset = first_offset + i as i32;
         if offset < 0 || offset > last_inside {
             let variants = kmers.entry(offset).or_default();
@@ -206,34 +250,32 @@ fn add_context_kmers(context: &[u8], k_size: u32, first_offset: i32, tig_length:
 
 
 fn extensions(next: &[UnitigStrand], length: usize, steps: &mut usize) -> Vec<Vec<u8>> {
-    // Returns the distinct sequences of up to the given length which follow the given tig ends,
-    // spelled by walking through the graph. Walking stops at the required length, so cycles
-    // (including a tig's own circularising or hairpin links) cannot loop forever. A sequence
-    // shorter than the required length means the walk reached a dead end.
+    // Returns the sequences of up to the given length which follow the given tig ends, spelled by
+    // walking through the graph. Walking stops at the required length, so cycles (including a
+    // tig's own circularising or hairpin links) cannot loop forever, and a sequence shorter than
+    // the required length means the walk reached a dead end.
+    // Two walks which spell the same sequence are both returned, as they are separate places in
+    // the graph: callers which want the distinct sequences deduplicate them, and callers which
+    // are counting occurrences need them kept apart.
     let mut seqs: Vec<Vec<u8>> = Vec::new();
     for strand in next {
         if *steps == 0 { break; }
         *steps -= 1;
         let seq = first_bases(strand, length);
         if seq.len() == length {
-            push_distinct(&mut seqs, seq);
+            seqs.push(seq);
             continue;
         }
         let further = extensions(&next_strands(strand), length - seq.len(), steps);
         if further.is_empty() {
-            push_distinct(&mut seqs, seq);
+            seqs.push(seq);
         } else {
             for f in further {
-                push_distinct(&mut seqs, [&seq[..], &f[..]].concat());
+                seqs.push([&seq[..], &f[..]].concat());
             }
         }
     }
     seqs
-}
-
-
-fn push_distinct(seqs: &mut Vec<Vec<u8>>, seq: Vec<u8>) {
-    if !seqs.contains(&seq) { seqs.push(seq); }
 }
 
 
@@ -278,20 +320,15 @@ fn tig_kmer_counts(tig: &Rc<RefCell<Unitig>>, k_size: u32, kmers: &FxHashMap<u64
     // plus those which overlap its ends and so need sequence from neighbouring tigs. Positions are
     // skipped when a k-mer occurs more than once in the consensus assembly, as its count includes
     // reads from its other occurrences.
-    let circular = tig.borrow().is_isolated_and_circular();
     let mut counts = Vec::new();
     {
         let tig = tig.borrow();
-        each_kmer(&tig.forward_seq, k_size, circular, |_, kmer| {
+        each_kmer(&tig.forward_seq, k_size, |_, kmer| {
             if !repeats.contains(&kmer) {
                 if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
             }
         });
     }
-    // A circular tig's only neighbour is itself, and each_kmer has already wrapped around its
-    // start-end junction, so looking outward would just find the same k-mers again.
-    if circular { return counts; }
-
     // A read passing through the tig contains exactly one of the k-mers at a given position, so
     // the counts of the alternatives at that position are added together. Averaging them instead
     // would drag the depth down whenever a neighbouring path exists in the graph but not in the
@@ -363,7 +400,7 @@ fn count_one_read<'a>(seq: &[u8], k_size: u32, kmers: &'a FxHashMap<u64, AtomicU
     // so sequence which isn't in the assembly (e.g. untrimmed adapters) doesn't inflate depths.
     hits.clear();
     let (mut first, mut last, mut kmer_count) = (0, 0, 0u64);
-    each_kmer(seq, k_size, false, |i, kmer| {
+    each_kmer(seq, k_size, |i, kmer| {
         kmer_count += 1;
         if let Some(count) = kmers.get(&kmer) {
             if hits.is_empty() { first = i; }
@@ -449,9 +486,9 @@ mod tests {
         kmers.into_iter().map(|(kmer, count)| (kmer, count.into_inner())).collect()
     }
 
-    fn get_kmers(seq: &str, k_size: u32, circular: bool) -> FxHashMap<u64, u32> {
+    fn get_kmers(seq: &str, k_size: u32) -> FxHashMap<u64, u32> {
         let mut kmers = FxHashMap::default();
-        add_seq_kmers(seq.as_bytes(), k_size, circular, &mut kmers);
+        add_seq_kmers(seq.as_bytes(), k_size, &mut kmers);
         to_plain(kmers)
     }
 
@@ -463,7 +500,7 @@ mod tests {
     fn test_add_seq_kmers_canonical() {
         // ACGT contains ACG and CGT, which are reverse complements of each other, so they share a
         // single canonical k-mer.
-        let kmers = get_kmers("ACGT", 3, false);
+        let kmers = get_kmers("ACGT", 3);
         assert_eq!(kmers.len(), 1);
         assert_eq!(kmers[&kmer("ACG")], 2);
         assert_eq!(kmers[&kmer("CGT")], 2);
@@ -474,13 +511,13 @@ mod tests {
         // A sequence and its reverse complement give the same table.
         let seq = "AGCATCGACATCGACTACG";
         let rev = String::from_utf8(reverse_complement(seq.as_bytes())).unwrap();
-        assert_eq!(get_kmers(seq, 5, false), get_kmers(&rev, 5, false));
+        assert_eq!(get_kmers(seq, 5), get_kmers(&rev, 5));
     }
 
     #[test]
     fn test_add_seq_kmers_repeat() {
         // AAA occurs at both the start and the end, so it is the only repeated k-mer.
-        let kmers = get_kmers("AAACCCAAA", 3, false);
+        let kmers = get_kmers("AAACCCAAA", 3);
         assert_eq!(kmers.len(), 6);
         assert_eq!(total_count(&kmers), 7);
         assert_eq!(kmers[&kmer("AAA")], 2);
@@ -488,26 +525,45 @@ mod tests {
     }
 
     #[test]
-    fn test_add_seq_kmers_circular() {
-        // A linear sequence has length-k+1 k-mers, while a circular one has length k-mers, because
-        // of the k-mers spanning its start-end junction.
-        let seq = "AGCATCGACATCGACTACG"; // 19 bp
-        assert_eq!(total_count(&get_kmers(seq, 5, false)), 15);
-        assert_eq!(total_count(&get_kmers(seq, 5, true)), 19);
-        assert_eq!(get_kmers(seq, 5, true)[&kmer("TACGA")], 1);  // spans the junction
+    fn test_junction_kmers_circular() {
+        // A circular tig links to itself, so its junction k-mers are the four which span its
+        // start-end junction. Each is spelled in both directions but is counted only once.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());  // 19 bp circular tig
+        let kmers = junction_kmers(&graph.unitig_index[&1], 5);
+        assert_eq!(kmers.len(), 4);
+        assert!(kmers.contains(&kmer("TACGA")));
+    }
+
+    #[test]
+    fn test_junction_kmers_isolated() {
+        // A tig with no links has no k-mers running off its ends.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        assert!(junction_kmers(&graph.unitig_index[&1], 5).is_empty());
+    }
+
+    #[test]
+    fn test_build_kmer_table_shared_branch_kmers() {
+        // Tigs 3 and 4 are alternative paths differing only by two extra bases on tig 3, so the
+        // k-mers running off their shared tail into tig 2 are spelled by both paths. They occur
+        // twice in the assembly and have to be counted twice, or each branch would be credited
+        // with the other branch's reads.
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_16());
+        let kmers = to_plain(build_kmer_table(&[&graph], 5));
+        assert_eq!(kmers[&kmer("ATGCC")], 2);  // spans into tig 2 on both paths
+        assert_eq!(kmers[&kmer("ACGTT")], 1);  // spans into tig 3 only
+        assert_eq!(kmers[&kmer("ACGTG")], 1);  // spans into tig 4 only
     }
 
     #[test]
     fn test_add_seq_kmers_too_short() {
-        assert!(get_kmers("ACGT", 5, false).is_empty());
-        assert!(get_kmers("ACGT", 5, true).is_empty());
-        assert_eq!(get_kmers("ACGTA", 5, false).len(), 1);
+        assert!(get_kmers("ACGT", 5).is_empty());
+        assert_eq!(get_kmers("ACGTA", 5).len(), 1);
     }
 
     #[test]
     fn test_add_seq_kmers_ambiguous() {
         // The N breaks the run of k-mers, so only the ACGT on either side of it contributes.
-        let kmers = get_kmers("ACGTNACGT", 3, false);
+        let kmers = get_kmers("ACGTNACGT", 3);
         assert_eq!(kmers.len(), 1);
         assert_eq!(kmers[&kmer("ACG")], 4);
     }
@@ -807,7 +863,7 @@ mod tests {
     fn test_find_repeat_kmers() {
         // AAA occurs twice in this sequence, so it is the only repeat k-mer.
         let mut kmers = FxHashMap::default();
-        add_seq_kmers(b"AAACCCAAA", 3, false, &mut kmers);
+        add_seq_kmers(b"AAACCCAAA", 3, &mut kmers);
         let repeats = find_repeats_and_reset_counts(&mut kmers);
         assert_eq!(repeats.len(), 1);
         assert!(repeats.contains(&kmer("AAA")));
@@ -819,7 +875,7 @@ mod tests {
         // Repeats stay in the table (they are needed to test whether a read k-mer is from the
         // assembly) and every count is zeroed, ready to tally read k-mers.
         let mut kmers = FxHashMap::default();
-        add_seq_kmers(b"AAACCCAAA", 3, false, &mut kmers);
+        add_seq_kmers(b"AAACCCAAA", 3, &mut kmers);
         let repeats = find_repeats_and_reset_counts(&mut kmers);
         assert_eq!(kmers.len(), 6);
         assert!(kmers.contains_key(&kmer("AAA")));
