@@ -185,12 +185,14 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
                 "".to_string()
             };
             // Tigs without a read depth (too short, or all of their sequence occurs elsewhere in
-            // the assembly) get no depth in the FASTA header and a zero depth in the GFA, as the
-            // GFA format requires a depth tag.
+            // the assembly) are marked as unavailable in the FASTA header, which distinguishes
+            // them from tigs the reads genuinely gave a depth of zero. The GFA cannot make that
+            // distinction, as its depth tag has to be a number.
             let depth = if read_depths { unitig.read_depth.unwrap_or(0.0) } else { unitig.depth };
-            let depth_header = match unitig.read_depth {
-                Some(d) => format!(" depth={d:.1}"),
-                None => String::new(),
+            let depth_header = match (read_depths, unitig.read_depth) {
+                (false, _) => String::new(),
+                (true, Some(d)) => format!(" depth={d:.1}"),
+                (true, None) => " depth=unavailable".to_string(),
             };
             let depth_tag = format!("\tDP:f:{depth:.2}");
             let mut colour_tag = unitig.colour_tag(true);
