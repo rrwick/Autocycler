@@ -1,8 +1,8 @@
 # Automated Autocycler Bash script (by Ryan Wick)
 
-This `autocycler_full.sh` Bash script runs a complete Autocycler assembly workflow from start to finish. It's minimalistic by design, with no frills or read quality control – just a straightforward way to go from reads to consensus assembly.
+This `autocycler_full.sh` Bash script (and its leaner sibling `autocycler_fast.sh`) runs a complete Autocycler assembly workflow from start to finish. It's minimalistic by design, with no frills or read quality control – just a straightforward way to go from reads to consensus assembly.
 
-I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it in June 2025 for v0.5.0. I'll try to keep it in sync with future Autocycler versions.
+I wrote the first version in January 2025 (for Autocycler v0.2.1) and updated it in August 2026 for v0.7.0. It now _requires_ v0.7.0, due to its use of the new `--reads` option in its [Autocycler combine](https://github.com/rrwick/Autocycler/wiki/Autocycler-combine) command. I'll try to keep it in sync with future Autocycler versions.
 
 
 

@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - autocycler>=0.6.2            # https://github.com/rrwick/Autocycler
+  - autocycler>=0.7.0            # https://github.com/rrwick/Autocycler
   - canu>=2.3                    # https://github.com/marbl/canu
   - flye>=2.9.6                  # https://github.com/mikolmogorov/Flye
 #  - lja>=0.2                     # https://github.com/AntonBankevich/LJA

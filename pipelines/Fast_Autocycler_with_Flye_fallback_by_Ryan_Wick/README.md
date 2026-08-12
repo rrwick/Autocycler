@@ -2,6 +2,9 @@
 
 This `autocycler_and_flye.py` Python script builds both Flye and Autocycler assemblies. If the Autocycler assembly was completely successful, it uses that as the final result. Otherwise, it returns the Flye assembly as the final result.
 
+This script requires Autocycler v0.7.0 or later.
+
+
 
 ## Notes and key features
 

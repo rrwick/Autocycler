@@ -30,7 +30,7 @@ if [[ ! -f "$reads" ]]; then
     echo "Error: Input file '$reads' does not exist." 1>&2
     exit 1
 fi
-if (( threads > 128 )); then threads=128; fi  # Flye won't work with more than 128 threads
+if (( threads > 100 )); then threads=100; fi  # Autocycler won't work with more than 100 threads
 case $read_type in
     ont_r9|ont_r10|pacbio_clr|pacbio_hifi) ;;
     *) echo "Error: read_type must be ont_r9, ont_r10, pacbio_clr or pacbio_hifi" 1>&2; exit 1 ;;
@@ -69,16 +69,16 @@ shopt -u nullglob
 rm subsampled_reads/*.fastq
 
 # Step 3: compress the input assemblies into a unitig graph
-autocycler compress -i assemblies -a autocycler_out 2>> autocycler.stderr
+autocycler compress -i assemblies -a autocycler_out -t "$threads" 2>> autocycler.stderr
 
 # Step 4: cluster the input contigs into putative genomic sequences
 autocycler cluster -a autocycler_out 2>> autocycler.stderr
 
 # Steps 5 and 6: trim and resolve each QC-pass cluster
 for c in autocycler_out/clustering/qc_pass/cluster_*; do
-    autocycler trim -c "$c" 2>> autocycler.stderr
+    autocycler trim -c "$c" -t "$threads" 2>> autocycler.stderr
     autocycler resolve -c "$c" 2>> autocycler.stderr
 done
 
 # Step 7: combine resolved clusters into a final assembly
-autocycler combine -a autocycler_out -i autocycler_out/clustering/qc_pass/cluster_*/5_final.gfa 2>> autocycler.stderr
+autocycler combine -a autocycler_out -i autocycler_out/clustering/qc_pass/cluster_*/5_final.gfa -r "$reads" -t "$threads" 2>> autocycler.stderr

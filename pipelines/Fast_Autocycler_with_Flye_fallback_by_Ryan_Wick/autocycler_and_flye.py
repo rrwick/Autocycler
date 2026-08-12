@@ -377,6 +377,8 @@ def autocycler_assembly(reads, flye_fasta, out_dir, genome_size, threads, jobs, 
         'autocycler', 'combine',
         '--autocycler_dir', autocycler_dir,
         '--in_gfas', *final_gfas,
+        '--reads', reads,
+        '--threads', threads,
     ]
     if run_autocycler_stage('combine', combine_command, autocycler_log) is None:
         return None
