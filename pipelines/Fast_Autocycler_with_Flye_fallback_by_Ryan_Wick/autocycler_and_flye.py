@@ -40,7 +40,7 @@ logger = logging.getLogger('autocycler_and_flye')
 
 AUTOCYCLER_ASSEMBLERS = ('plassembler', 'raven', 'myloasm', 'miniasm', 'flye', 'metamdbg')
 
-DEPENDENCIES = ('autocycler', 'flye', 'lrge', 'metaMDBG', 'miniasm', 'minimap2', 'minipolish',
+DEPENDENCIES = ('autocycler', 'flye', 'metaMDBG', 'miniasm', 'minimap2', 'minipolish',
                 'myloasm', 'nice', 'parallel', 'plassembler', 'racon', 'rasusa', 'raven')
 
 
@@ -61,7 +61,7 @@ def get_arguments(args):
                               default='ont_r10',
                               help='Type of long reads')
     setting_args.add_argument('--genome_size', type=int,
-                              help='Genome size in bp (skips LRGE when supplied)')
+                              help='Genome size in bp (skips estimation when supplied)')
     setting_args.add_argument('--min-size-ratio', type=float, default=0.75,
                               help='Reject assemblies smaller than this multiple of genome size')
     setting_args.add_argument('--max-size-ratio', type=float, default=1.25,
@@ -95,14 +95,13 @@ def get_arguments(args):
 def main(args=None):
     args = get_arguments(args)
     check_args(args)
-    check_dependencies(skip_lrge=args.genome_size is not None)
+    check_dependencies()
     out_dir = create_output_dir(args.out_dir)
     configure_logging(out_dir)
     input_read_stats = get_fastq_stats(args.reads)
     logger.info(format_read_stats('Input reads', input_read_stats))
     if args.genome_size is None:
-        genome_size = estimate_genome_size_with_lrge(args.reads, out_dir, args.threads, args.seed,
-                                                     args.read_type)
+        genome_size = estimate_genome_size_with_raven(args.reads, out_dir, args.threads)
     else:
         genome_size = args.genome_size
         logger.info(f'Genome size: {genome_size:,} bp (user-supplied)')
@@ -150,10 +149,8 @@ def check_args(args):
         quit_with_error(f"output directory already exists: '{args.out_dir}'")
 
 
-def check_dependencies(skip_lrge=False):
-    dependencies = (dependency for dependency in DEPENDENCIES
-                    if not skip_lrge or dependency != 'lrge')
-    missing = [dependency for dependency in dependencies if shutil.which(dependency) is None]
+def check_dependencies():
+    missing = [dependency for dependency in DEPENDENCIES if shutil.which(dependency) is None]
     if missing:
         missing_list = '\n'.join(f'  {dependency}' for dependency in missing)
         quit_with_error(f'the following required dependencies were not found in PATH:\n'
@@ -186,20 +183,19 @@ def configure_logging(out_dir):
     logger.addHandler(file_handler)
 
 
-def estimate_genome_size_with_lrge(reads, out_dir, threads, seed, read_type):
+def estimate_genome_size_with_raven(reads, out_dir, threads):
     logger.info('Genome size estimation started')
-    platform = 'pb' if read_type in ('pacbio_clr', 'pacbio_hifi') else 'ont'
-    command = ['lrge', '--threads', threads, '--seed', seed, '--platform', platform, reads]
-    lrge_log = out_dir / 'logs' / 'lrge.log'
-    result = run_command(command, capture_stdout=True, check=False, output_log=lrge_log)
+    command = ['autocycler', 'helper', 'genome_size', '--reads', reads, '--threads', threads]
+    raven_log = out_dir / 'logs' / 'raven_genome_size.log'
+    result = run_command(command, capture_stdout=True, check=False, output_log=raven_log)
     if result.returncode != 0:
-        quit_with_error(f"LRGE failed (see '{lrge_log}')")
+        quit_with_error(f"Raven genome size estimation failed (see '{raven_log}')")
     try:
         genome_size = int(result.stdout.strip())
     except (AttributeError, ValueError):
-        quit_with_error(f"could not parse LRGE genome size (see '{lrge_log}')")
+        quit_with_error(f"could not parse Raven genome size estimate (see '{raven_log}')")
     if genome_size < 1:
-        quit_with_error(f'LRGE returned an invalid genome size: {genome_size}')
+        quit_with_error(f'Raven returned an invalid genome size estimate: {genome_size}')
     logger.info(f'Estimated genome size: {genome_size:,} bp')
     return genome_size
 
@@ -561,18 +557,16 @@ def get_final_contig_stats(records, assembler, out_dir):
         else:
             depth = parse_float(get_header_value(header, 'depth'))
             circularity = parse_circularity(get_header_value(header, 'circular'))
-        stats.append({'length': len(sequence), 'mean_depth_long': depth,
+        stats.append({'length': len(sequence), 'mean_depth': depth,
                       'circularity': circularity})
 
-    if stats[0]['length'] < max(stat['length'] for stat in stats):
-        logger.warning('Warning: the first final contig is not the longest contig')
-    base_depth = stats[0]['mean_depth_long']
+    base_depth = max(stats, key=lambda stat: stat['length'])['mean_depth']
     if base_depth is None or base_depth <= 0:
-        logger.warning('Warning: final assembly copy numbers are unavailable because the first '
+        logger.warning('Warning: final assembly copy numbers are unavailable because the longest '
                        'contig has no positive depth')
     for stat in stats:
-        depth = stat['mean_depth_long']
-        stat['plasmid_copy_number_long'] = None if base_depth is None or base_depth <= 0 \
+        depth = stat['mean_depth']
+        stat['copy_number'] = None if base_depth is None or base_depth <= 0 \
             or depth is None else round(depth / base_depth, 2)
     return stats
 
@@ -629,13 +623,15 @@ def read_plassembler_summary(summary, contig_count):
 
 
 def write_plassembler_summary(summary, records, stats, plassembler_fields, plassembler_rows):
-    fields = ['contig', 'length', 'mean_depth_long', 'plasmid_copy_number_long', 'circularity']
-    fields += [field for field in plassembler_fields if field not in fields]
+    fields = ['contig', 'length', 'mean_depth', 'copy_number', 'circularity']
+    replaced_fields = {'mean_depth_long', 'plasmid_copy_number_long'}
+    fields += [field for field in plassembler_fields
+               if field not in fields and field not in replaced_fields]
     with summary.open('w', encoding='utf-8', newline='') as summary_file:
         writer = csv.DictWriter(summary_file, fields, delimiter='\t', lineterminator='\n')
         writer.writeheader()
         for number, ((name, _, _), stat) in enumerate(zip(records, stats), 1):
-            row = dict(plassembler_rows[str(number)])
+            row = {field: plassembler_rows[str(number)].get(field, '') for field in fields}
             row.update({key: '' if value is None else value for key, value in stat.items()})
             row['contig'] = name
             writer.writerow(row)

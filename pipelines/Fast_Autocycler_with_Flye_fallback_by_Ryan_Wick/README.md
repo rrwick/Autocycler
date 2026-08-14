@@ -10,7 +10,7 @@ This script requires Autocycler v0.7.0 or later.
 
 * No quality control is performed on the input reads – they must be ready for assembly.
 * Basic input read statistics (count, total bases and N50) are reported in `assembly.log`.
-* Genome size is estimated using [LRGE](https://github.com/mbhall88/lrge), unless supplied with  `--genome_size`.
+* Genome size is estimated using a Raven assembly, via `autocycler helper genome_size`, unless supplied with `--genome_size`.
 * [Rasusa](https://github.com/mbhall88/rasusa) downsamples the reads to 100× depth for the initial Flye assembly. This is because Flye can crash with excessively deep read sets. If the input depth is already ≤100×, this step is skipped.
 * Autocycler's read subsets are made from the original full read set, not the Rasusa-downsampled reads.
 * The fast Autocycler workflow uses six assemblers: Flye, metaMDBG, miniasm, Myloasm, Plassembler and Raven.
@@ -44,7 +44,7 @@ The selected assembly is copied to `assembly.fasta` and `assembly.gfa` in the ou
 
 After the final assembly is selected, each contig is compared against the Plassembler PLSDB database using `plassembler assembled`. The results are saved as `plassembler_summary.tsv`, with one row per final contig. A PLSDB hit indicates sequence similarity to a database plasmid, but does not necessarily mean that the final contig is a plasmid.
 
-The summary also includes each contig's long-read depth and copy number. For Autocycler assemblies, depths come from `autocycler combine`, which uses the full input read set. For Flye assemblies, depths come from Flye's `assembly_info.txt`, so they are based on the Rasusa-downsampled reads when subsampling was needed. Copy numbers are calculated relative to the first (longest) contig, which has a copy number of 1.0.
+The summary also includes each contig's long-read depth and copy number. For Autocycler assemblies, depths come from `autocycler combine`, which uses the full input read set. For Flye assemblies, depths come from Flye's `assembly_info.txt`, so they are based on the Rasusa-downsampled reads when subsampling was needed. Copy numbers are calculated relative to the longest contig, which has a copy number of 1.0.
 
 The Plassembler database must be in `$CONDA_PREFIX/plassembler_db` or set with `$PLASSEMBLER_DB`.
 
@@ -55,7 +55,6 @@ The Plassembler database must be in `$CONDA_PREFIX/plassembler_db` or set with `
 This script uses only the Python standard library, but assumes the following command-line tools are available in your `$PATH`:
 
 * `autocycler`
-* [LRGE](https://github.com/mbhall88/lrge): `lrge` (not required when using `--genome_size`)
 * [Rasusa](https://github.com/mbhall88/rasusa): `rasusa`
 * [GNU Parallel](https://www.gnu.org/software/parallel): `parallel`
 * `nice`
@@ -96,7 +95,7 @@ Settings:
   --read-type {ont_r9,ont_r10,pacbio_clr,pacbio_hifi}
                         Type of long reads (default: ont_r10)
   --genome_size GENOME_SIZE
-                        Genome size in bp (skips LRGE when supplied) (default: None)
+                        Genome size in bp (skips estimation when supplied) (default: None)
   --min-size-ratio MIN_SIZE_RATIO
                         Reject assemblies smaller than this multiple of genome size (default: 0.75)
   --max-size-ratio MAX_SIZE_RATIO
@@ -130,7 +129,7 @@ The most important outputs are:
 * **`plassembler_summary.tsv`**: per-contig depths, copy numbers and PLSDB matches for the final assembly.
 * **`assembly.log`**: concise, timestamped pipeline summary.
 * **`logs/`**: detailed tool logs:
-  * `lrge.log` when LRGE was run
+  * `raven_genome_size.log` when genome size estimation was run
   * `rasusa.log` when Rasusa was run
   * `flye.log`
   * `autocycler.log`
