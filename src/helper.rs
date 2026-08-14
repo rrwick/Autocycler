@@ -433,6 +433,7 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     let mut cmd = Command::new("raven");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--disable-checkpoints")
+       .arg("--polishing-rounds").arg("1")
        .arg(&reads);
     for token in extra_args { cmd.arg(token); }
     redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("assembly.fasta")));
