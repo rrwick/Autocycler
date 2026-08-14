@@ -26,10 +26,13 @@ import argparse
 import csv
 import gzip
 import logging
+import math
+import os
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -116,8 +119,9 @@ def main(args=None):
         create_autocycler_metrics(args.reads, out_dir)
         autocycler_successful = check_autocycler_assembly(autocycler_fasta, out_dir, genome_size,
                                                           args.min_size_ratio, args.max_size_ratio)
-        create_final_assembly(out_dir, flye_fasta, flye_successful, autocycler_fasta,
-                              autocycler_successful)
+        assembler = create_final_assembly(out_dir, flye_fasta, flye_successful,
+                                          autocycler_fasta, autocycler_successful)
+        create_plassembler_summary(out_dir, assembler, args.threads)
 
     finally:
         clean_up(out_dir, args.clean)
@@ -471,6 +475,170 @@ def create_final_assembly(out_dir, flye_fasta, flye_successful, autocycler_fasta
         quit_with_error(f'could not copy final {assembler} assembly: {error}')
 
     logger.info(f'Final assembly: {assembler}')
+    return assembler
+
+
+def create_plassembler_summary(out_dir, assembler, threads):
+    summary = out_dir / 'plassembler_summary.tsv'
+    temp_summary = summary.with_suffix('.tsv.tmp')
+    try:
+        records = load_fasta_records(out_dir / 'assembly.fasta')
+        stats = get_final_contig_stats(records, assembler, out_dir)
+        with tempfile.TemporaryDirectory(prefix='plassembler_summary_') as temp:
+            temp = Path(temp)
+            input_fasta = temp / 'assembly.fasta'
+            plassembler_dir = temp / 'plassembler'
+            write_numbered_fasta(records, input_fasta)
+            result = run_command([
+                'plassembler', 'assembled',
+                '--no_copy_numbers',
+                '--database', find_plassembler_db(),
+                '--input_plasmids', input_fasta,
+                '--outdir', plassembler_dir,
+                '--prefix', 'plassembler',
+                '--threads', threads,
+                '--force',
+            ], check=False, output_log=out_dir / 'logs' / 'plassembler_summary.log')
+            if result.returncode != 0:
+                raise RuntimeError(f'Plassembler exited with code {result.returncode}')
+            fields, rows = read_plassembler_summary(plassembler_dir /
+                                                    'plassembler_summary.tsv', len(records))
+        write_plassembler_summary(temp_summary, records, stats, fields, rows)
+        temp_summary.replace(summary)
+    except (OSError, UnicodeError, ValueError, RuntimeError, csv.Error) as error:
+        temp_summary.unlink(missing_ok=True)
+        logger.warning(f'Warning: could not create Plassembler summary: {error}')
+        return False
+    logger.info('Plassembler summary created')
+    return True
+
+
+def find_plassembler_db():
+    if path := os.environ.get('PLASSEMBLER_DB'):
+        if (database := Path(path)).is_dir():
+            return database
+    if path := os.environ.get('CONDA_PREFIX'):
+        if (database := Path(path) / 'plassembler_db').is_dir():
+            return database
+    raise FileNotFoundError('no Plassembler database found; set PLASSEMBLER_DB or ensure '
+                            '$CONDA_PREFIX/plassembler_db exists')
+
+
+def load_fasta_records(fasta):
+    records = []
+    header = None
+    sequence = []
+    with fasta.open(encoding='utf-8') as fasta_file:
+        for line in fasta_file:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('>'):
+                if header is not None:
+                    records.append((header.split()[0], header, ''.join(sequence)))
+                header, sequence = line[1:], []
+            elif header is None:
+                raise ValueError(f"sequence before first header in '{fasta}'")
+            else:
+                sequence.append(line)
+    if header is not None:
+        records.append((header.split()[0], header, ''.join(sequence)))
+    if not records or any(not sequence for _, _, sequence in records):
+        raise ValueError(f"empty FASTA record in '{fasta}'")
+    names = [name for name, _, _ in records]
+    if len(names) != len(set(names)):
+        raise ValueError(f"duplicate contig name in '{fasta}'")
+    return records
+
+
+def get_final_contig_stats(records, assembler, out_dir):
+    flye_info = load_flye_contig_info(out_dir / 'flye' / 'assembly_info.txt') \
+        if assembler == 'Flye' else {}
+    stats = []
+    for name, header, sequence in records:
+        if assembler == 'Flye':
+            depth, circularity = flye_info.get(name, (None, ''))
+        else:
+            depth = parse_float(get_header_value(header, 'depth'))
+            circularity = parse_circularity(get_header_value(header, 'circular'))
+        stats.append({'length': len(sequence), 'mean_depth_long': depth,
+                      'circularity': circularity})
+
+    if stats[0]['length'] < max(stat['length'] for stat in stats):
+        logger.warning('Warning: the first final contig is not the longest contig')
+    base_depth = stats[0]['mean_depth_long']
+    if base_depth is None or base_depth <= 0:
+        logger.warning('Warning: final assembly copy numbers are unavailable because the first '
+                       'contig has no positive depth')
+    for stat in stats:
+        depth = stat['mean_depth_long']
+        stat['plasmid_copy_number_long'] = None if base_depth is None or base_depth <= 0 \
+            or depth is None else round(depth / base_depth, 2)
+    return stats
+
+
+def load_flye_contig_info(assembly_info):
+    info = {}
+    with assembly_info.open(encoding='utf-8') as info_file:
+        for line in info_file:
+            if line.startswith('#') or not line.strip():
+                continue
+            columns = line.rstrip('\r\n').split('\t')
+            if len(columns) >= 4:
+                info[columns[0]] = (parse_float(columns[2]),
+                                    'circular' if columns[3] == 'Y' else 'not_circular')
+    return info
+
+
+def get_header_value(header, key):
+    prefix = f'{key}='
+    return next((token[len(prefix):] for token in header.split()
+                 if token.lower().startswith(prefix)), None)
+
+
+def parse_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def parse_circularity(value):
+    if value is None:
+        return ''
+    return {'true': 'circular', 'false': 'not_circular'}.get(value.lower(), '')
+
+
+def write_numbered_fasta(records, fasta):
+    with fasta.open('w', encoding='utf-8') as fasta_file:
+        for number, (_, _, sequence) in enumerate(records, 1):
+            fasta_file.write(f'>{number}\n{sequence}\n')
+
+
+def read_plassembler_summary(summary, contig_count):
+    with summary.open(encoding='utf-8', newline='') as summary_file:
+        reader = csv.DictReader(summary_file, delimiter='\t')
+        if not reader.fieldnames or 'contig' not in reader.fieldnames:
+            raise ValueError(f"invalid Plassembler summary: '{summary}'")
+        rows = {row['contig']: row for row in reader}
+    expected = {str(number) for number in range(1, contig_count + 1)}
+    if set(rows) != expected:
+        raise ValueError('Plassembler summary contigs do not match the final assembly')
+    return reader.fieldnames, rows
+
+
+def write_plassembler_summary(summary, records, stats, plassembler_fields, plassembler_rows):
+    fields = ['contig', 'length', 'mean_depth_long', 'plasmid_copy_number_long', 'circularity']
+    fields += [field for field in plassembler_fields if field not in fields]
+    with summary.open('w', encoding='utf-8', newline='') as summary_file:
+        writer = csv.DictWriter(summary_file, fields, delimiter='\t', lineterminator='\n')
+        writer.writeheader()
+        for number, ((name, _, _), stat) in enumerate(zip(records, stats), 1):
+            row = dict(plassembler_rows[str(number)])
+            row.update({key: '' if value is None else value for key, value in stat.items()})
+            row['contig'] = name
+            writer.writerow(row)
 
 
 def write_autocycler_jobs(jobs_file, subsampled_reads_dir, assemblies_dir, genome_size,

@@ -22,6 +22,7 @@ This script requires Autocycler v0.7.0 or later.
 * The `--min_depth_rel 0.1` filter excludes contigs with <10% of the read depth of the longest contig, helping to remove low-level contamination.
 * The Autocycler workflow follows the usual subsample, compress, cluster, trim, resolve and combine steps. See [Fully automated assembly](https://github.com/rrwick/Autocycler/wiki/Fully-automated-assembly) for an overview.
 * An [`autocycler table`](https://github.com/rrwick/Autocycler/wiki/Autocycler-table) summary is saved as `autocycler/metrics.tsv`.
+* A Plassembler summary of the selected final assembly is saved as `plassembler_summary.tsv`.
 
 
 
@@ -36,6 +37,16 @@ The final assembly is selected as follows:
 3. If neither assembly is acceptable, exit with an error.
 
 The selected assembly is copied to `assembly.fasta` and `assembly.gfa` in the output directory.
+
+
+
+## Plassembler summary
+
+After the final assembly is selected, each contig is compared against the Plassembler PLSDB database using `plassembler assembled`. The results are saved as `plassembler_summary.tsv`, with one row per final contig. A PLSDB hit indicates sequence similarity to a database plasmid, but does not necessarily mean that the final contig is a plasmid.
+
+The summary also includes each contig's long-read depth and copy number. For Autocycler assemblies, depths come from `autocycler combine`, which uses the full input read set. For Flye assemblies, depths come from Flye's `assembly_info.txt`, so they are based on the Rasusa-downsampled reads when subsampling was needed. Copy numbers are calculated relative to the first (longest) contig, which has a copy number of 1.0.
+
+The Plassembler database must be in `$CONDA_PREFIX/plassembler_db` or set with `$PLASSEMBLER_DB`.
 
 
 
@@ -116,12 +127,14 @@ The most important outputs are:
 
 * **`assembly.fasta`**: final selected assembly in FASTA format.
 * **`assembly.gfa`**: final selected assembly in GFA format.
+* **`plassembler_summary.tsv`**: per-contig depths, copy numbers and PLSDB matches for the final assembly.
 * **`assembly.log`**: concise, timestamped pipeline summary.
 * **`logs/`**: detailed tool logs:
   * `lrge.log` when LRGE was run
   * `rasusa.log` when Rasusa was run
   * `flye.log`
   * `autocycler.log`
+  * `plassembler_summary.log`
 
 Depending on the cleanup level, the output directory can also contain:
 
