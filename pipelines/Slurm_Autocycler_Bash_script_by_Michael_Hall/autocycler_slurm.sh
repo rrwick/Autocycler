@@ -408,7 +408,7 @@ if [[ "$keep_intermediate" = false ]]; then
 fi
 
 echo "[INFO] Running Autocycler compression, clustering, and resolution..."
-autocycler compress -i assemblies -a autocycler_out 2>>autocycler.stderr
+autocycler compress -i assemblies -a autocycler_out -t $threads 2>>autocycler.stderr
 autocycler cluster -a autocycler_out 2>>autocycler.stderr
 
 shopt -s nullglob
@@ -417,7 +417,7 @@ shopt -u nullglob
 
 if ((${#clusters[@]} > 0)); then
     for c in "${clusters[@]}"; do
-        autocycler trim -c "$c" 2>>autocycler.stderr
+        autocycler trim -c "$c" -t $threads 2>>autocycler.stderr
         autocycler resolve -c "$c" 2>>autocycler.stderr
     done
 
@@ -430,6 +430,8 @@ if ((${#clusters[@]} > 0)); then
     autocycler combine \
         -a autocycler_out \
         -i "${final_gfas[@]}" \
+        -r "$reads" \
+        -t $threads \
         2>>autocycler.stderr
 else
     echo "[WARN] No clusters found in autocycler_out/clustering/qc_pass/. Skipping resolution and combine steps."
