@@ -56,15 +56,15 @@ def get_arguments(args):
                                help='Directory for working files and final assembly (will be created)')
 
     setting_args = parser.add_argument_group('Settings')
-    setting_args.add_argument('--read-type',
+    setting_args.add_argument('--read_type',
                               choices=('ont_r9', 'ont_r10', 'pacbio_clr', 'pacbio_hifi'),
                               default='ont_r10',
                               help='Type of long reads')
     setting_args.add_argument('--genome_size', type=int,
                               help='Genome size in bp (skips estimation when supplied)')
-    setting_args.add_argument('--min-size-ratio', type=float, default=0.75,
+    setting_args.add_argument('--min_size_ratio', type=float, default=0.75,
                               help='Reject Autocycler assemblies smaller than this multiple of genome size')
-    setting_args.add_argument('--max-size-ratio', type=float, default=1.25,
+    setting_args.add_argument('--max_size_ratio', type=float, default=1.25,
                               help='Reject Autocycler assemblies larger than this multiple of genome size')
     setting_args.add_argument('--seed', type=int, default=0,
                               help='Random seed for reproducible read subsampling')
@@ -76,7 +76,7 @@ def get_arguments(args):
                                 help='Maximum number of CPU threads')
     resources_args.add_argument('--jobs', type=int, default=4,
                                 help='Number of simultaneous Autocycler input assembly jobs')
-    resources_args.add_argument('--max-job-time', type=str, default='4h',
+    resources_args.add_argument('--max_job_time', type=str, default='4h',
                                 help='Maximum runtime for each Autocycler input assembly job')
 
     output_args = parser.add_argument_group('Output')
@@ -142,9 +142,9 @@ def check_args(args):
     if args.genome_size is not None and args.genome_size < 1:
         quit_with_error('--genome_size must be at least 1')
     if args.min_size_ratio <= 0:
-        quit_with_error('--min-size-ratio must be greater than 0')
+        quit_with_error('--min_size_ratio must be greater than 0')
     if args.max_size_ratio < args.min_size_ratio:
-        quit_with_error('--max-size-ratio must be greater than or equal to --min-size-ratio')
+        quit_with_error('--max_size_ratio must be greater than or equal to --min_size_ratio')
     if Path(args.out_dir).exists():
         quit_with_error(f"output directory already exists: '{args.out_dir}'")
 

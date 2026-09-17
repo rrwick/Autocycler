@@ -36,7 +36,7 @@ The final assembly is selected as follows:
 
 The selected assembly is copied to `assembly.fasta` and `assembly.gfa` in the output directory.
 
-By default, an acceptable Autocycler assembly size must be between 0.75× and 1.25× the estimated (or user-supplied) genome size. These limits can be changed with `--min-size-ratio` and `--max-size-ratio`.
+By default, an acceptable Autocycler assembly size must be between 0.75× and 1.25× the estimated (or user-supplied) genome size. These limits can be changed with `--min_size_ratio` and `--max_size_ratio`.
 
 
 
@@ -79,10 +79,10 @@ The script takes two positional arguments:
 
 **Full usage:**
 ```
-usage: autocycler_and_flye.py [--read-type {ont_r9,ont_r10,pacbio_clr,pacbio_hifi}] [--genome_size GENOME_SIZE]
-                              [--min-size-ratio MIN_SIZE_RATIO] [--max-size-ratio MAX_SIZE_RATIO] [--seed SEED]
+usage: autocycler_and_flye.py [--read_type {ont_r9,ont_r10,pacbio_clr,pacbio_hifi}] [--genome_size GENOME_SIZE]
+                              [--min_size_ratio MIN_SIZE_RATIO] [--max_size_ratio MAX_SIZE_RATIO] [--seed SEED]
                               [--subset_count SUBSET_COUNT] [--threads THREADS] [--jobs JOBS]
-                              [--max-job-time MAX_JOB_TIME] [--clean {0,1,2,3}] [-h]
+                              [--max_job_time MAX_JOB_TIME] [--clean {0,1,2,3}] [-h]
                               reads out_dir
 
 Fast Autocycler with Flye fallback
@@ -92,13 +92,13 @@ Positional arguments:
   out_dir               Directory for working files and final assembly (will be created)
 
 Settings:
-  --read-type {ont_r9,ont_r10,pacbio_clr,pacbio_hifi}
+  --read_type {ont_r9,ont_r10,pacbio_clr,pacbio_hifi}
                         Type of long reads (default: ont_r10)
   --genome_size GENOME_SIZE
                         Genome size in bp (skips estimation when supplied) (default: None)
-  --min-size-ratio MIN_SIZE_RATIO
+  --min_size_ratio MIN_SIZE_RATIO
                         Reject Autocycler assemblies smaller than this multiple of genome size (default: 0.75)
-  --max-size-ratio MAX_SIZE_RATIO
+  --max_size_ratio MAX_SIZE_RATIO
                         Reject Autocycler assemblies larger than this multiple of genome size (default: 1.25)
   --seed SEED           Random seed for reproducible read subsampling (default: 0)
   --subset_count SUBSET_COUNT
@@ -107,7 +107,7 @@ Settings:
 Resources:
   --threads THREADS     Maximum number of CPU threads (default: 16)
   --jobs JOBS           Number of simultaneous Autocycler input assembly jobs (default: 4)
-  --max-job-time MAX_JOB_TIME
+  --max_job_time MAX_JOB_TIME
                         Maximum runtime for each Autocycler input assembly job (default: 4h)
 
 Output:
