@@ -63,9 +63,9 @@ def get_arguments(args):
     setting_args.add_argument('--genome_size', type=int,
                               help='Genome size in bp (skips estimation when supplied)')
     setting_args.add_argument('--min-size-ratio', type=float, default=0.75,
-                              help='Reject assemblies smaller than this multiple of genome size')
+                              help='Reject Autocycler assemblies smaller than this multiple of genome size')
     setting_args.add_argument('--max-size-ratio', type=float, default=1.25,
-                              help='Reject assemblies larger than this multiple of genome size')
+                              help='Reject Autocycler assemblies larger than this multiple of genome size')
     setting_args.add_argument('--seed', type=int, default=0,
                               help='Random seed for reproducible read subsampling')
     setting_args.add_argument('--subset_count', type=int, default=2,
@@ -110,16 +110,16 @@ def main(args=None):
         rasusa_reads = subsample_with_rasusa(args.reads, out_dir, genome_size,
                                              input_read_stats[1], args.seed)
         flye_fasta = flye_assembly(rasusa_reads, out_dir, args.threads, args.read_type)
-        flye_successful = check_flye_assembly(flye_fasta, genome_size,
-                                              args.min_size_ratio, args.max_size_ratio)
+        report_flye_assembly_size(flye_fasta, genome_size,
+                                  args.min_size_ratio, args.max_size_ratio)
         autocycler_fasta = autocycler_assembly(args.reads, flye_fasta, out_dir, genome_size,
                                                args.threads, args.jobs, args.subset_count,
                                                args.max_job_time, args.seed, args.read_type)
         create_autocycler_metrics(args.reads, out_dir)
         autocycler_successful = check_autocycler_assembly(autocycler_fasta, out_dir, genome_size,
                                                           args.min_size_ratio, args.max_size_ratio)
-        assembler = create_final_assembly(out_dir, flye_fasta, flye_successful,
-                                          autocycler_fasta, autocycler_successful)
+        assembler = create_final_assembly(out_dir, flye_fasta, autocycler_fasta,
+                                          autocycler_successful)
         create_plassembler_summary(out_dir, assembler, args.threads)
 
     finally:
@@ -234,22 +234,22 @@ def flye_assembly(reads, out_dir, threads, read_type):
     result = run_command(command, check=False, output_log=flye_log)
     copy_flye_log(flye_out_dir / 'flye.log', flye_log)
     if result.returncode != 0:
-        quit_with_error(f"Flye assembly failed (see '{flye_log}')")
+        logger.warning(f"Warning: Flye exited with code {result.returncode} (see '{flye_log}')")
     flye_fasta = flye_out_dir / 'assembly.fasta'
-    if not flye_fasta.is_file() or flye_fasta.stat().st_size == 0:
-        quit_with_error(f"Flye did not create a non-empty assembly (see '{flye_log}')")
+    if not flye_fasta.is_file() or get_fasta_size(flye_fasta) == 0:
+        logger.warning(f"Warning: Flye produced no sequence (see '{flye_log}')")
+        return None
     return flye_fasta
 
 
-def check_flye_assembly(flye_fasta, genome_size, min_size_ratio, max_size_ratio):
-    assembly_size, size_ratio = get_assembly_size_and_ratio(flye_fasta, genome_size)
-    size_is_acceptable = min_size_ratio <= size_ratio <= max_size_ratio
-    message = f'{assembly_size:,} bp ({size_ratio:.2f}× estimated genome size)'
-    if size_is_acceptable:
-        logger.info(f'Flye assembly successful: {message}')
-    else:
-        logger.warning(f'Warning: Flye assembly unsuccessful: {message}')
-    return size_is_acceptable
+def report_flye_assembly_size(flye_fasta, genome_size, min_size_ratio, max_size_ratio):
+    if flye_fasta is None:
+        return
+    assembly_size = get_fasta_size(flye_fasta)
+    size_ratio = assembly_size / genome_size
+    logger.info(f'Flye assembly: {assembly_size:,} bp ({size_ratio:.2f}× estimated genome size)')
+    if not min_size_ratio <= size_ratio <= max_size_ratio:
+        logger.warning('Warning: Flye assembly is outside the size limits')
 
 
 def copy_flye_log(source, destination):
@@ -290,8 +290,8 @@ def autocycler_assembly(reads, flye_fasta, out_dir, genome_size, threads, jobs, 
 
     try:
         assemblies_dir.mkdir()
-        flye_100x_fasta = assemblies_dir / 'flye_100x.fasta'
-        shutil.copy2(flye_fasta, flye_100x_fasta)
+        if flye_fasta is not None:
+            shutil.copy2(flye_fasta, assemblies_dir / 'flye_100x.fasta')
     except OSError as error:
         logger.warning(f'Warning: could not add the 100× Flye assembly to Autocycler: {error}')
         return None
@@ -322,7 +322,7 @@ def autocycler_assembly(reads, flye_fasta, out_dir, genome_size, threads, jobs, 
     weight_autocycler_input_assemblies(assemblies_dir)
     input_assemblies = [fasta for fasta in assemblies_dir.glob('*.fasta')
                         if fasta.is_file() and fasta.stat().st_size > 0]
-    expected_input_assemblies = assembly_job_count + 1
+    expected_input_assemblies = assembly_job_count + (flye_fasta is not None)
     logger.info(f'Autocycler input assemblies available: {len(input_assemblies)} of '
                 f'{expected_input_assemblies}')
 
@@ -396,7 +396,8 @@ def check_autocycler_assembly(autocycler_fasta, out_dir, genome_size, min_size_r
     if autocycler_fasta is None:
         logger.warning('Warning: Autocycler assembly unsuccessful: no assembly produced')
         return False
-    assembly_size, size_ratio = get_assembly_size_and_ratio(autocycler_fasta, genome_size)
+    assembly_size = get_fasta_size(autocycler_fasta)
+    size_ratio = assembly_size / genome_size
     size_is_acceptable = min_size_ratio <= size_ratio <= max_size_ratio
     fully_resolved = autocycler_completed_successfully(out_dir / 'logs' / 'autocycler.log')
     message = f'{assembly_size:,} bp ({size_ratio:.2f}× estimated genome size)'
@@ -446,29 +447,28 @@ def create_autocycler_metrics(reads, out_dir):
     return True
 
 
-def create_final_assembly(out_dir, flye_fasta, flye_successful, autocycler_fasta,
-                          autocycler_successful):
+def create_final_assembly(out_dir, flye_fasta, autocycler_fasta, autocycler_successful):
     if autocycler_successful:
         assembler = 'Autocycler'
         source_fasta = autocycler_fasta
         source_gfa = out_dir / 'autocycler' / 'consensus_assembly.gfa'
-    elif flye_successful:
+    elif flye_fasta is not None:
         assembler = 'Flye'
         source_fasta = flye_fasta
         source_gfa = out_dir / 'flye' / 'assembly_graph.gfa'
     else:
-        quit_with_error('neither Autocycler nor Flye produced a successful assembly')
-
-    source_files = ((source_fasta, 'FASTA'), (source_gfa, 'GFA'))
-    for source, file_type in source_files:
-        if source is None or not source.is_file() or source.stat().st_size == 0:
-            quit_with_error(f"{assembler} {file_type} is missing or empty: '{source}'")
+        quit_with_error('Autocycler was unsuccessful and Flye produced no sequence')
 
     try:
         shutil.copy2(source_fasta, out_dir / 'assembly.fasta')
-        shutil.copy2(source_gfa, out_dir / 'assembly.gfa')
     except OSError as error:
         quit_with_error(f'could not copy final {assembler} assembly: {error}')
+    try:
+        if not source_gfa.is_file() or source_gfa.stat().st_size == 0:
+            raise OSError(f"missing or empty GFA: '{source_gfa}'")
+        shutil.copy2(source_gfa, out_dir / 'assembly.gfa')
+    except OSError as error:
+        logger.warning(f'Warning: could not copy final {assembler} graph: {error}')
 
     logger.info(f'Final assembly: {assembler}')
     return assembler
@@ -707,7 +707,7 @@ def run_autocycler_stage(stage, command, autocycler_log):
     result = run_command(command, check=False, output_log=autocycler_log, append_log=True)
     if result.returncode != 0:
         logger.warning(f'Warning: Autocycler {stage} failed with exit code '
-                       f'{result.returncode}; the pipeline will fall back to Flye')
+                       f'{result.returncode}')
         return None
     return result
 
@@ -774,19 +774,13 @@ def format_read_stats(label, read_stats):
     return f'{label}: {read_count:,} reads; {total_bases:,} bp; N50 {read_n50:,} bp'
 
 
-def get_assembly_size_and_ratio(fasta, genome_size):
-    assembly_size = get_fasta_size(fasta)
-    return assembly_size, assembly_size / genome_size
-
-
 def get_fasta_size(fasta):
     try:
         with fasta.open(encoding='utf-8') as fasta_file:
             size = sum(len(line.strip()) for line in fasta_file if not line.startswith('>'))
     except (OSError, UnicodeError) as error:
-        quit_with_error(f"could not read assembly FASTA '{fasta}': {error}")
-    if size < 1:
-        quit_with_error(f"assembly FASTA contains no sequence: '{fasta}'")
+        logger.warning(f"Warning: could not read assembly FASTA '{fasta}': {error}")
+        return 0
     return size
 
 

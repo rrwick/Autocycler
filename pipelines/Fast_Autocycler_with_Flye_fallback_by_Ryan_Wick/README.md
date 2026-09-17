@@ -28,15 +28,15 @@ This script requires Autocycler v0.7.0 or later.
 
 ## Assembly selection
 
-The Flye and Autocycler assemblies are assessed against the estimated (or user-supplied) genome size. By default, an acceptable assembly must be between 0.75× and 1.25× the genome size. These limits can be changed with `--min-size-ratio` and `--max-size-ratio`.
-
 The final assembly is selected as follows:
 
 1. Use Autocycler if its size is acceptable and `autocycler combine` reported `Consensus assembly is fully resolved`.
-2. Otherwise, use Flye if its size is acceptable.
-3. If neither assembly is acceptable, exit with an error.
+2. Otherwise, use Flye if its FASTA contains any sequence.
+3. If Autocycler is unsuccessful and Flye produced no sequence, exit with an error.
 
 The selected assembly is copied to `assembly.fasta` and `assembly.gfa` in the output directory.
+
+By default, an acceptable Autocycler assembly size must be between 0.75× and 1.25× the estimated (or user-supplied) genome size. These limits can be changed with `--min-size-ratio` and `--max-size-ratio`.
 
 
 
@@ -97,9 +97,9 @@ Settings:
   --genome_size GENOME_SIZE
                         Genome size in bp (skips estimation when supplied) (default: None)
   --min-size-ratio MIN_SIZE_RATIO
-                        Reject assemblies smaller than this multiple of genome size (default: 0.75)
+                        Reject Autocycler assemblies smaller than this multiple of genome size (default: 0.75)
   --max-size-ratio MAX_SIZE_RATIO
-                        Reject assemblies larger than this multiple of genome size (default: 1.25)
+                        Reject Autocycler assemblies larger than this multiple of genome size (default: 1.25)
   --seed SEED           Random seed for reproducible read subsampling (default: 0)
   --subset_count SUBSET_COUNT
                         Number of Autocycler read subsets (default: 2)
