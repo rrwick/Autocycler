@@ -19,8 +19,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
-use std::io::{prelude::*, BufReader, Read};
+use std::io::{prelude::*, BufReader, BufWriter, Read};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, Once};
 use std::time::Duration;
 use tempfile::{tempdir, TempDir};
 
@@ -132,6 +133,7 @@ pub fn check_if_dir_is_not_dir(dir: &Path) {
 #[cfg(not(test))]
 pub fn quit_with_error(text: &str) -> ! {
     // For friendly error messages, this function normally just prints the error and quits.
+    remove_temp_dirs();
     eprintln!();
     eprintln!("Error: {text}");
     std::process::exit(1);
@@ -205,6 +207,24 @@ fn fastq_reader(fastq_file: &Path) -> Reader<Box<dyn Read>> {
         Box::new(file)
     };
     Reader::new(reader)
+}
+
+
+pub fn single_fastq(files: Vec<PathBuf>) -> (PathBuf, Option<TempDir>) {
+    // Returns the reads as a single FASTQ file. A single FASTQ input is returned as is, but BAM or
+    // multiple input files are first converted to an uncompressed FASTQ in a temporary directory.
+    if files.len() == 1 && !is_file_bam(&files[0]) {
+        return (files.into_iter().next().unwrap(), None);
+    }
+    eprintln!("Converting input reads to a temporary FASTQ file...");
+    let dir = temp_dir();
+    let fastq = dir.path().join("reads.fastq");
+    File::create(&fastq).and_then(|file| {
+        let mut writer = BufWriter::new(file);
+        for read in unique_read_iter(&files) { read.write(&mut writer)?; }
+        writer.flush()
+    }).unwrap_or_else(|e| quit_with_error(&format!("unable to write {}: {e}", fastq.display())));
+    (fastq, Some(dir))
 }
 
 
@@ -306,9 +326,7 @@ pub fn decompress_if_gzipped(filename: &Path) -> Option<(PathBuf, TempDir)> {
     let file = File::open(filename).unwrap_or_else(|e| {
         quit_with_error(&format!("unable to open {}: {e}", filename.display()))
     });
-    let temp_dir = tempdir().unwrap_or_else(|e| {
-        quit_with_error(&format!("unable to create temporary directory: {e}"))
-    });
+    let temp_dir = temp_dir();
     let uncompressed_name = if filename.extension().unwrap_or_default() == "gz" {
         filename.file_stem().unwrap_or_default()
     } else {
@@ -322,6 +340,29 @@ pub fn decompress_if_gzipped(filename: &Path) -> Option<(PathBuf, TempDir)> {
         quit_with_error(&format!("unable to decompress {}: {e}", filename.display()))
     });
     Some((temp_path, temp_dir))
+}
+
+
+static TEMP_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+pub fn temp_dir() -> TempDir {
+    // Creates a temporary directory which is deleted when dropped, but also when Autocycler quits
+    // with an error or is interrupted with Ctrl-C (neither of which run drop).
+    static CTRL_C: Once = Once::new();
+    CTRL_C.call_once(|| ctrlc::set_handler(|| { remove_temp_dirs(); std::process::exit(130); })
+                     .expect("failed to set Ctrl-C handler"));
+    let dir = tempdir().unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to create temporary directory: {e}"))
+    });
+    TEMP_DIRS.lock().unwrap().push(dir.path().to_path_buf());
+    dir
+}
+
+
+fn remove_temp_dirs() {
+    if let Ok(dirs) = TEMP_DIRS.lock() {
+        for dir in dirs.iter() { let _ = remove_dir_all(dir); }
+    }
 }
 
 
@@ -1020,5 +1061,22 @@ mod tests {
         assert_eq!(sizes(1), [1, 1, 1]);
         assert_eq!(sizes(4), [2, 1]);
         assert_eq!(sizes(100), [3]);
+    }
+
+    #[test]
+    fn test_single_fastq() {
+        let dir = tempdir().unwrap();
+        let (fq, bam) = (dir.path().join("reads.fastq"), dir.path().join("reads.bam"));
+        make_test_file(&fq, "@r1 x\nACGT\n+\nIIII\n");
+        make_test_bam(&bam, &[("r2", 4, "GGA", &[0, 10, 20])]);
+        assert!(matches!(single_fastq(vec![fq.clone()]), (p, None) if p == fq));
+        for (files, expected) in [(vec![bam.clone()], "@r2\nGGA\n+\n!+5\n"),
+                                  (vec![fq.clone(), bam.clone()],
+                                   "@r1 x\nACGT\n+\nIIII\n@r2\nGGA\n+\n!+5\n")] {
+            let (temp_fq, temp_dir) = single_fastq(files);
+            assert_eq!(std::fs::read_to_string(&temp_fq).unwrap(), expected);
+            assert!(TEMP_DIRS.lock().unwrap().contains(&temp_dir.unwrap().path().to_path_buf()));
+        }
+        assert!(panic::catch_unwind(|| single_fastq(vec![fq.clone(), fq.clone()])).is_err());
     }
 }

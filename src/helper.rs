@@ -12,34 +12,33 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use clap::ValueEnum;
-use ctrlc::set_handler;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::env;
-use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, remove_dir_all, read_dir,
-              metadata, rename};
+use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, read_dir, metadata, rename};
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Once;
 use std::time::SystemTime;
 use which::which;
-use tempfile::{tempdir, NamedTempFile, TempDir};
+use tempfile::{NamedTempFile, TempDir};
 
 use crate::log::{bold, underline};
 use crate::misc::{check_if_file_exists, quit_with_error, total_fasta_length, load_fasta,
-                  is_file_empty, is_fasta_empty, decompress_if_gzipped};
+                  is_file_empty, is_fasta_empty, decompress_if_gzipped, single_fastq, temp_dir};
 use crate::subsample::parse_genome_size;
 
 
 #[allow(clippy::too_many_arguments)]
-pub fn helper(task: Task, reads: PathBuf, out_prefix: Option<PathBuf>, genome_size: Option<String>,
-              threads: usize, dir: Option<PathBuf>, read_type: ReadType,
-              min_depth_abs: Option<f64>, min_depth_rel: Option<f64>, extra_args: Vec<String>) {
-    check_if_file_exists(&reads);
+pub fn helper(task: Task, reads: Vec<PathBuf>, out_prefix: Option<PathBuf>,
+              genome_size: Option<String>, threads: usize, dir: Option<PathBuf>,
+              read_type: ReadType, min_depth_abs: Option<f64>, min_depth_rel: Option<f64>,
+              extra_args: Vec<String>) {
+    for read_file in &reads { check_if_file_exists(read_file); }
     let (dir, _guard) = get_working_dir(dir);
+    let (reads, _reads_guard) = single_fastq(reads);
 
     if task == Task::GenomeSize {
         genome_size_raven(reads, threads, dir, extra_args);
@@ -578,10 +577,8 @@ fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
     let (path, guard) = match dir {
         Some(p) => (p, None),
         None => {
-            let temp_dir = tempdir().expect("cannot create temp dir");
-            let p = temp_dir.path().to_path_buf();
-            sigint_cleanup(&p);
-            (p, Some(temp_dir))
+            let temp_dir = temp_dir();
+            (temp_dir.path().to_path_buf(), Some(temp_dir))
         }
     };
     create_dir_all(&path).unwrap_or_else(|e| {
@@ -594,19 +591,6 @@ fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
         quit_with_error(&format!("cannot write inside directory {}", path.display()));
     }
     (path, guard)
-}
-
-
-fn sigint_cleanup(dir: &Path) {
-    // Ensures that the temporary directory is removed when the user presses Ctrl-C.
-    static ONCE: Once = Once::new();
-    let dir = dir.to_path_buf();
-    ONCE.call_once(|| {
-        set_handler(move || {
-            let _ = remove_dir_all(&dir);
-            std::process::exit(130);
-        }).expect("failed to set Ctrl-C handler");
-    });
 }
 
 
@@ -995,6 +979,7 @@ fn add_extension(p: &Path, extension: &str) -> PathBuf {
 mod tests {
     use super::*;
     use std::panic;
+    use tempfile::tempdir;
     use crate::tests::{make_test_file, make_gzipped_test_file};
 
     #[test]

@@ -210,9 +210,9 @@ enum Commands {
         #[arg(value_enum)]
         task: helper::Task,
 
-        /// Input long reads in FASTQ format (required)
-        #[clap(short = 'r', long = "reads", required = true)]
-        reads: PathBuf,
+        /// Input long reads in FASTQ or uBAM format (required)
+        #[clap(short = 'r', long = "reads", required = true, num_args = 1..)]
+        reads: Vec<PathBuf>,
 
         /// Output prefix (required for all tasks except genome_size)
         #[clap(short = 'o', long = "out_prefix")]
