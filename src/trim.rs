@@ -166,15 +166,14 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
         if !trimmed_start && !trimmed_end {
             (None, format!("{}: {}", seq, "not trimmed".green()))
         } else {
-            let message;
             let trimmed_length: u32 = path_3.iter().map(|&u| weights[&u.abs()]).sum();
-            if trimmed_start && trimmed_end {
-                message = format!("{}: {}", seq, format!("trimmed from start and end to {trimmed_length} bp").red());
+            let message = if trimmed_start && trimmed_end {
+                format!("{}: {}", seq, format!("trimmed from start and end to {trimmed_length} bp").red())
             } else if trimmed_start {
-                message = format!("{}: {}", seq, format!("trimmed from start to {trimmed_length} bp").red());
+                format!("{}: {}", seq, format!("trimmed from start to {trimmed_length} bp").red())
             } else {
-                message = format!("{}: {}", seq, format!("trimmed from end to {trimmed_length} bp").red());
-            }
+                format!("{}: {}", seq, format!("trimmed from end to {trimmed_length} bp").red())
+            };
             (Some((path_3, trimmed_length)), message)
         }
     }).collect();
