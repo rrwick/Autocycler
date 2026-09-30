@@ -123,7 +123,7 @@ enum Commands {
         #[clap(short = 'i', long = "in_gfas", required = true, num_args = 1..)]
         in_gfas: Vec<PathBuf>,
 
-        /// Reads in FASTQ format to set consentig depths [default: none]
+        /// Reads in FASTQ or uBAM format to set consentig depths [default: none]
         #[clap(short = 'r', long = "reads", num_args = 1..)]
         reads: Vec<PathBuf>,
 
@@ -261,9 +261,9 @@ enum Commands {
 
     /// subsample a long-read set
     Subsample {
-        /// Input long reads in FASTQ format (required)
-        #[clap(short = 'r', long = "reads", required = true)]
-        reads: PathBuf,
+        /// Input long reads in FASTQ or uBAM format (required)
+        #[clap(short = 'r', long = "reads", required = true, num_args = 1..)]
+        reads: Vec<PathBuf>,
 
         /// Output directory (required)
         #[clap(short = 'o', long = "out_dir", required = true)]

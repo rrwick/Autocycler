@@ -49,6 +49,24 @@ pub fn make_gzipped_test_file(file_path: &Path, contents: &str) {
 }
 
 
+pub fn make_test_bam(file_path: &Path, reads: &[(&str, u16, &str, &[u8])]) {
+    // Reads are given as (name, flags, sequence, Phred qualities).
+    use noodles_bam as bam;
+    use noodles_sam::{self as sam, alignment::io::Write, alignment::record::Flags};
+    use sam::alignment::{RecordBuf, record_buf::{QualityScores, Sequence}};
+    let header = sam::Header::default();
+    let mut writer = bam::io::Writer::new(File::create(file_path).unwrap());
+    writer.write_header(&header).unwrap();
+    for (name, flags, seq, qual) in reads {
+        let record = RecordBuf::builder().set_name(*name).set_flags(Flags::from(*flags))
+            .set_sequence(Sequence::from(seq.as_bytes()))
+            .set_quality_scores(QualityScores::from(qual.to_vec())).build();
+        writer.write_alignment_record(&header, &record).unwrap();
+    }
+    writer.try_finish().unwrap();
+}
+
+
 fn random_seq(length: usize, seed: u64) -> String {
     let bases = ['A', 'C', 'G', 'T'];
     let mut rng = StdRng::seed_from_u64(seed);

@@ -14,7 +14,6 @@
 
 use fxhash::{FxHashMap, FxHashSet};
 use rayon::prelude::*;
-use seq_io::fastq::{Record, RecordSet};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,7 +21,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::log::{section_header, explanation};
-use crate::misc::{fastq_reader_with_capacity, quit_with_error, reverse_complement, strand};
+use crate::misc::{quit_with_error, read_batches, reverse_complement, strand};
 use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
 
@@ -32,9 +31,8 @@ use crate::unitig_graph::UnitigGraph;
 // about 1.4% of a read's k-mers survive, but a foreign read should match nothing at all.
 static MIN_READ_HIT_RATE: f64 = 0.005;
 
-// Reads are processed in batches of this many bytes. Bigger batches mean more reads per batch,
-// which matters most for long reads, where seq_io's default 64 kB buffer holds only a handful.
-static READ_BUFFER_SIZE: usize = 4 * 1024 * 1024;
+// Reads are processed in parallel batches of this many bases.
+static READ_BATCH_BASES: usize = 4 * 1024 * 1024;
 
 // Walking outward from a tig to find its k-mers stops after this many steps. Hitting this limit
 // means a tig gets fewer k-mers than it might, making its depth less precise. It takes a
@@ -362,23 +360,12 @@ fn clipped_mean(counts: &[u32]) -> Option<f64> {
 
 fn count_read_kmers(reads: &[PathBuf], k_size: u32,
                     kmers: &FxHashMap<u64, AtomicU32>) -> ReadTotals {
-    // Tallies the reads' k-mers into the assembly's k-mer table. Reads are processed in parallel
-    // batches, each batch being however many reads fit in the reader's buffer.
-    let mut totals = ReadTotals::default();
-    for read_file in reads {
-        let mut reader = fastq_reader_with_capacity(read_file, READ_BUFFER_SIZE);
-        let mut record_set = RecordSet::default();
-        while let Some(result) = reader.read_record_set(&mut record_set) {
-            result.unwrap_or_else(|e| quit_with_error(
-                &format!("unable to read {}: {e}\nAre you sure this is a FASTQ file?",
-                         read_file.display())));
-            let records: Vec<_> = record_set.into_iter().collect();
-            totals = totals + records.par_iter()
-                .map_init(Vec::new, |hits, r| count_one_read(r.seq(), k_size, kmers, hits))
-                .reduce(ReadTotals::default, |a, b| a + b);
-        }
-    }
-    totals
+    // Tallies the reads' k-mers into the assembly's k-mer table, processing reads in parallel
+    // batches.
+    read_batches(reads, READ_BATCH_BASES).map(|batch| batch.par_iter()
+        .map_init(Vec::new, |hits, r| count_one_read(&r.seq, k_size, kmers, hits))
+        .reduce(ReadTotals::default, |a, b| a + b))
+        .fold(ReadTotals::default(), |a, b| a + b)
 }
 
 

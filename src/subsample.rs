@@ -18,35 +18,36 @@ use rand::seq::SliceRandom;
 use seq_io::fastq::Record;
 use std::collections::HashSet;
 use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
 use crate::metrics::{ReadSetDetails, SubsampleMetrics};
-use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, fastq_reader,
-                  format_float, quit_with_error, spinner};
+use crate::misc::{check_if_dir_is_not_dir, check_if_file_exists, create_dir, format_float,
+                  quit_with_error, read_iter, spinner, unique_read_iter};
 
 
-pub fn subsample(fastq_file: PathBuf, out_dir: PathBuf, genome_size_str: String,
+pub fn subsample(reads: Vec<PathBuf>, out_dir: PathBuf, genome_size_str: String,
                  subset_count: usize, min_read_depth: f64, seed: u64) {
     let subsample_yaml = out_dir.join("subsample.yaml");
     let genome_size = parse_genome_size(&genome_size_str);
-    check_settings(&fastq_file, &out_dir, genome_size, subset_count, min_read_depth);
+    check_settings(&reads, &out_dir, genome_size, subset_count, min_read_depth);
     create_dir(&out_dir);
     starting_message();
-    print_settings(&fastq_file, &out_dir, genome_size, subset_count, min_read_depth, seed);
+    print_settings(&reads, &out_dir, genome_size, subset_count, min_read_depth, seed);
     let mut metrics = SubsampleMetrics::default();
-    let (input_count, input_bases) = input_fastq_stats(&fastq_file, &mut metrics);
+    let (input_count, input_bases) = input_read_stats(&reads, &mut metrics);
     let reads_per_subset = calculate_subsets(input_count, input_bases, genome_size, min_read_depth);
-    save_subsets(&fastq_file, subset_count, input_count, reads_per_subset, &out_dir, seed,
+    save_subsets(&reads, subset_count, input_count, reads_per_subset, &out_dir, seed,
                  &mut metrics);
     metrics.save_to_yaml(&subsample_yaml);
     finished_message();
 }
 
 
-fn check_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_count: usize,
+fn check_settings(reads: &[PathBuf], out_dir: &Path, genome_size: u64, subset_count: usize,
                   min_read_depth: f64) {
-    check_if_file_exists(fastq_file);
+    for read_file in reads { check_if_file_exists(read_file); }
     check_if_dir_is_not_dir(out_dir);
     if genome_size < 1       { quit_with_error("--genome_size must be at least 1"); }
     if subset_count < 2      { quit_with_error("--count must be at least 2"); }
@@ -61,10 +62,13 @@ fn starting_message() {
 }
 
 
-fn print_settings(fastq_file: &Path, out_dir: &Path, genome_size: u64, subset_count: usize,
+fn print_settings(reads: &[PathBuf], out_dir: &Path, genome_size: u64, subset_count: usize,
                   min_read_depth: f64, seed: u64) {
     eprintln!("Settings:");
-    eprintln!("  --reads {}", fastq_file.display());
+    eprintln!("  --reads {}", reads[0].display());
+    for read_file in &reads[1..] {
+        eprintln!("          {}", read_file.display());
+    }
     eprintln!("  --out_dir {}", out_dir.display());
     eprintln!("  --genome_size {genome_size}");
     eprintln!("  --count {subset_count}");
@@ -93,15 +97,14 @@ pub fn parse_genome_size(genome_size_str: &str) -> u64 {
 }
 
 
-fn input_fastq_stats(fastq_file: &Path, metrics: &mut SubsampleMetrics) -> (usize, u64) {
-    let mut read_lengths: Vec<u64> = fastq_reader(fastq_file).records()
-        .map(|record| record.expect("Error reading FASTQ file").seq().len() as u64).collect();
+fn input_read_stats(reads: &[PathBuf], metrics: &mut SubsampleMetrics) -> (usize, u64) {
+    let mut read_lengths: Vec<u64> = unique_read_iter(reads).map(|r| r.seq.len() as u64).collect();
     read_lengths.sort_unstable();
     let details = ReadSetDetails::new(&read_lengths);
     metrics.input_read_count = details.count;
     metrics.input_read_bases = details.bases;
     metrics.input_read_n50 = details.n50;
-    eprintln!("Input FASTQ:");
+    eprintln!("Input reads:");
     eprintln!("  Read count: {}", details.count);
     eprintln!("  Read bases: {}", details.bases);
     eprintln!("  Read N50 length: {} bp", details.n50);
@@ -135,7 +138,7 @@ fn calculate_subsets(read_count: usize, read_bases: u64, genome_size: u64, min_d
 }
 
 
-fn save_subsets(input_fastq: &Path, subset_count: usize, input_count: usize,
+fn save_subsets(reads: &[PathBuf], subset_count: usize, input_count: usize,
                 reads_per_subset: usize, out_dir: &Path, seed: u64,
                 metrics: &mut SubsampleMetrics) {
     section_header("Subsetting reads");
@@ -150,11 +153,12 @@ fn save_subsets(input_fastq: &Path, subset_count: usize, input_count: usize,
         subset_indices.push(subsample_indices(subset_count, reads_per_subset, &read_order, i));
         let subset_filename = out_dir.join(format!("sample_{:02}.fastq", i + 1));
         eprintln!("  {}", subset_filename.display());
-        let subset_file = File::create(subset_filename).expect("Failed to create subset file");
+        let subset_file = BufWriter::new(File::create(subset_filename)
+            .expect("Failed to create subset file"));
         subset_files.push(subset_file);
         eprintln!();
     }
-    let sample_read_lengths = write_subsampled_reads(input_fastq, subset_count, &subset_indices,
+    let sample_read_lengths = write_subsampled_reads(reads, subset_count, &subset_indices,
                                                      &mut subset_files);
     for i in 0..subset_count {
         metrics.output_reads.push(ReadSetDetails::new(&sample_read_lengths[i]));
@@ -189,25 +193,21 @@ fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &
 }
 
 
-fn write_subsampled_reads(input_fastq: &Path, subset_count: usize,
-                          subset_indices: &[HashSet<usize>], subset_files: &mut [File])
-        -> Vec<Vec<u64>> {
+fn write_subsampled_reads(reads: &[PathBuf], subset_count: usize, subset_indices: &[HashSet<usize>],
+                          subset_files: &mut [BufWriter<File>]) -> Vec<Vec<u64>> {
     // This function loops through the input reads, and saves each read to the appropriate output
     // file. It also gathers up and returns the sorted read lengths for each subsampled read set.
     let mut sample_read_lengths: Vec<Vec<u64>> = vec![Vec::new(); subset_count];
     let pb = spinner("writing subsampled reads to files...");
-    let mut read_i = 0;
-    let mut reader = fastq_reader(input_fastq);
-    while let Some(record) = reader.next() {
-        let record = record.expect("Error reading FASTQ file");
+    for (read_i, record) in read_iter(reads).enumerate() {
         for subset_i in 0..subset_count {
             if subset_indices[subset_i].contains(&read_i) {
-                record.write(&subset_files[subset_i]).unwrap();
-                sample_read_lengths[subset_i].push(record.seq().len() as u64);
+                record.write(&mut subset_files[subset_i]).unwrap();
+                sample_read_lengths[subset_i].push(record.seq.len() as u64);
             }
         }
-        read_i += 1;
     }
+    for file in subset_files.iter_mut() { file.flush().unwrap(); }
     for i in 0..subset_count {
         sample_read_lengths[i].sort_unstable();
     }

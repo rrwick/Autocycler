@@ -13,7 +13,8 @@
 
 use indicatif::{ProgressBar, ProgressStyle};
 use flate2::read::MultiGzDecoder;
-use seq_io::fastq::Reader;
+use noodles_bam as bam;
+use seq_io::fastq::{OwnedRecord, Reader, Record};
 use std::collections::HashSet;
 use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
@@ -195,24 +196,107 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path)
 }
 
 
-pub fn fastq_reader(fastq_file: &Path)
-        -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
+fn fastq_reader(fastq_file: &Path) -> Reader<Box<dyn Read>> {
     // Returns a reader for a FASTQ file that works on both unzipped and gzipped files.
-    fastq_reader_with_capacity(fastq_file, 64 * 1024)  // seq_io's default buffer size
-}
-
-
-pub fn fastq_reader_with_capacity(fastq_file: &Path, capacity: usize)
-        -> seq_io::fastq::Reader<BufReader<Box<dyn std::io::Read>>> {
-    // Same as fastq_reader, but with a chosen buffer size. A big buffer puts more reads in each
-    // batch of records, which helps when the reads are processed in parallel.
     let file = File::open(fastq_file).expect("Error opening file");
     let reader: Box<dyn Read> = if is_file_gzipped(fastq_file) {
         Box::new(MultiGzDecoder::new(file))
     } else {
         Box::new(file)
     };
-    Reader::with_capacity(BufReader::new(reader), capacity)
+    Reader::new(reader)
+}
+
+
+pub fn read_iter(files: &[PathBuf]) -> impl Iterator<Item = OwnedRecord> + '_ {
+    // Iterates over the reads in one or more files, each of which can be FASTQ (optionally
+    // gzipped) or unaligned BAM.
+    files.iter().flat_map(|file| -> Box<dyn Iterator<Item = OwnedRecord>> {
+        if is_file_bam(file) { Box::new(bam_reads(file)) } else { Box::new(fastq_reads(file)) }
+    })
+}
+
+
+pub fn unique_read_iter(files: &[PathBuf]) -> impl Iterator<Item = OwnedRecord> + '_ {
+    // Same as read_iter, but quits with an error if any read name occurs more than once.
+    let mut names = HashSet::new();
+    read_iter(files).inspect(move |read| {
+        if !names.insert(read.id_bytes().to_vec()) {
+            quit_with_error(&format!("duplicate read name: {}",
+                                     String::from_utf8_lossy(read.id_bytes())));
+        }
+    })
+}
+
+
+pub fn read_batches(files: &[PathBuf], batch_bases: usize)
+        -> impl Iterator<Item = Vec<OwnedRecord>> + '_ {
+    // Same as read_iter, but groups the reads into batches of about batch_bases, which is useful
+    // for processing reads in parallel.
+    let mut reads = read_iter(files);
+    std::iter::from_fn(move || {
+        let (mut batch, mut bases) = (Vec::new(), 0);
+        while bases < batch_bases {
+            let Some(read) = reads.next() else { break };
+            bases += read.seq.len();
+            batch.push(read);
+        }
+        (!batch.is_empty()).then_some(batch)
+    })
+}
+
+
+fn fastq_reads(file: &Path) -> impl Iterator<Item = OwnedRecord> {
+    let file = file.to_path_buf();
+    fastq_reader(&file).into_records().map(move |r| r.unwrap_or_else(|e| quit_with_error(
+        &format!("unable to read {}: {e}\nAre you sure this is a FASTQ file?", file.display()))))
+}
+
+
+fn bam_reads(file: &Path) -> impl Iterator<Item = OwnedRecord> {
+    let file = file.to_path_buf();
+    let mut reader = bam::io::reader::Builder.build_from_path(&file)
+        .and_then(|mut reader| reader.read_header().map(|_| reader))
+        .unwrap_or_else(|e| quit_with_error(&format!("unable to read {}: {e}", file.display())));
+    let mut record = bam::Record::default();
+    std::iter::from_fn(move || match reader.read_record(&mut record) {
+        Ok(0) => None,
+        Ok(_) => Some(bam_record_to_fastq(&record, &file)),
+        Err(e) => quit_with_error(&format!("unable to read {}: {e}", file.display())),
+    })
+}
+
+
+fn bam_record_to_fastq(record: &bam::Record, file: &Path) -> OwnedRecord {
+    let name = record.name().unwrap_or_else(|| {
+        quit_with_error(&format!("{} contains a read with no name", file.display()))
+    }).to_vec();
+    let name_str = String::from_utf8_lossy(&name);
+    if !record.flags().is_unmapped() {
+        quit_with_error(&format!("{} contains aligned reads (e.g. {name_str}), but only unaligned \
+                                  BAM is supported", file.display()));
+    }
+    if record.flags().is_segmented() {
+        quit_with_error(&format!("{} contains paired reads (e.g. {name_str}), which are not \
+                                  supported in BAM format", file.display()));
+    }
+    let seq: Vec<u8> = record.sequence().iter().collect();
+    let qual: Vec<u8> = record.quality_scores().iter().map(|q| q.saturating_add(33)).collect();
+    if qual.len() != seq.len() {
+        quit_with_error(&format!("read {name_str} in {} has no quality scores", file.display()));
+    }
+    OwnedRecord { head: name, seq, qual }
+}
+
+
+fn is_file_bam(filename: &Path) -> bool {
+    // BAM files are BGZF-compressed (a type of gzip) and start with a magic string.
+    if !is_file_gzipped(filename) { return false; }
+    let file = File::open(filename).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to open {}: {e}", filename.display()))
+    });
+    let mut magic = [0u8; 4];
+    MultiGzDecoder::new(file).read_exact(&mut magic).is_ok() && &magic == b"BAM\x01"
 }
 
 
@@ -555,7 +639,7 @@ mod tests {
     use std::panic;
     use tempfile::tempdir;
 
-    use crate::tests::{make_test_file, make_gzipped_test_file};
+    use crate::tests::{make_test_file, make_gzipped_test_file, make_test_bam};
 
     #[test]
     fn test_decompress_if_gzipped() {
@@ -881,5 +965,60 @@ mod tests {
 
         make_test_file(&filename, ">a\n\n");
         assert!(is_fasta_empty(&filename));
+    }
+
+    fn read_tuples(files: &[PathBuf]) -> Vec<(String, String, String)> {
+        let s = |b: &[u8]| String::from_utf8(b.to_vec()).unwrap();
+        read_iter(files).map(|r| (s(&r.head), s(&r.seq), s(&r.qual))).collect()
+    }
+
+    #[test]
+    fn test_read_iter() {
+        let dir = tempdir().unwrap();
+        let (fq, gz, bam) = (dir.path().join("a.fastq"), dir.path().join("b.fastq.gz"),
+                             dir.path().join("c.bam"));
+        make_test_file(&fq, "@a1 info\nACGT\n+\nIIII\n");
+        make_gzipped_test_file(&gz, "@b1\nGGA\n+\n!!5\n");
+        make_test_bam(&bam, &[("c1", 4, "TTAC", &[0, 10, 20, 40]), ("c2", 4, "A", &[93])]);
+        assert!(!is_file_bam(&fq) && !is_file_bam(&gz) && is_file_bam(&bam));
+        assert_eq!(read_tuples(&[fq, gz, bam]),
+                   [("a1 info", "ACGT", "IIII"), ("b1", "GGA", "!!5"), ("c1", "TTAC", "!+5I"),
+                    ("c2", "A", "~")].map(|(a, b, c)| (a.into(), b.into(), c.into())));
+    }
+
+    #[test]
+    fn test_read_iter_bam_errors() {
+        let dir = tempdir().unwrap();
+        let bam = dir.path().join("reads.bam");
+        for (flags, qual) in [(0, &[30u8][..]), (1 | 4 | 64, &[30]), (4, &[])] {
+            make_test_bam(&bam, &[("r1", flags, "A", qual)]);
+            let files = vec![bam.clone()];
+            assert!(panic::catch_unwind(|| read_tuples(&files)).is_err());
+        }
+    }
+
+    #[test]
+    fn test_unique_read_iter() {
+        let dir = tempdir().unwrap();
+        let (fq, bam) = (dir.path().join("reads.fastq"), dir.path().join("reads.bam"));
+        make_test_file(&fq, "@r1 x\nA\n+\nI\n@r2\nA\n+\nI\n");
+        make_test_bam(&bam, &[("r3", 4, "A", &[30])]);
+        assert_eq!(unique_read_iter(&[fq.clone(), bam.clone()]).count(), 3);
+        assert!(panic::catch_unwind(|| unique_read_iter(&[fq.clone(), fq.clone()]).count()).is_err());
+        make_test_file(&fq, "@r1 x\nA\n+\nI\n@r1 y\nA\n+\nI\n");
+        let files = vec![fq];
+        assert_eq!(read_iter(&files).count(), 2);
+        assert!(panic::catch_unwind(|| unique_read_iter(&files).count()).is_err());
+    }
+
+    #[test]
+    fn test_read_batches() {
+        let dir = tempdir().unwrap();
+        let files = vec![dir.path().join("reads.fastq")];
+        make_test_file(&files[0], "@r1\nAAA\n+\nIII\n@r2\nAA\n+\nII\n@r3\nA\n+\nI\n");
+        let sizes = |n| read_batches(&files, n).map(|b| b.len()).collect::<Vec<_>>();
+        assert_eq!(sizes(1), [1, 1, 1]);
+        assert_eq!(sizes(4), [2, 1]);
+        assert_eq!(sizes(100), [3]);
     }
 }
