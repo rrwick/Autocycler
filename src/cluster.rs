@@ -212,10 +212,15 @@ impl TreeNode {
     }
 
     fn manual_clustering(&self, cutoff: f64, manual_clusters: &[u16]) -> Vec<u16> {
-        let mut clusters = Vec::new();
+        for &id in manual_clusters {
+            if self.find_node(id).is_none() {
+                quit_with_error(&format!("clustering tree does not contain a node with id {id}"));
+            }
+        }
         if !manual_clusters.is_empty() {
             self.check_consistency(manual_clusters);
         }
+        let mut clusters = Vec::new();
         self.collect_clusters(cutoff / 2.0, manual_clusters, &mut clusters);
         clusters.sort();
         clusters
@@ -1028,6 +1033,18 @@ mod tests {
         assert_eq!(tree.manual_clustering(0.8, &[6]), vec![1, 2, 3, 6]);
         assert_eq!(tree.manual_clustering(0.8, &[7]), vec![1, 2, 7]);
         assert_eq!(tree.manual_clustering(0.8, &[8]), vec![1, 8]);
+    }
+
+    #[test]
+    fn test_manual_clustering_missing_nodes() {
+        let tree = test_tree_1();
+        for id in [0, 10, u16::MAX] {
+            for clusters in [vec![id], vec![1, id]] {
+                let error = panic::catch_unwind(|| tree.manual_clustering(0.5, &clusters)).unwrap_err();
+                assert_eq!(error.downcast_ref::<String>().unwrap(),
+                           &format!("clustering tree does not contain a node with id {id}"));
+            }
+        }
     }
 
     #[test]
