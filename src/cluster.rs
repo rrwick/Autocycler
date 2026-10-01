@@ -48,7 +48,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     check_sequence_count(&sequences, max_contigs);
     let asymmetrical_distances = pairwise_contig_distances(&graph, &sequences, &pairwise_phylip);
     let symmetrical_distances = make_symmetrical_distances(&asymmetrical_distances, &sequences);
-    let mut tree = upgma(&symmetrical_distances, &mut sequences);
+    let mut tree = upgma(&symmetrical_distances, &sequences);
     normalise_tree(&mut tree);
     save_tree_to_newick(&tree, &sequences, &clustering_newick);
     let qc_results = generate_clusters(&tree, &mut sequences, &asymmetrical_distances, cutoff,
@@ -57,8 +57,6 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     save_data_to_tsv(&sequences, &qc_results, &clustering_tsv);
     let metrics = clustering_metrics(&sequences, &qc_results);
     metrics.save_to_yaml(&clustering_yaml);
-
-    // TODO: create a PDF of the tree with clusters? printpdf?
 
     finished_message(&pairwise_phylip, &clustering_newick, &clustering_tsv);
 }
@@ -70,7 +68,7 @@ fn check_settings(autocycler_dir: &Path, gfa: &Path, cutoff: f64, min_assemblies
     if cutoff <= 0.0 || cutoff >= 1.0 {
         quit_with_error("--cutoff must be between 0 and 1 (exclusive)");
     }
-    if min_assemblies.is_some() && min_assemblies.unwrap() < 1 {
+    if *min_assemblies == Some(0) {
         quit_with_error("--min_assemblies must be 1 or greater");
     }
 }
@@ -108,7 +106,7 @@ fn print_settings(autocycler_dir: &Path, cutoff: f64, min_assemblies: usize,
     eprintln!("  --max_contigs {max_contigs}");
     if !manual_clusters.is_empty() {
         eprintln!("  --manual {}", manual_clusters.iter().map(|c| c.to_string())
-                                                  .collect::<Vec<String>>() .join(","));
+                                                  .collect::<Vec<String>>().join(","));
     }
     eprintln!();
 }
@@ -129,7 +127,7 @@ fn check_sequence_count(sequences: &[Sequence], max_contigs: u32) {
 }
 
 
-fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, file_path: &Path)
+fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &[Sequence], file_path: &Path)
         -> HashMap<(u16, u16), f64> {
     section_header("Pairwise distances");
     explanation("Every pairwise distance between contigs is calculated based on the similarity of \
@@ -157,7 +155,7 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &Vec<Sequence>, fil
 }
 
 
-fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Sequence>,
+fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &[Sequence],
                         file_path: &Path) {
     eprintln!("Saving distance matrix:");
     let mut f = File::create(file_path).unwrap();
@@ -175,7 +173,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &Vec<Se
 
 
 fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
-                              sequences: &Vec<Sequence>) -> HashMap<(u16, u16), f64> {
+                              sequences: &[Sequence]) -> HashMap<(u16, u16), f64> {
     // This function takes in an asymmetrical distance matrix (where A vs B is not necessarily
     // equal to B vs A) and makes it symmetric by setting each distance (both orders) to the
     // maximum distance of the two orders.
@@ -206,31 +204,18 @@ impl TreeNode {
     }
 
     fn max_pairwise_distance(&self, node_num: u16) -> f64 {
-        // This method is run on the root of the tree, and it returns the distance for the given
-        // node. The distance is doubled because this function returns the max pairwise distance
-        // within the clade, not the node-to-tip-distance.
-        if self.id == node_num { return self.distance * 2.0; }
-        if self.is_tip() { return -1.0; }  // -1 means the node_num wasn't found
-        let left_dist = self.left.as_ref().unwrap().max_pairwise_distance(node_num);
-        let right_dist = self.right.as_ref().unwrap().max_pairwise_distance(node_num);
-        left_dist.max(right_dist)
+        self.find_node(node_num).map_or(-1.0, |node| node.distance * 2.0)
     }
 
     fn automatic_clustering(&self, cutoff: f64) -> Vec<u16> {
-        // This method is run on the root of the tree, and it divides the tree into clusters using
-        // only the cutoff distance. 
-        let mut clusters = Vec::new();
-        self.collect_clusters(cutoff / 2.0, &[], &mut clusters);
-        clusters.sort();
-        clusters
+        self.manual_clustering(cutoff, &[])
     }
 
     fn manual_clustering(&self, cutoff: f64, manual_clusters: &[u16]) -> Vec<u16> {
-        // This method is run on the root of the tree, and it divides the tree into clusters. Any
-        // manual clusters specified by the user are included in the final clusters, and the rest
-        // of the tree is clustered by distance.
         let mut clusters = Vec::new();
-        self.check_consistency(manual_clusters);
+        if !manual_clusters.is_empty() {
+            self.check_consistency(manual_clusters);
+        }
         self.collect_clusters(cutoff / 2.0, manual_clusters, &mut clusters);
         clusters.sort();
         clusters
@@ -238,7 +223,7 @@ impl TreeNode {
 
     fn collect_clusters(&self, cutoff: f64, manual_clusters: &[u16], clusters: &mut Vec<u16>) {
         if manual_clusters.contains(&self.id) ||
-                (self.distance <= cutoff && !self.has_manual_child(manual_clusters)) {
+                (self.distance <= cutoff && !self.contains_manual_cluster(manual_clusters)) {
             clusters.push(self.id);
         } else if !self.is_tip() {
             self.left.as_ref().unwrap().collect_clusters(cutoff, manual_clusters, clusters);
@@ -246,23 +231,18 @@ impl TreeNode {
         }
     }
 
-    fn has_manual_child(&self, manual_clusters: &[u16]) -> bool {
-        // Returns true if this node is in the user-specified manual clusters or any of its
-        // children are.
-        if manual_clusters.contains(&self.id) { return true; }
-        if !self.is_tip() {
-            if self.left.as_ref().unwrap().has_manual_child(manual_clusters) { return true; }
-            if self.right.as_ref().unwrap().has_manual_child(manual_clusters) { return true; }
-        }
-        false
+    fn contains_manual_cluster(&self, manual_clusters: &[u16]) -> bool {
+        manual_clusters.contains(&self.id) || (!self.is_tip() &&
+            (self.left.as_ref().unwrap().contains_manual_cluster(manual_clusters) ||
+             self.right.as_ref().unwrap().contains_manual_cluster(manual_clusters)))
     }
 
     fn check_consistency(&self, manual_clusters: &[u16]) {
         // Ensures that no manual cluster is contained within another manual cluster.
         if !self.is_tip() {
             if manual_clusters.contains(&self.id) &&
-                    (self.left.as_ref().unwrap().has_manual_child(manual_clusters) ||
-                     self.right.as_ref().unwrap().has_manual_child(manual_clusters)) {
+                    (self.left.as_ref().unwrap().contains_manual_cluster(manual_clusters) ||
+                     self.right.as_ref().unwrap().contains_manual_cluster(manual_clusters)) {
                 quit_with_error("manual clusters cannot be nested");
             }
             self.left.as_ref().unwrap().check_consistency(manual_clusters);
@@ -271,18 +251,11 @@ impl TreeNode {
     }
 
     fn get_tips(&self, node_num: u16) -> Vec<u16> {
-        // This method is run on the root of the tree, and it returns the node IDs of the tips under
-        // the given node.
-        if self.id == node_num {
-            let mut tips = Vec::new();
-            self.collect_tips(&mut tips);
-            return tips;
+        let mut tips = Vec::new();
+        if let Some(node) = self.find_node(node_num) {
+            node.collect_tips(&mut tips);
         }
-        if self.is_tip() { return vec![]; }
-        let mut left_tips =  self.left.as_ref().unwrap().get_tips(node_num);
-        let right_tips =  self.right.as_ref().unwrap().get_tips(node_num);
-        left_tips.extend(right_tips);
-        left_tips
+        tips
     }
 
     fn collect_tips(&self, tips: &mut Vec<u16>) {
@@ -295,13 +268,11 @@ impl TreeNode {
     }
 
     fn check_complete_coverage(&self, clusters: &[u16]) {
-        // This method is run on the root of the tree, and it ensures that the given clusters nicely
-        // cover the entire tree, i.e. every tip is in one and only one cluster.
+        // Every tip must belong to exactly one cluster.
         let all_tips: HashSet<u16> = self.get_tips(self.id).into_iter().collect();
         let mut covered_tips = HashSet::new();
         for &c in clusters {
-            let cluster_tips = self.get_tips(c);
-            for tip in cluster_tips {
+            for tip in self.get_tips(c) {
                 if !covered_tips.insert(tip) { panic!("overlap detected"); }
             }
         }
@@ -309,21 +280,15 @@ impl TreeNode {
     }
 
     fn split_clusters(&self, clusters: &[u16]) -> Vec<Vec<u16>> {
-        // This method is run on the root of the tree, and given a clustering, it returns all
-        // possible clusterings where a splitable cluster has been split.
+        // Each alternative splits one cluster into its two children.
         self.check_complete_coverage(clusters);
         let mut result = Vec::new();
 
         for &cluster in clusters {
             let node = self.find_node(cluster).unwrap();
             if !node.is_tip() {
-                // Create a new clustering with this cluster split into its children
-                let mut new_cluster = Vec::new();
-                for &other_cluster in clusters {
-                    if other_cluster != cluster {
-                        new_cluster.push(other_cluster);
-                    }
-                }
+                let mut new_cluster: Vec<_> = clusters.iter().copied()
+                    .filter(|&other| other != cluster).collect();
                 new_cluster.push(node.left.as_ref().unwrap().id);
                 new_cluster.push(node.right.as_ref().unwrap().id);
                 new_cluster.sort();
@@ -335,28 +300,11 @@ impl TreeNode {
     }
 
     fn find_node(&self, node_num: u16) -> Option<&TreeNode> {
-        // Given a number, this method will search for a node with the matching number, and return
-        // a reference to that node if found.
         if self.id == node_num { return Some(self); }
         if self.is_tip() { return None; }
-        let left_result = self.left.as_ref().unwrap().find_node(node_num);
-        if let Some(left_node) = left_result { return Some(left_node); }
-        let right_result = self.right.as_ref().unwrap().find_node(node_num);
-        if let Some(right_node) = right_result { return Some(right_node); }
-        None
+        self.left.as_ref().unwrap().find_node(node_num)
+            .or_else(|| self.right.as_ref().unwrap().find_node(node_num))
     }
-}
-
-
-fn find_node_by_id(node: &TreeNode, id: u16) -> Option<&TreeNode> {
-    if node.id == id { return Some(node); }
-    if let Some(ref left) = node.left {
-        if let Some(found) = find_node_by_id(left, id) { return Some(found); }
-    }
-    if let Some(ref right) = node.right {
-        if let Some(found) = find_node_by_id(right, id) { return Some(found); }
-    }
-    None
 }
 
 
@@ -387,12 +335,12 @@ fn tree_to_newick(node: &TreeNode, index: &HashMap<u16, &Sequence>) -> String {
                                        right_str, node.distance - right.distance,
                                        node.id)
         }
-        _ => index.get(&node.id).unwrap().string_for_newick().to_string(),
+        _ => index[&node.id].string_for_newick(),
     }
 }
 
 
-fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) -> TreeNode {
+fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &[Sequence]) -> TreeNode {
     section_header("Clustering sequences");
     explanation("Contigs are organised into a tree using UPGMA. Then clusters are defined from the \
                  tree using the distance cutoff.");
@@ -401,14 +349,12 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) ->
     let mut nodes: HashMap<u16, TreeNode> = HashMap::new();
     let mut internal_node_num: u16 = sequences.iter().map(|s| s.id).max().unwrap();
 
-    // Initialise each sequence as its own cluster and create initial nodes.
     for seq in sequences {
         clusters.insert(seq.id, HashSet::from([seq.id]));
         nodes.insert(seq.id, TreeNode { id: seq.id, ..Default::default() });
     }
 
     while clusters.len() > 1 {
-        // Find the closest pair of clusters.
         let (a, b, a_b_distance) = get_closest_pair(&cluster_distances);
         let cluster_a = clusters.remove(&a).unwrap();
         let cluster_b = clusters.remove(&b).unwrap();
@@ -416,9 +362,8 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) ->
         let mut new_cluster = HashSet::new();
         new_cluster.extend(cluster_a.iter());
         new_cluster.extend(cluster_b.iter());
-        clusters.insert(new_id, new_cluster.clone());
+        clusters.insert(new_id, new_cluster);
 
-        // Create a new tree node for the merged cluster.
         internal_node_num += 1;
         let new_node = TreeNode {
             id: internal_node_num,
@@ -428,33 +373,32 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &mut Vec<Sequence>) ->
         };
         nodes.insert(new_id, new_node);
 
-        // Update distances between the new cluster and remaining clusters.
-        let mut new_distances = HashMap::new();
-        for (&(a, b), &dist) in cluster_distances.iter() {
-            if clusters.contains_key(&a) && clusters.contains_key(&b) {
-                new_distances.insert((a, b), dist);
-            }
-        }
+        cluster_distances = cluster_distances.into_iter()
+            .filter(|((a, b), _)| clusters.contains_key(a) && clusters.contains_key(b)).collect();
         for &other_id in clusters.keys() {
             if other_id != new_id {
-                let mut avg_dist = 0.0;
-                let mut count = 0;
-                for &id1 in new_cluster.iter() {
-                    for &id2 in clusters[&other_id].iter() {
-                        let dist = *distances.get(&(id1, id2)).unwrap_or(&distances[&(id2, id1)]);
-                        avg_dist += dist;
-                        count += 1;
-                    }
-                }
-                avg_dist /= count as f64;
-                new_distances.insert((new_id, other_id), avg_dist);
-                new_distances.insert((other_id, new_id), avg_dist);
+                let distance = mean_cluster_distance(&clusters[&new_id], &clusters[&other_id], distances);
+                cluster_distances.insert((new_id, other_id), distance);
+                cluster_distances.insert((other_id, new_id), distance);
             }
         }
-        cluster_distances = new_distances;
     }
 
-    nodes.into_iter().next().unwrap().1  // return the root of the tree
+    nodes.into_values().next().unwrap()
+}
+
+
+fn mean_cluster_distance(cluster_a: &HashSet<u16>, cluster_b: &HashSet<u16>,
+                         distances: &HashMap<(u16, u16), f64>) -> f64 {
+    let mut total = 0.0;
+    let mut count = 0;
+    for &a in cluster_a {
+        for &b in cluster_b {
+            total += distances.get(&(a, b)).unwrap_or(&distances[&(b, a)]);
+            count += 1;
+        }
+    }
+    total / count as f64
 }
 
 
@@ -462,7 +406,7 @@ fn get_closest_pair(distances: &HashMap<(u16, u16), f64>) -> (u16, u16, f64) {
     let mut min_distance = f64::INFINITY;
     let mut closest_pair = (0, 0);
 
-    let mut unique_keys: Vec<u16> = distances.keys().flat_map(|&(a, b)| vec![a, b]).collect();
+    let mut unique_keys: Vec<u16> = distances.keys().flat_map(|&(a, b)| [a, b]).collect();
     unique_keys.sort_unstable();
     unique_keys.dedup();
 
@@ -494,7 +438,7 @@ fn scale_node_distance(node: &mut TreeNode, scaling_factor: f64) {
 }
 
 
-fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+fn generate_clusters(tree: &TreeNode, sequences: &mut [Sequence],
                      distances: &HashMap<(u16, u16), f64>, cutoff: f64, min_assemblies: usize,
                      manual_clusters: &[u16]) -> HashMap<u16, ClusterQC> {
     let clusters = if manual_clusters.is_empty() {
@@ -508,21 +452,35 @@ fn generate_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
 }
 
 
-fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashMap<(u16, u16), f64>,
-               cluster_nodes: &Vec<u16>, manual_clusters: &[u16], cutoff: f64,
+fn qc_clusters(tree: &TreeNode, sequences: &mut [Sequence], distances: &HashMap<(u16, u16), f64>,
+               cluster_nodes: &[u16], manual_clusters: &[u16], cutoff: f64,
                min_assemblies: usize) -> HashMap<u16, ClusterQC> {
-    // Given a set of node numbers for the tree which define clusters, this function returns the
-    // QC-results HashMap which defines which clusters pass and fail QC. Input contigs can be
-    // flagged as trusted (by containing 'Autocycler_trusted' in their header), and any cluster with
-    // a trusted contig will always pass QC.
+    let mut qc_results = initialise_cluster_qc(tree, sequences, cluster_nodes, manual_clusters);
+    if !manual_clusters.is_empty() { return qc_results; }
 
-    // Create the ClusterQC object for each cluster. If using manual clustering, the clusters will
-    // fail if they aren't included in the user-supplied clusters. If using automatic clustering,
-    // all clusters will initially pass.
+    // Finish the assembly-count checks before looking for passing clusters that contain others.
+    let max_cluster = get_max_cluster(sequences);
+    for c in 1..=max_cluster {
+        if cluster_assembly_count(sequences, c) < min_assemblies && !cluster_is_trusted(sequences, c) {
+            qc_results.get_mut(&c).unwrap().failure_reasons.push("present in too few assemblies".to_string());
+        }
+    }
+    for c in 1..=max_cluster {
+        let container = cluster_is_contained_in_another(c, sequences, distances, cutoff, &qc_results);
+        if container > 0 && !cluster_is_trusted(sequences, c) {
+            qc_results.get_mut(&c).unwrap().failure_reasons.push(format!("contained within cluster {container}"));
+        }
+    }
+    qc_results
+}
+
+
+fn initialise_cluster_qc(tree: &TreeNode, sequences: &mut [Sequence], cluster_nodes: &[u16],
+                          manual_clusters: &[u16]) -> HashMap<u16, ClusterQC> {
     let mut current_cluster = 0;
     let mut qc_results = HashMap::new();
     for n in cluster_nodes {
-        if let Some(node) = find_node_by_id(tree, *n) {
+        if let Some(node) = tree.find_node(*n) {
             current_cluster += 1;
             assign_cluster_to_node(node, sequences, current_cluster);
             let mut qc = ClusterQC::new(tree.max_pairwise_distance(*n));
@@ -535,81 +493,41 @@ fn qc_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>, distances: &HashM
         }
     }
 
-    // Reorder clusters from large to small.
     let old_to_new = reorder_clusters(sequences);
-    let mut reordered_qc_results = HashMap::new();
-    for (old_key, qc) in qc_results {
-        if let Some(&new_key) = old_to_new.get(&old_key) {
-            reordered_qc_results.insert(new_key, qc);
-        }
-    }
-    qc_results = reordered_qc_results;
-
-    // If using automatic clustering, clusters are now failed for being contained in other clusters
-    // or appearing in too few input assemblies. If a cluster contains a trusted contig, it will
-    // not fail QC for any reason.
-    if manual_clusters.is_empty() {
-        let max_cluster = get_max_cluster(sequences);
-        for c in 1..=max_cluster {
-            let assembly_count = cluster_assembly_count(sequences, c);
-            if assembly_count < min_assemblies && !cluster_is_trusted(sequences, c) {
-                let fail_reason = "present in too few assemblies".to_string();
-                qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
-            }
-        }
-        for c in 1..=max_cluster {
-            let container = cluster_is_contained_in_another(c, sequences, distances, cutoff,
-                                                            &qc_results);
-            if container > 0 && !cluster_is_trusted(sequences, c) {
-                let fail_reason = format!("contained within cluster {container}");
-                qc_results.get_mut(&c).unwrap().failure_reasons.push(fail_reason);
-            }
-        }
-    }
-    qc_results
+    qc_results.into_iter().filter_map(|(old, qc)| old_to_new.get(&old).map(|&new| (new, qc))).collect()
 }
 
 
 fn cluster_assembly_count(sequences: &[Sequence], c: u16) -> usize {
-    // For a given cluster, this function counts the number of assemblies that have a sequence in
-    // that cluster. If 'Autocycler_cluster_weight' is in the sequence header, then that value will
-    // scale the assembly count.
-    let mut assembly_weights: HashMap<String, usize> = HashMap::new();
+    // Each assembly contributes the largest weight among its contigs in this cluster.
+    let mut assembly_weights: HashMap<&str, usize> = HashMap::new();
     for seq in sequences.iter().filter(|s| s.cluster == c) {
         let weight = seq.cluster_weight();
-        assembly_weights.entry(seq.filename.clone()).and_modify(|existing| {
-                if weight > *existing { *existing = weight; }
-            }).or_insert(weight);
+        assembly_weights.entry(&seq.filename)
+            .and_modify(|existing| *existing = (*existing).max(weight)).or_insert(weight);
     }
     assembly_weights.values().sum()
 }
 
 
 fn cluster_is_trusted(sequences: &[Sequence], c: u16) -> bool {
-    // This function checks if the cluster is trusted, i.e. it contains at least one sequence with
-    // "Autocycler_trusted" in its contig header.
     sequences.iter().any(|s| s.cluster == c && s.is_trusted())
 }
 
 
-fn score_clustering(tree: &TreeNode, sequences: &mut Vec<Sequence>,
-                    distances: &HashMap<(u16, u16), f64>, clusters: &Vec<u16>, cutoff: f64,
+fn score_clustering(tree: &TreeNode, sequences: &mut [Sequence],
+                    distances: &HashMap<(u16, u16), f64>, clusters: &[u16], cutoff: f64,
                     min_assemblies: usize) -> f64 {
-    // Given a set of node numbers for the tree which define clusters, this function returns the
-    // overall score for that clustering (higher is better).
     let qc_results = qc_clusters(tree, sequences, distances, clusters, &[], cutoff,
                                  min_assemblies);
-    let metrics = clustering_metrics(sequences, &qc_results);
-    metrics.overall_clustering_score
+    clustering_metrics(sequences, &qc_results).overall_clustering_score
 }
 
 
-fn refine_auto_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
+fn refine_auto_clusters(tree: &TreeNode, sequences: &mut [Sequence],
                         distances: &HashMap<(u16, u16), f64>, clusters: &[u16], cutoff: f64,
                         min_assemblies: usize) -> Vec<u16> {
-    // Given a set of node numbers for the tree which define clusters, this function tries to
-    // improve the clustering by splitting each cluster and checking if the score gets better,
-    // repeating until no improvements can be made.
+    // Keep splitting clusters while the score improves.
     let mut best_clusters = clusters.to_vec();
     let mut best_score = score_clustering(tree, sequences, distances, &best_clusters, cutoff,
                                           min_assemblies);
@@ -630,8 +548,7 @@ fn refine_auto_clusters(tree: &TreeNode, sequences: &mut Vec<Sequence>,
 }
 
 
-fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluster: u16) {
-    // This function assigns all sequences under a given node to the given cluster.
+fn assign_cluster_to_node(node: &TreeNode, sequences: &mut [Sequence], cluster: u16) {
     for s in sequences.iter_mut() {
         if s.id == node.id {
             s.cluster = cluster;
@@ -643,9 +560,7 @@ fn assign_cluster_to_node(node: &TreeNode, sequences: &mut Vec<Sequence>, cluste
 
 
 fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequence]) -> usize {
-    // This function automatically sets the --min_assemblies parameter, if the user didn't
-    // explicitly supply one. The auto-set value will be one-quarter of the assembly count (rounded)
-    // but no less than 2, unless there is only one input assembly, in which case it will be 1.
+    // Default to one-quarter of the assemblies, with a minimum of two (one for a single assembly).
     if let Some(min_assemblies) = min_assemblies_option {
         return min_assemblies;
     }
@@ -653,11 +568,7 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequenc
     if assembly_count == 1 {
         return 1;
     }
-    let mut min_assemblies = usize_division_rounded(assembly_count, 4);
-    if min_assemblies < 2 {
-        min_assemblies = 2;
-    }
-    min_assemblies
+    usize_division_rounded(assembly_count, 4).max(2)
 }
 
 
@@ -685,7 +596,6 @@ impl ClusterQC {
         }
     }
     pub fn pass(&self) -> bool { self.failure_reasons.is_empty() }
-    pub fn fail(&self) -> bool { !self.failure_reasons.is_empty() }
 }
 
 
@@ -696,8 +606,7 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &[Sequence],
     // If so, it returns the id of the containing cluster. If not, it returns 0.
     // A cluster counts as contained if the majority of the pairwise comparisons to another cluster
     // are asymmetrical and below the cutoff.
-    let passed_clusters: Vec<u16> = qc_results.iter().filter(|(_, q)| q.pass())
-                                              .map(|(&k, _)| k).collect();
+    let passed_clusters = qc_results.iter().filter(|(_, q)| q.pass()).map(|(&k, _)| k);
     for passed_cluster in passed_clusters {
         if passed_cluster == cluster_num {
             continue;
@@ -725,69 +634,50 @@ fn cluster_is_contained_in_another(cluster_num: u16, sequences: &[Sequence],
 
 fn save_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
                  clustering_dir: &Path, gfa_lines: &[String]) {
-    let pass_dir = clustering_dir.join("qc_pass");
-    let fail_dir = clustering_dir.join("qc_fail");
-    save_qc_pass_clusters(sequences, qc_results, gfa_lines, &pass_dir);
-    save_qc_fail_clusters(sequences, qc_results, gfa_lines, &fail_dir);
+    for (passing, dirname) in [(true, "qc_pass"), (false, "qc_fail")] {
+        let qc_dir = clustering_dir.join(dirname);
+        for c in 1..=get_max_cluster(sequences) {
+            let qc = &qc_results[&c];
+            if qc.pass() == passing {
+                save_cluster(sequences, c, qc, gfa_lines, &qc_dir.join(format!("cluster_{c:03}")));
+            }
+        }
+    }
 }
 
 
-fn save_qc_pass_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &[String], pass_dir: &Path) {
-    for c in 1..=get_max_cluster(sequences) {
-        let qc = qc_results.get(&c).unwrap();
+fn save_cluster(sequences: &[Sequence], cluster: u16, qc: &ClusterQC, gfa_lines: &[String],
+                 cluster_dir: &Path) {
+    eprintln!("Cluster {cluster:03}:");
+    let mut seq_lengths = Vec::new();
+    for seq in sequences.iter().filter(|s| s.cluster == cluster) {
         if qc.pass() {
-            eprintln!("Cluster {c:03}:");
-            let mut seq_count = 0;
-            let mut seq_lengths = Vec::new();
-            for s in sequences.iter().filter(|s| s.cluster == c) {
-                eprintln!("  {s}");
-                seq_count += 1;
-                seq_lengths.push(s.length);
-            }
-            if seq_count > 1 {
-                eprintln!("  cluster distance: {}", format_float(qc.cluster_dist));
-            }
-            eprintln!("{}", "  passed QC".green());
-            let cluster_dir = pass_dir.join(format!("cluster_{c:03}"));
-            create_dir(&cluster_dir);
-            save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
-            save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
-                                           cluster_dir.join("1_untrimmed.yaml"));
-            eprintln!();
+            eprintln!("  {seq}");
+        } else {
+            eprintln!("  {}", seq.to_string().dimmed());
+        }
+        seq_lengths.push(seq.length);
+    }
+    if seq_lengths.len() > 1 {
+        let message = format!("cluster distance: {}", format_float(qc.cluster_dist));
+        if qc.pass() {
+            eprintln!("  {message}");
+        } else {
+            eprintln!("  {}", message.dimmed());
         }
     }
-}
-
-
-fn save_qc_fail_clusters(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
-                         gfa_lines: &[String], fail_dir: &Path) {
-    for c in 1..=get_max_cluster(sequences) {
-        let qc = qc_results.get(&c).unwrap();
-        if qc.fail() {
-            eprintln!("Cluster {c:03}:");
-            let mut seq_count = 0;
-            let mut seq_lengths = Vec::new();
-            for s in sequences.iter().filter(|s| s.cluster == c) {
-                eprintln!("  {}", s.to_string().dimmed());
-                seq_count += 1;
-                seq_lengths.push(s.length);
-            }
-            if seq_count > 1 {
-                let s = format!("cluster distance: {}", format_float(qc.cluster_dist));
-                eprintln!("  {}", s.to_string().dimmed());
-            }
-            for f in &qc.failure_reasons {
-                eprintln!("  {}", format!("failed QC: {f}").red());
-            }
-            let cluster_dir = fail_dir.join(format!("cluster_{c:03}"));
-            create_dir(&cluster_dir);
-            save_cluster_gfa(sequences, c, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
-            save_untrimmed_cluster_metrics(seq_lengths, qc.cluster_dist,
-                                           cluster_dir.join("1_untrimmed.yaml"));
-            eprintln!();
+    if qc.pass() {
+        eprintln!("{}", "  passed QC".green());
+    } else {
+        for reason in &qc.failure_reasons {
+            eprintln!("  {}", format!("failed QC: {reason}").red());
         }
     }
+    create_dir(cluster_dir);
+    save_cluster_gfa(sequences, cluster, gfa_lines, cluster_dir.join("1_untrimmed.gfa"));
+    let metrics = UntrimmedClusterMetrics::new(seq_lengths, qc.cluster_dist);
+    metrics.save_to_yaml(&cluster_dir.join("1_untrimmed.yaml"));
+    eprintln!();
 }
 
 
@@ -822,14 +712,7 @@ fn filter_gfa_lines(gfa_lines: &[String], paths_to_remove: &[u16]) -> Vec<String
 }
 
 
-fn save_untrimmed_cluster_metrics(seq_lengths: Vec<usize>, cluster_dist: f64,
-                                  cluster_yaml: PathBuf) {
-    let metrics = UntrimmedClusterMetrics::new(seq_lengths, cluster_dist);
-    metrics.save_to_yaml(&cluster_yaml);
-}
-
-
-fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>,
+fn save_data_to_tsv(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>,
                     file_path: &Path) {
     let mut file = File::create(file_path).unwrap();
     writeln!(file, "node_name\tpassing_clusters\tall_clusters\tsequence_id\t\
@@ -838,18 +721,17 @@ fn save_data_to_tsv(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Cluster
     for seq in sequences {
         assert!(seq.cluster != 0);
         let qc = qc_results.get(&seq.cluster).unwrap();
-        let all_cluster = format!("{}", seq.cluster);
-        let pass_cluster = if qc.pass() { format!("{}", seq.cluster) }
+        let pass_cluster = if qc.pass() { seq.cluster.to_string() }
                                    else { "none".to_string() };
         writeln!(file, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                 seq.string_for_newick(), pass_cluster, all_cluster, seq.id, seq.filename,
+                 seq.string_for_newick(), pass_cluster, seq.cluster, seq.id, seq.filename,
                  seq.contig_name(), seq.length, seq.is_trusted(), seq.cluster_weight(),
                  seq.consensus_weight()).unwrap();
     }
 }
 
 
-fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, ClusterQC>)
+fn clustering_metrics(sequences: &[Sequence], qc_results: &HashMap<u16, ClusterQC>)
         -> ClusteringMetrics {
     let mut metrics = ClusteringMetrics::default();
     let mut cluster_filenames = HashMap::new();
@@ -879,25 +761,18 @@ fn clustering_metrics(sequences: &Vec<Sequence>, qc_results: &HashMap<u16, Clust
 }
 
 
-fn reorder_clusters(sequences: &mut Vec<Sequence>) -> HashMap<u16, u16>{
+fn reorder_clusters(sequences: &mut [Sequence]) -> HashMap<u16, u16> {
     // Reorder clusters based on their median sequence length (large to small). Returns the mapping
     // of old cluster numbers to new cluster numbers.
-    let mut cluster_lengths = HashMap::new();
-    for c in 1..=get_max_cluster(sequences) {
+    let mut cluster_lengths: Vec<_> = (1..=get_max_cluster(sequences)).map(|c| {
         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-        cluster_lengths.insert(c, median_usize(&lengths));
-    }
-    let mut sorted_cluster_lengths: Vec<_> = cluster_lengths.iter().collect();
-    sorted_cluster_lengths.sort_by(|a, b| {match b.1.cmp(a.1) {std::cmp::Ordering::Equal => a.0.cmp(b.0), other => other,}});
-    let mut old_to_new = HashMap::new();
-    let mut new_c: u16 = 0;
-    for (old_c, _length) in sorted_cluster_lengths {
-        new_c += 1;
-        old_to_new.insert(*old_c, new_c);
-    }
-    for s in sequences {
-        if s.cluster < 1 {continue;}
-        s.cluster = *old_to_new.get(&s.cluster).unwrap();
+        (c, median_usize(&lengths))
+    }).collect();
+    cluster_lengths.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let old_to_new: HashMap<_, _> = cluster_lengths.iter().enumerate()
+        .map(|(i, &(old, _))| (old, (i + 1) as u16)).collect();
+    for seq in sequences.iter_mut().filter(|s| s.cluster != 0) {
+        seq.cluster = old_to_new[&seq.cluster];
     }
     old_to_new
 }
@@ -949,9 +824,46 @@ mod tests {
     }
 
     #[test]
+    fn test_get_closest_pair_ties_and_reverse_distances() {
+        let distances = HashMap::from([
+            ((1, 1), 0.0), ((3, 1), 0.2), ((2, 1), 0.2), ((2, 3), 0.2),
+        ]);
+        assert_eq!(get_closest_pair(&distances), (1, 2, 0.2));
+        let mut distances = distances;
+        distances.insert((1, 2), 0.4);
+        assert_eq!(get_closest_pair(&distances), (1, 3, 0.2));
+    }
+
+    #[test]
+    fn test_qc_clusters_automatic_and_manual() {
+        let tree = test_tree_1();
+        let mut sequences = vec![
+            Sequence::new_without_seq(1, "a".into(), "a Autocycler_cluster_weight=2".into(), 100, 0),
+            Sequence::new_without_seq(2, "b".into(), "b Autocycler_trusted".into(), 100, 0),
+            Sequence::new_without_seq(3, "a".into(), "c".into(), 40, 0),
+            Sequence::new_without_seq(4, "b".into(), "d".into(), 10, 0),
+            Sequence::new_without_seq(5, "c".into(), "e".into(), 10, 0),
+        ];
+        let mut distances: HashMap<_, _> = (1..=5).flat_map(|a| (1..=5)
+            .map(move |b| ((a, b), if a == b { 0.0 } else { 1.0 }))).collect();
+        distances.insert((3, 1), 0.0);
+        let clusters = vec![1, 2, 3, 6];
+        let qc = qc_clusters(&tree, &mut sequences, &distances, &clusters, &[], 0.2, 2);
+        assert_eq!(sequences.iter().map(|s| s.cluster).collect::<Vec<_>>(), vec![1, 2, 3, 4, 4]);
+        assert!(qc[&1].pass() && qc[&2].pass() && qc[&4].pass());
+        assert_eq!(qc[&3].failure_reasons,
+                   vec!["present in too few assemblies", "contained within cluster 1"]);
+        assert_eq!(qc[&4].cluster_dist, 0.2);
+
+        let qc = qc_clusters(&tree, &mut sequences, &distances, &clusters, &[1, 3, 6], 0.2, 2);
+        assert!(qc[&1].pass() && qc[&3].pass() && qc[&4].pass());
+        assert_eq!(qc[&2].failure_reasons, vec!["not included in manual clusters"]);
+    }
+
+    #[test]
     fn test_upgma_1() {
         // Uses example from https://en.wikipedia.org/wiki/UPGMA
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
+        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
                                  Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
                                  Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1, 1),
                                  Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1, 1),
@@ -961,7 +873,7 @@ mod tests {
                                                 ((3, 1), 21.0), ((3, 2), 30.0), ((3, 3), 00.0), ((3, 4), 28.0), ((3, 5), 39.0),
                                                 ((4, 1), 31.0), ((4, 2), 34.0), ((4, 3), 28.0), ((4, 4), 00.0), ((4, 5), 43.0),
                                                 ((5, 1), 23.0), ((5, 2), 21.0), ((5, 3), 39.0), ((5, 4), 43.0), ((5, 5), 00.0)]);
-        let mut root = upgma(&distances, &mut sequences);
+        let mut root = upgma(&distances, &sequences);
         assert_almost_eq(root.distance, 16.5, 1e-8);
 
         let index: HashMap<u16, &Sequence> = sequences.iter().map(|s| (s.id, s)).collect();
@@ -974,7 +886,7 @@ mod tests {
 
     #[test]
     fn test_upgma_2() {
-        let mut sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
+        let sequences = vec![Sequence::new_with_seq(1, "A".to_string(), "a".to_string(), "a".to_string(), 1, 1),
                                  Sequence::new_with_seq(2, "A".to_string(), "b".to_string(), "b".to_string(), 1, 1),
                                  Sequence::new_with_seq(3, "A".to_string(), "c".to_string(), "c".to_string(), 1, 1),
                                  Sequence::new_with_seq(4, "A".to_string(), "d".to_string(), "d".to_string(), 1, 1)];
@@ -982,7 +894,7 @@ mod tests {
                                                 ((2, 1), 0.1), ((2, 2), 0.0), ((2, 3), 0.5), ((2, 4), 0.5),
                                                 ((3, 1), 0.5), ((3, 2), 0.5), ((3, 3), 0.0), ((3, 4), 0.2),
                                                 ((4, 1), 0.5), ((4, 2), 0.5), ((4, 3), 0.2), ((4, 4), 0.0)]);
-        let mut root = upgma(&distances, &mut sequences);
+        let mut root = upgma(&distances, &sequences);
         normalise_tree(&mut root);
         assert_almost_eq(root.distance, 0.25, 1e-8);
 
@@ -1089,11 +1001,11 @@ mod tests {
     }
 
     #[test]
-    fn test_has_manual_child() {
+    fn test_contains_manual_cluster() {
         let tree = test_tree_1();
-        assert!(!tree.has_manual_child(&[]));
-        for n in 1..=9   { assert!( tree.has_manual_child(&[n])); }
-        for n in 10..=19 { assert!(!tree.has_manual_child(&[n])); }
+        assert!(!tree.contains_manual_cluster(&[]));
+        for n in 1..=9   { assert!( tree.contains_manual_cluster(&[n])); }
+        for n in 10..=19 { assert!(!tree.contains_manual_cluster(&[n])); }
     }
 
     #[test]
