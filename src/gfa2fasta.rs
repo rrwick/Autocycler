@@ -63,9 +63,8 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
             other_count += 1;
             ""
         };
-        writeln!(fasta_file, ">{} length={} depth={:.1}{}", unitig.number, unitig.length(),
+        writeln!(fasta_file, ">{} length={} depth={:.1}{}\n{seq}", unitig.number, unitig.length(),
                  unitig.depth, topology).unwrap();
-        writeln!(fasta_file, "{seq}").unwrap();
     }
     for (count, topology) in [(circ_count, "circular"), (linear_count, "linear"), (other_count, "other")] {
         eprintln!("{count} {topology} sequence{}", if count == 1 { "" } else { "s" });

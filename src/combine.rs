@@ -143,9 +143,6 @@ fn finished_message(combined_gfa: &Path, combined_fasta: &Path, metrics: &Combin
 
 
 fn load_clusters(in_gfas: &[PathBuf]) -> Vec<UnitigGraph> {
-    // Loads each of the input GFAs, sorted in order of decreasing size. They are probably already
-    // in this order (from the clustering step), but not necessarily (e.g. due to small plasmid
-    // duplication).
     section_header("Loading clusters");
     explanation("Each of the input cluster graphs is now loaded and sorted by size.");
     let mut clusters: Vec<_> = in_gfas.iter().map(|gfa| {
@@ -218,7 +215,6 @@ fn write_unitig(unitig: &Unitig, number: u32, read_depths: bool,
     };
     let colour_tag = unitig.colour_tag(true);
     writeln!(gfa_file, "S\t{number}\t{sequence}\tDP:f:{depth:.2}{colour_tag}").unwrap();
-    writeln!(fasta_file, ">{} length={}{}{}", number, unitig.length(), depth_header,
+    writeln!(fasta_file, ">{} length={}{}{}\n{sequence}", number, unitig.length(), depth_header,
              topology).unwrap();
-    writeln!(fasta_file, "{sequence}").unwrap();
 }

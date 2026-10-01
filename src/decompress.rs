@@ -94,8 +94,7 @@ fn write_sequences(writer: impl Write, headers_seqs: &[(String, String)]) {
     let mut writer = BufWriter::new(writer);
     for (header, seq) in headers_seqs {
         eprintln!("  {} ({} bp)", up_to_first_space(header), seq.len());
-        writeln!(writer, ">{header}").unwrap();
-        writeln!(writer, "{seq}").unwrap();
+        writeln!(writer, ">{header}\n{seq}").unwrap();
     }
 }
 
@@ -113,8 +112,7 @@ fn save_original_seqs_to_file(out_file: &Path, unitig_graph: &UnitigGraph,
         let clean_filename = filename.replace(' ', "_");
         for (header, seq) in &headers_seqs {
             eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(header), seq.len());
-            writeln!(buf_writer, ">{clean_filename}__{header}").unwrap();
-            writeln!(buf_writer, "{seq}").unwrap();
+            writeln!(buf_writer, ">{clean_filename}__{header}\n{seq}").unwrap();
         }
     }
     eprintln!();

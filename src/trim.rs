@@ -247,10 +247,6 @@ fn save_metrics(trimmed_yaml: &Path, sequences: &[Sequence]) {
 
 
 fn path_to_tuples(path: &[i32]) -> Vec<(u32, bool)> {
-    // Paths can be represented either as a vector of tuples or as vector of signed integers:
-    //   [(1, true), (2, false), (3, true)]
-    //   [1, -2, 3]
-    // This function converts the latter to the former.
     path.iter().map(|p| if *p > 0 {(*p as u32, true)} else {(-*p as u32, false)}).collect()
 }
 
@@ -301,6 +297,13 @@ struct AlignmentPiece {
     a_index: usize,
     b_unitig: i32,
     b_index: usize,
+}
+
+impl AlignmentPiece {
+    fn weight(&self, weights: &HashMap<i32, u32>) -> u32 {
+        let length = |unitig: i32| if unitig == GAP { 0 } else { weights[&unitig.abs()] };
+        length(self.a_unitig) + length(self.b_unitig)
+    }
 }
 
 impl fmt::Display for AlignmentPiece {
@@ -424,23 +427,13 @@ fn alignment_identity(alignment: &VecDeque<AlignmentPiece>, weights: &HashMap<i3
 
 
 fn find_midpoint(alignment: &VecDeque<AlignmentPiece>, weights: &HashMap<i32, u32>) -> usize {
-    let total_weight = alignment.iter().map(|p| {
-        let mut weight = 0;
-        if p.a_unitig != GAP { weight += weights[&p.a_unitig.abs()]; }
-        if p.b_unitig != GAP { weight += weights[&p.b_unitig.abs()]; }
-        weight
-    }).sum::<u32>();
+    let total_weight: u32 = alignment.iter().map(|p| p.weight(weights)).sum();
     let mut cumulative_weight = 0;
     let mut best_index = 0;
     let mut best_closeness = 1.0;
 
     for (i, p) in alignment.iter().enumerate() {
-        if p.a_unitig != GAP {
-            cumulative_weight += weights[&p.a_unitig.abs()];
-        }
-        if p.b_unitig != GAP {
-            cumulative_weight += weights[&p.b_unitig.abs()];
-        }
+        cumulative_weight += p.weight(weights);
         let closeness_to_midpoint = (0.5 - (cumulative_weight as f64 / total_weight as f64)).abs();
         if p.a_unitig == p.b_unitig && closeness_to_midpoint < best_closeness {
             best_index = i;

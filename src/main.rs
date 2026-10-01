@@ -61,7 +61,7 @@ mod tests;
 #[clap(arg_required_else_help = true)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Subcommand)]
@@ -340,44 +340,31 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Clean { in_gfa, out_gfa, remove, duplicate, min_depth }) => {
-            clean::clean(in_gfa, out_gfa, remove, duplicate, min_depth);
-        },
-        Some(Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual }) => {
-            cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual);
-        },
-        Some(Commands::Combine { autocycler_dir, in_gfas, reads, depth_kmer, threads }) => {
-            combine::combine(autocycler_dir, in_gfas, reads, depth_kmer, threads);
-        },
-        Some(Commands::Compress { assemblies_dir, autocycler_dir, kmer, max_contigs, threads }) => {
-            compress::compress(assemblies_dir, autocycler_dir, kmer, max_contigs, threads);
-        },
-        Some(Commands::Decompress { in_gfa, out_dir, out_file }) => {
-            decompress::decompress(in_gfa, out_dir, out_file);
-        },
-        Some(Commands::Dotplot { input, out_png, res, kmer }) => {
-            dotplot::dotplot(input, out_png, res, kmer);
-        },
-        Some(Commands::Gfa2fasta { in_gfa, out_fasta }) => {
-            gfa2fasta::gfa2fasta(in_gfa, out_fasta);
-        },
-        Some(Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type,
-                                min_depth_abs, min_depth_rel, args }) => {
+        Commands::Clean { in_gfa, out_gfa, remove, duplicate, min_depth } =>
+            clean::clean(in_gfa, out_gfa, remove, duplicate, min_depth),
+        Commands::Cluster { autocycler_dir, cutoff, min_assemblies, max_contigs, manual } =>
+            cluster::cluster(autocycler_dir, cutoff, min_assemblies, max_contigs, manual),
+        Commands::Combine { autocycler_dir, in_gfas, reads, depth_kmer, threads } =>
+            combine::combine(autocycler_dir, in_gfas, reads, depth_kmer, threads),
+        Commands::Compress { assemblies_dir, autocycler_dir, kmer, max_contigs, threads } =>
+            compress::compress(assemblies_dir, autocycler_dir, kmer, max_contigs, threads),
+        Commands::Decompress { in_gfa, out_dir, out_file } =>
+            decompress::decompress(in_gfa, out_dir, out_file),
+        Commands::Dotplot { input, out_png, res, kmer } =>
+            dotplot::dotplot(input, out_png, res, kmer),
+        Commands::Gfa2fasta { in_gfa, out_fasta } =>
+            gfa2fasta::gfa2fasta(in_gfa, out_fasta),
+        Commands::Helper { task, reads, out_prefix, genome_size, threads, dir, read_type,
+                           min_depth_abs, min_depth_rel, args } =>
             helper::helper(task, reads, out_prefix, genome_size, threads, dir, read_type,
-                           min_depth_abs, min_depth_rel, args);
-        },
-        Some(Commands::Resolve { cluster_dir, verbose }) => {
-            resolve::resolve(cluster_dir, verbose);
-        },
-        Some(Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed }) => {
-            subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed);
-        },
-        Some(Commands::Table { autocycler_dir, name, fields, sigfigs }) => {
-            table::table(autocycler_dir, name, fields, sigfigs);
-        },
-        Some(Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads }) => {
-            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads);
-        },
-        None => {}
+                           min_depth_abs, min_depth_rel, args),
+        Commands::Resolve { cluster_dir, verbose } =>
+            resolve::resolve(cluster_dir, verbose),
+        Commands::Subsample { reads, out_dir, genome_size, count, min_read_depth, seed } =>
+            subsample::subsample(reads, out_dir, genome_size, count, min_read_depth, seed),
+        Commands::Table { autocycler_dir, name, fields, sigfigs } =>
+            table::table(autocycler_dir, name, fields, sigfigs),
+        Commands::Trim { cluster_dir, min_identity, max_unitigs, mad, threads } =>
+            trim::trim(cluster_dir, min_identity, max_unitigs, mad, threads),
     }
 }

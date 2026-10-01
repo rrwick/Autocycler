@@ -702,34 +702,34 @@ fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
 
 
 fn make_necat_files(reads: &Path, dir: &Path, genome_size: u64, threads: usize) {
-    let mut r = BufWriter::new(File::create(dir.join("read_list.txt")).unwrap());
-    writeln!(r, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
+    let mut read_list = BufWriter::new(File::create(dir.join("read_list.txt")).unwrap());
+    writeln!(read_list, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
                            .display()).unwrap();
 
-    let mut w = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
-    writeln!(w, "PROJECT=necat").unwrap();
-    writeln!(w, "ONT_READ_LIST=read_list.txt").unwrap();
-    writeln!(w, "GENOME_SIZE={genome_size}").unwrap();
-    writeln!(w, "THREADS={threads}").unwrap();
-    writeln!(w, "MIN_READ_LENGTH=3000").unwrap();
-    writeln!(w, "PREP_OUTPUT_COVERAGE=40").unwrap();
-    writeln!(w, "OVLP_FAST_OPTIONS=-n 500 -z 20 -b 2000 -e 0.5 -j 0 -u 1 -a 1000").unwrap();
-    writeln!(w, "OVLP_SENSITIVE_OPTIONS=-n 500 -z 10 -e 0.5 -j 0 -u 1 -a 1000").unwrap();
-    writeln!(w, "CNS_FAST_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0").unwrap();
-    writeln!(w, "CNS_SENSITIVE_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0").unwrap();
-    writeln!(w, "TRIM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 1 -a 400").unwrap();
-    writeln!(w, "ASM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 0 -a 400").unwrap();
-    writeln!(w, "NUM_ITER=2").unwrap();
-    writeln!(w, "CNS_OUTPUT_COVERAGE=30").unwrap();
-    writeln!(w, "CLEANUP=1").unwrap();
-    writeln!(w, "USE_GRID=false").unwrap();
-    writeln!(w, "GRID_NODE=0").unwrap();
-    writeln!(w, "GRID_OPTIONS=").unwrap();
-    writeln!(w, "SMALL_MEMORY=0").unwrap();
-    writeln!(w, "FSA_OL_FILTER_OPTIONS=").unwrap();
-    writeln!(w, "FSA_ASSEMBLE_OPTIONS=").unwrap();
-    writeln!(w, "FSA_CTG_BRIDGE_OPTIONS=").unwrap();
-    writeln!(w, "POLISH_CONTIGS=true").unwrap();
+    let mut config = BufWriter::new(File::create(dir.join("config.txt")).unwrap());
+    writeln!(config, "PROJECT=necat\n\
+                 ONT_READ_LIST=read_list.txt\n\
+                 GENOME_SIZE={genome_size}\n\
+                 THREADS={threads}\n\
+                 MIN_READ_LENGTH=3000\n\
+                 PREP_OUTPUT_COVERAGE=40\n\
+                 OVLP_FAST_OPTIONS=-n 500 -z 20 -b 2000 -e 0.5 -j 0 -u 1 -a 1000\n\
+                 OVLP_SENSITIVE_OPTIONS=-n 500 -z 10 -e 0.5 -j 0 -u 1 -a 1000\n\
+                 CNS_FAST_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0\n\
+                 CNS_SENSITIVE_OPTIONS=-a 2000 -x 4 -y 12 -l 1000 -e 0.5 -p 0.8 -u 0\n\
+                 TRIM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 1 -a 400\n\
+                 ASM_OVLP_OPTIONS=-n 100 -z 10 -b 2000 -e 0.5 -j 1 -u 0 -a 400\n\
+                 NUM_ITER=2\n\
+                 CNS_OUTPUT_COVERAGE=30\n\
+                 CLEANUP=1\n\
+                 USE_GRID=false\n\
+                 GRID_NODE=0\n\
+                 GRID_OPTIONS=\n\
+                 SMALL_MEMORY=0\n\
+                 FSA_OL_FILTER_OPTIONS=\n\
+                 FSA_ASSEMBLE_OPTIONS=\n\
+                 FSA_CTG_BRIDGE_OPTIONS=\n\
+                 POLISH_CONTIGS=true").unwrap();
 }
 
 
@@ -742,42 +742,42 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
             ReadType::PacbioHifi => ("hifi", "hifi", "map-hifi"),
     };
 
-    let mut r = BufWriter::new(File::create(dir.join("input.fofn")).unwrap());
-    writeln!(r, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
+    let mut read_list = BufWriter::new(File::create(dir.join("input.fofn")).unwrap());
+    writeln!(read_list, "{}", reads.canonicalize().unwrap_or_else(|_| reads.to_path_buf())
                            .display()).unwrap();
 
-    let mut c1 = BufWriter::new(File::create(dir.join("nextdenovo_run.cfg")).unwrap());
-    writeln!(c1, "[General]").unwrap();
-    writeln!(c1, "job_type = local\njob_prefix = nextDenovo\ntask = all").unwrap();
-    writeln!(c1, "rewrite = yes\ndeltmp = yes\nparallel_jobs = 1\ninput_type = raw").unwrap();
-    writeln!(c1, "read_type = {ont_clr_or_hifi}").unwrap();
-    writeln!(c1, "input_fofn = input.fofn\nworkdir = nextdenovo").unwrap();
-    writeln!(c1).unwrap();
-    writeln!(c1, "[correct_option]").unwrap();
-    writeln!(c1, "read_cutoff = 1k").unwrap();
-    writeln!(c1, "genome_size = {genome_size}").unwrap();
-    writeln!(c1, "sort_options = -m 20g -t {threads}").unwrap();
-    writeln!(c1, "minimap2_options_raw = -t {threads}").unwrap();
-    writeln!(c1, "pa_correction = 1").unwrap();
-    writeln!(c1, "correction_options = -p {threads}").unwrap();
-    writeln!(c1).unwrap();
-    writeln!(c1, "[assemble_option]").unwrap();
-    writeln!(c1, "minimap2_options_cns = -t {threads}").unwrap();
-    writeln!(c1, "nextgraph_options = -a 1").unwrap();
+    let mut assembly_config = BufWriter::new(File::create(dir.join("nextdenovo_run.cfg")).unwrap());
+    writeln!(assembly_config, "[General]\n\
+                 job_type = local\njob_prefix = nextDenovo\ntask = all\n\
+                 rewrite = yes\ndeltmp = yes\nparallel_jobs = 1\ninput_type = raw\n\
+                 read_type = {ont_clr_or_hifi}\n\
+                 input_fofn = input.fofn\nworkdir = nextdenovo\n\
+                 \n\
+                 [correct_option]\n\
+                 read_cutoff = 1k\n\
+                 genome_size = {genome_size}\n\
+                 sort_options = -m 20g -t {threads}\n\
+                 minimap2_options_raw = -t {threads}\n\
+                 pa_correction = 1\n\
+                 correction_options = -p {threads}\n\
+                 \n\
+                 [assemble_option]\n\
+                 minimap2_options_cns = -t {threads}\n\
+                 nextgraph_options = -a 1").unwrap();
 
-    let mut c2 = BufWriter::new(File::create(dir.join("nextpolish_run.cfg")).unwrap());
-    writeln!(c2, "[General]").unwrap();
-    writeln!(c2, "job_type = local\njob_prefix = nextPolish\ntask = best").unwrap();
-    writeln!(c2, "rewrite = yes\ndeltmp = yes\nrerun = 3\nparallel_jobs = 1").unwrap();
-    writeln!(c2, "multithread_jobs = {threads}").unwrap();
-    writeln!(c2, "genome = nextdenovo/03.ctg_graph/nd.asm.fasta").unwrap();
-    writeln!(c2, "genome_size = auto\nworkdir = nextpolish").unwrap();
-    writeln!(c2, "polish_options = -p {threads}").unwrap();
-    writeln!(c2).unwrap();
-    writeln!(c2, "[{lgs_or_hifi}_option]").unwrap();
-    writeln!(c2, "{lgs_or_hifi}_fofn = input.fofn").unwrap();
-    writeln!(c2, "{lgs_or_hifi}_options = -min_read_len 1k -max_depth 100").unwrap();
-    writeln!(c2, "{lgs_or_hifi}_minimap2_options = -x {map_preset} -t {threads}").unwrap();
+    let mut polish_config = BufWriter::new(File::create(dir.join("nextpolish_run.cfg")).unwrap());
+    writeln!(polish_config, "[General]\n\
+                 job_type = local\njob_prefix = nextPolish\ntask = best\n\
+                 rewrite = yes\ndeltmp = yes\nrerun = 3\nparallel_jobs = 1\n\
+                 multithread_jobs = {threads}\n\
+                 genome = nextdenovo/03.ctg_graph/nd.asm.fasta\n\
+                 genome_size = auto\nworkdir = nextpolish\n\
+                 polish_options = -p {threads}\n\
+                 \n\
+                 [{lgs_or_hifi}_option]\n\
+                 {lgs_or_hifi}_fofn = input.fofn\n\
+                 {lgs_or_hifi}_options = -min_read_len 1k -max_depth 100\n\
+                 {lgs_or_hifi}_minimap2_options = -x {map_preset} -t {threads}").unwrap();
 }
 
 

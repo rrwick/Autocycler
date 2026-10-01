@@ -335,23 +335,22 @@ impl UnitigGraph {
 
     fn reconstruct_sequence(&self, seq: &Sequence) -> String {
         let path = self.get_unitig_path_for_sequence(seq);
-        let sequence = self.get_sequence_from_path(&path);
+        let sequence = self.get_sequence_from_path(path);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
         sequence
     }
 
-    fn get_sequence_from_path(&self, path: &[(u32, bool)]) -> String {
+    fn get_sequence_from_path(&self, path: impl IntoIterator<Item = (u32, bool)>) -> String {
         let mut sequence = String::new();
         for (unitig_num, strand) in path {
-            let unitig = self.unitig_index.get(unitig_num).unwrap().borrow();
-            sequence.push_str(std::str::from_utf8(unitig.get_seq(*strand)).unwrap());
+            let unitig = self.unitig_index.get(&unitig_num).unwrap().borrow();
+            sequence.push_str(std::str::from_utf8(unitig.get_seq(strand)).unwrap());
         }
         sequence
     }
 
     pub fn get_sequence_from_path_signed(&self, path: &[i32]) -> Vec<u8> {
-        let path: Vec<_> = path.iter().map(|&x| (x.unsigned_abs(), x >= 0)).collect();
-        self.get_sequence_from_path(&path).into_bytes()
+        self.get_sequence_from_path(path.iter().map(|&x| (x.unsigned_abs(), x >= 0))).into_bytes()
     }
 
     fn find_starting_unitig(&self, seq_id: u16) -> UnitigStrand {
@@ -1113,11 +1112,11 @@ mod tests {
     fn test_get_sequence_from_path() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
-        assert_eq!(graph.get_sequence_from_path(&[(10, true), (8, false), (4, false), (1, false), (3, true)]),
+        assert_eq!(graph.get_sequence_from_path([(10, true), (8, false), (4, false), (1, false), (3, true)]),
                    "TAGATCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCCTGAATCGCCTA".to_string());
-        assert_eq!(graph.get_sequence_from_path(&[(5, true), (6, true), (6, false), (5, false)]),
+        assert_eq!(graph.get_sequence_from_path([(5, true), (6, true), (6, false), (5, false)]),
                    "CGAACCATTACTTGTACAAGTAATGGTTCG".to_string());
-        assert_eq!(graph.get_sequence_from_path(&[(3, false), (1, true), (4, true), (7, false), (9, false), (7, true), (4, false), (1, false), (2, false)]),
+        assert_eq!(graph.get_sequence_from_path([(3, false), (1, true), (4, true), (7, false), (9, false), (7, true), (4, false), (1, false), (2, false)]),
                    "TAGGCGATTCAGGCATTCGCTGCGCTCGCTTCGCTTTGCTCGGCTCGAAGGCGCGCCTTCGAGCCGAGCAAAGCGAAGCGAGCGCAGCGAATGCACAGCGACGACGGCA".to_string());
 
         assert_eq!(graph.get_sequence_from_path_signed(&[10, -8, -4, -1, 3]),

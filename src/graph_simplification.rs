@@ -113,13 +113,10 @@ fn avoid_zero_len_unitigs(common_seq: &mut Vec<u8>, sources: &[UnitigStrand], tr
     // If both strands occur, sequence is removed from both ends of that unitig.
     let removals = if check_for_duplicates(sources) { 2 } else { 1 };
     let min_source_len = sources.iter().map(|source| source.length()).min().unwrap();
-    while min_source_len <= (common_seq.len() as u32) * removals {
-        if trim_from_start {
-            common_seq.remove(0);
-        } else {
-            common_seq.pop();
-        }
-    }
+    let max_shift = (min_source_len as usize - 1) / removals;
+    let excess = common_seq.len().saturating_sub(max_shift);
+    if trim_from_start { common_seq.drain(..excess); }
+                  else { common_seq.truncate(common_seq.len() - excess); }
 }
 
 
@@ -438,10 +435,7 @@ fn get_merge_path_depth(path: &[UnitigStrand], forward_positions: &[Position]) -
 
 fn weighted_mean_depth(path: &[UnitigStrand]) -> f64 {
     let total_length = path.iter().map(|u| u.length()).sum::<u32>() as f64;
-    let mut depth_sum = 0.0;
-    for u in path {
-        depth_sum += u.depth() * u.length() as f64;
-    }
+    let depth_sum = path.iter().fold(0.0, |sum, u| sum + u.depth() * u.length() as f64);
     depth_sum / total_length
 }
 
