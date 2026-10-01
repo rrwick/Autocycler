@@ -52,7 +52,7 @@ impl UnitigGraph {
         Self::from_gfa_lines(&gfa_lines)
     }
 
-    pub fn from_gfa_lines(gfa_lines: &Vec<String>) -> (Self, Vec<Sequence>) {
+    pub fn from_gfa_lines(gfa_lines: &[String]) -> (Self, Vec<Sequence>) {
         let mut u_graph = UnitigGraph::default();
         let mut link_lines: Vec<&str> = Vec::new();
         let mut path_lines: Vec<&str> = Vec::new();
@@ -74,10 +74,10 @@ impl UnitigGraph {
     }
 
     pub fn build_unitig_index(&mut self) {
-        self.unitig_index = self.unitigs.iter().map(|u| {(u.borrow().number, Rc::clone(u))}).collect();
+        self.unitig_index = self.unitigs.iter().map(|u| (u.borrow().number, Rc::clone(u))).collect();
     }
 
-    fn read_gfa_header_line(&mut self, parts: &Vec<&str>) {
+    fn read_gfa_header_line(&mut self, parts: &[&str]) {
         for &p in parts {
             if let Some(tag_val) = p.strip_prefix("KM:i:") {
                 if let Ok(k) = tag_val.parse::<u32>() {
@@ -99,18 +99,10 @@ impl UnitigGraph {
             let seg_2: u32 = parts[3].parse().expect("Error parsing segment 2 as integer");
             let strand_1 = parts[2] == "+";
             let strand_2 = parts[4] == "+";
-            if let Some(unitig_1) = self.unitig_index.get(&seg_1) {
-                if let Some(unitig_2) = self.unitig_index.get(&seg_2) {
-                    if strand_1 {unitig_1.borrow_mut().forward_next.push(UnitigStrand::new(unitig_2, strand_2));
-                         } else {unitig_1.borrow_mut().reverse_next.push(UnitigStrand::new(unitig_2, strand_2));}
-                    if strand_2 {unitig_2.borrow_mut().forward_prev.push(UnitigStrand::new(unitig_1, strand_1));
-                         } else {unitig_2.borrow_mut().reverse_prev.push(UnitigStrand::new(unitig_1, strand_1));}
-                } else {
-                    quit_with_error(&format!("link refers to nonexistent unitig: {seg_2}"));
-                }
-            } else {
-                quit_with_error(&format!("link refers to nonexistent unitig: {seg_1}"));
-            }
+            let get_unitig = |number| self.unitig_index.get(&number).unwrap_or_else(|| {
+                quit_with_error(&format!("link refers to nonexistent unitig: {number}"));
+            });
+            add_link(get_unitig(seg_1), strand_1, get_unitig(seg_2), strand_2);
         }
     }
 
@@ -238,49 +230,38 @@ impl UnitigGraph {
         let mut forward_starts = HashMap::new();
         let mut reverse_starts = HashMap::new();
         for (i, unitig) in self.unitigs.iter().enumerate() {
-            let forward_key = unitig.borrow().forward_seq[..piece_len].to_vec();
-            let reverse_key = unitig.borrow().reverse_seq[..piece_len].to_vec();
+            let unitig = unitig.borrow();
+            let forward_key = unitig.forward_seq[..piece_len].to_vec();
+            let reverse_key = unitig.reverse_seq[..piece_len].to_vec();
             forward_starts.entry(forward_key).or_insert_with(Vec::new).push(i);
             reverse_starts.entry(reverse_key).or_insert_with(Vec::new).push(i);
         }
 
         // Use the indices to find connections between unitigs.
-        for i in 0..self.unitigs.len() {
-            let unitig_a = Rc::clone(&self.unitigs[i]);
-            let ending_forward_seq = unitig_a.borrow().forward_seq[unitig_a.borrow().forward_seq.len() - piece_len..].to_vec();
-            let ending_reverse_seq = unitig_a.borrow().reverse_seq[unitig_a.borrow().reverse_seq.len() - piece_len..].to_vec();
+        for unitig_a in &self.unitigs {
+            let (ending_forward_seq, ending_reverse_seq) = {
+                let unitig = unitig_a.borrow();
+                (unitig.forward_seq[unitig.forward_seq.len() - piece_len..].to_vec(),
+                 unitig.reverse_seq[unitig.reverse_seq.len() - piece_len..].to_vec())
+            };
 
             if let Some(next_idxs) = forward_starts.get(&ending_forward_seq) {
                 for &j in next_idxs {
-                    let unitig_b = Rc::clone(&self.unitigs[j]);
-
-                    // unitig_a+ -> unitig_b+
-                    unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
-                    unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
-
-                    // unitig_b- -> unitig_a-
-                    unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
-                    unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
+                    let unitig_b = &self.unitigs[j];
+                    add_link(unitig_a, strand::FORWARD, unitig_b, strand::FORWARD);
+                    add_link(unitig_b, strand::REVERSE, unitig_a, strand::REVERSE);
                 }
             }
 
             if let Some(next_idxs) = reverse_starts.get(&ending_forward_seq) {
                 for &j in next_idxs {
-                    let unitig_b = Rc::clone(&self.unitigs[j]);
-
-                    // unitig_a+ -> unitig_b-
-                    unitig_a.borrow_mut().forward_next.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
-                    unitig_b.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_a, strand::FORWARD));
+                    add_link(unitig_a, strand::FORWARD, &self.unitigs[j], strand::REVERSE);
                 }
             }
 
             if let Some(next_idxs) = forward_starts.get(&ending_reverse_seq) {
                 for &j in next_idxs {
-                    let unitig_b = Rc::clone(&self.unitigs[j]);
-
-                    // unitig_a- -> unitig_b+
-                    unitig_a.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_b, strand::FORWARD));
-                    unitig_b.borrow_mut().forward_prev.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
+                    add_link(unitig_a, strand::REVERSE, &self.unitigs[j], strand::FORWARD);
                 }
             }
         }
@@ -293,20 +274,12 @@ impl UnitigGraph {
     }
 
     pub fn renumber_unitigs(&mut self) {
-        // This method sorts and renumbers Unitigs by: length (decreasing), sequence (lexicographic)
-        // and depth (decreasing).
         self.unitigs.sort_by(|a_rc, b_rc| {
             let a = a_rc.borrow();
             let b = b_rc.borrow();
-            let length_cmp = a.length().cmp(&b.length()).reverse();
-            if length_cmp != std::cmp::Ordering::Equal {
-                return length_cmp;
-            }
-            let seq_cmp = a.forward_seq.cmp(&b.forward_seq);
-            if seq_cmp != std::cmp::Ordering::Equal {
-                return seq_cmp;
-            }
-            a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal).reverse()
+            b.length().cmp(&a.length())
+                .then_with(|| a.forward_seq.cmp(&b.forward_seq))
+                .then_with(|| b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal))
         });
         for (new_number, unitig) in self.unitigs.iter().enumerate() {
             unitig.borrow_mut().number = (new_number + 1) as u32;
@@ -314,7 +287,7 @@ impl UnitigGraph {
         self.build_unitig_index();
     }
 
-    pub fn save_gfa(&self, gfa_filename: &Path, sequences: &Vec<Sequence>,
+    pub fn save_gfa(&self, gfa_filename: &Path, sequences: &[Sequence],
                     use_other_colour: bool) -> io::Result<()> {
         let mut file = File::create(gfa_filename)?;
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
@@ -335,15 +308,12 @@ impl UnitigGraph {
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
             let a_num = a.number + offset;
-            for b in &a.forward_next {
-                let b_num = b.number() + offset;
-                links.push((a_num.to_string(), "+".to_string(), b_num.to_string(),
-                            (if b.strand {"+"} else {"-"}).to_string()));
-            }
-            for b in &a.reverse_next {
-                let b_num = b.number() + offset;
-                links.push((a_num.to_string(), "-".to_string(), b_num.to_string(),
-                            (if b.strand {"+"} else {"-"}).to_string()));
+            for (a_strand, next) in [("+", &a.forward_next), ("-", &a.reverse_next)] {
+                for b in next {
+                    let b_num = b.number() + offset;
+                    links.push((a_num.to_string(), a_strand.to_string(), b_num.to_string(),
+                                (if b.strand {"+"} else {"-"}).to_string()));
+                }
             }
         }
         links
@@ -359,7 +329,7 @@ impl UnitigGraph {
                 seq.id, path_str, seq.length, seq.filename, seq.contig_header, cluster_tag)
     }
 
-    pub fn reconstruct_original_sequences(&self, seqs: &Vec<Sequence>)
+    pub fn reconstruct_original_sequences(&self, seqs: &[Sequence])
             -> HashMap<String, Vec<(String, String)>> {
         let mut original_seqs = HashMap::new();
         for seq in seqs {
@@ -369,12 +339,12 @@ impl UnitigGraph {
         original_seqs
     }
 
-    pub fn reconstruct_original_sequences_u8(&self, seqs: &Vec<Sequence>)
+    pub fn reconstruct_original_sequences_u8(&self, seqs: &[Sequence])
             -> Vec<((String, String), Vec<u8>)> {
         let mut original_seqs = Vec::new();
         for seq in seqs {
             let (filename, _header, sequence) = self.reconstruct_original_sequence(seq);
-            original_seqs.push(((filename, seq.contig_name()), sequence.as_bytes().to_owned()));
+            original_seqs.push(((filename, seq.contig_name()), sequence.into_bytes()));
         }
         original_seqs.sort();
         original_seqs
@@ -388,35 +358,27 @@ impl UnitigGraph {
     }
 
     fn get_sequence_from_path(&self, path: &[(u32, bool)]) -> String {
-        // Given a path (vector of unitig IDs and strands), this function returns the sequence
-        // traced by that path. It also requires a unitig index so it can quickly look up unitigs
-        // by their number.
-        let mut sequence = Vec::new();
-        for (unitig_num, strand) in path.iter() {
+        path.iter().map(|(unitig_num, strand)| {
             let unitig = self.unitig_index.get(unitig_num).unwrap();
-            sequence.push(String::from_utf8(unitig.borrow().get_seq(*strand)).unwrap());
-        }
-        sequence.into_iter().collect()
+            String::from_utf8(unitig.borrow().get_seq(*strand)).unwrap()
+        }).collect()
     }
 
     pub fn get_sequence_from_path_signed(&self, path: &[i32]) -> Vec<u8> {
         let path: Vec<_> = path.iter().map(|&x| (x.unsigned_abs(), x >= 0)).collect();
-        self.get_sequence_from_path(&path).as_bytes().to_owned()
+        self.get_sequence_from_path(&path).into_bytes()
     }
 
     fn find_starting_unitig(&self, seq_id: u16) -> UnitigStrand {
-        // For a given sequence ID, this function returns the Unitig and strand where that sequence
-        // begins.
         let mut starting_unitigs = Vec::new();
-        for unitig in &self.unitigs {
-            for p in &unitig.borrow().forward_positions {
-                if p.seq_id() == seq_id && p.strand() && p.pos == 0 {
-                    starting_unitigs.push(UnitigStrand::new(unitig, strand::FORWARD));
-                }
-            }
-            for p in &unitig.borrow().reverse_positions {
-                if p.seq_id() == seq_id && p.strand() && p.pos == 0 {
-                    starting_unitigs.push(UnitigStrand::new(unitig, strand::REVERSE));
+        for unitig_rc in &self.unitigs {
+            let unitig = unitig_rc.borrow();
+            for (strand, positions) in [(strand::FORWARD, &unitig.forward_positions),
+                                        (strand::REVERSE, &unitig.reverse_positions)] {
+                for p in positions {
+                    if p.seq_id() == seq_id && p.strand() && p.pos == 0 {
+                        starting_unitigs.push(UnitigStrand::new(unitig_rc, strand));
+                    }
                 }
             }
         }
@@ -426,8 +388,6 @@ impl UnitigGraph {
 
     pub fn get_next_unitig(&self, seq_id: u16, seq_strand: bool, unitig_rc: &Rc<RefCell<Unitig>>,
                            strand: bool, pos: u32) -> Option<(UnitigStrand, u32)> {
-        // For a given unitig that's part of a sequence's path, this function will return the next
-        // unitig in that sequence's path.
         let unitig = unitig_rc.borrow();
         let next_pos = pos + unitig.length();
         let next_edges = if strand { &unitig.forward_next } else { &unitig.reverse_next };
@@ -438,7 +398,7 @@ impl UnitigGraph {
                                       else { &next_u.reverse_positions };
             if positions.iter().any(|p|
                 p.seq_id() == seq_id && p.strand() == seq_strand && p.pos == next_pos){
-                return Some((UnitigStrand::from_weak(&next.unitig, next.strand), next_pos));
+                return Some((next.clone(), next_pos));
             }
         }
         None
@@ -450,23 +410,15 @@ impl UnitigGraph {
         let mut pos = 0;
         loop {
             unitig_path.push((u.number(), u.strand));
-            let current_rc = match u.unitig.upgrade() {
-                Some(rc) => rc,
-                None => break,
-            };
-            match self.get_next_unitig(seq.id, strand::FORWARD, &current_rc, u.strand, pos) {
-                None => break,
-                Some((next, next_pos)) => {
-                    (u, pos) = (next, next_pos);
-                }
-            }
+            let Some(current_rc) = u.unitig.upgrade() else { break };
+            let Some(next) = self.get_next_unitig(seq.id, strand::FORWARD, &current_rc, u.strand, pos)
+                else { break };
+            (u, pos) = next;
         }
         unitig_path
     }
 
     pub fn get_unitig_path_for_sequence_i32(&self, seq: &Sequence) -> Vec<i32> {
-        // Same as the above function, but instead of giving unitig IDs and strands as a (u32, bool)
-        // tuple, it gives them as i32 (negative numbers for reverse strand).
         let unitig_path = self.get_unitig_path_for_sequence(seq);
         unitig_path.iter().map(|(u, s)| if *s { *u as i32 } else { -(*u as i32)}).collect()
     }
@@ -476,31 +428,20 @@ impl UnitigGraph {
     }
 
     pub fn link_count(&self) -> (usize, usize) {
-        // Returns the number of links in the graph in two ways:
-        // * All links (both directions, as Bandage would show in double mode)
-        // * Single-direction links (no redundancy, as Bandage would show in single mode)
-        // Usually the former is twice the latter, but not when there are hairpin links (which don't
-        // have a reverse).
+        // Counts both orientations and unique links; hairpins have only one orientation.
         let mut all_links = HashSet::new();
         let mut one_way_links = HashSet::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
-            let a_num = a_rc.borrow().number as i32;
-            for b in &a.forward_next {
-                let b_num = b.signed_number();
-                let link = (a_num, b_num);
-                let rev_link = (-b_num, -a_num);
-                all_links.insert(link);
-                all_links.insert(rev_link);
-                one_way_links.insert(if link > rev_link { link } else { rev_link });
-            }
-            for b in &a.reverse_next {
-                let b_num = b.signed_number();
-                let link = (-a_num, b_num);
-                let rev_link = (-b_num, a_num);
-                all_links.insert(link);
-                all_links.insert(rev_link);
-                one_way_links.insert(if link > rev_link { link } else { rev_link });
+            let a_num = a.number as i32;
+            for (direction, next) in [(1, &a.forward_next), (-1, &a.reverse_next)] {
+                for b in next {
+                    let link = (a_num * direction, b.signed_number());
+                    let rev_link = (-link.1, -link.0);
+                    all_links.insert(link);
+                    all_links.insert(rev_link);
+                    one_way_links.insert(link.max(rev_link));
+                }
             }
         }
         (all_links.len(), one_way_links.len())
@@ -525,17 +466,9 @@ impl UnitigGraph {
     }
 
     pub fn topology(&self) -> String {
-        // Returns one of the following:
-        // * circular: the graph contains one unitig with a simple circularising link
-        // * linear-open-open: the graph contains one unitig with no link (both ends are open)
-        // * linear-hairpin-hairpin: the graph contains one unitig with hairpin links on both ends
-        // * linear-open-hairpin: the graph contains one unitig with a hairpin link on one end
-        // * fragmented: the graph contains multiple unitigs
-        // * empty: the graph contains no unitigs
-        // * other: none of the above (e.g. a circularising link and a hairpin link, should be rare)
         if self.unitigs.is_empty() { return "empty".to_string(); }
         if self.unitigs.len() > 1 { return "fragmented".to_string(); }
-        let u = self.unitigs[0].borrow();  // the only unitig in the graph
+        let u = self.unitigs[0].borrow();
         if self.link_count().0 == 0 { return "linear-open-open".to_string(); }
         if u.is_isolated_and_circular() { return "circular".to_string(); }
         if u.hairpin_start() && u.hairpin_end() { return "linear-hairpin-hairpin".to_string(); }
@@ -573,7 +506,6 @@ impl UnitigGraph {
     }
 
     pub fn recalculate_depths(&mut self) {
-        // Sets each unitig's depth based on its Positions. Useful after adding/removing paths.
         for u in &self.unitigs {
             u.borrow_mut().recalculate_depth();
         }
@@ -592,56 +524,36 @@ impl UnitigGraph {
     }
 
     pub fn duplicate_unitig_by_number(&mut self, unitig_num: &u32) {
-        // This method duplicates the specified unitig. It is a requirement that the unitig has
-        // exactly two non-self links, because each copy of the unitig will keep one of these links.
+        // Each copy keeps one of the two non-self links, plus all loops and hairpins.
         self.check_if_unitig_can_be_duplicated(unitig_num);
 
-        // Create two copies of the target unitig.
         let u = self.unitig_index.get(unitig_num).unwrap().clone();
         let target = u.borrow();
         let target_num = target.number;
-        let mut copy_a = target.clone();
-        let mut copy_b = target.clone();
-        copy_a.depth /= 2.0;
-        copy_b.depth /= 2.0;
         let a_num = self.max_unitig_number() + 1;
         let b_num = a_num + 1;
-        copy_a.number = a_num;
-        copy_b.number = b_num;
-        copy_a.clear_all_links();
-        copy_b.clear_all_links();
-        self.unitigs.push(Rc::new(RefCell::new(copy_a)));
-        self.unitigs.push(Rc::new(RefCell::new(copy_b)));
+        for number in [a_num, b_num] {
+            let mut copy = target.clone();
+            copy.number = number;
+            copy.depth /= 2.0;
+            copy.clear_all_links();
+            self.unitigs.push(Rc::new(RefCell::new(copy)));
+        }
 
-        // Remove the original unitig.
         self.remove_unitigs_by_number(std::iter::once(*unitig_num).collect());
-        self.delete_dangling_links();
-        self.build_unitig_index();
 
-        // Add self-links (loops and hairpins) to the copies
-        for link in &target.forward_next {
-            if link.number() == *unitig_num {
-                self.create_link(a_num as i32, a_num as i32 * if link.strand { 1 } else { -1 });
-                self.create_link(b_num as i32, b_num as i32 * if link.strand { 1 } else { -1 });
-            }
-        }
-        for link in &target.reverse_next {
-            if link.number() == *unitig_num {
-                self.create_link(-(a_num as i32), a_num as i32 * if link.strand { 1 } else { -1 });
-                self.create_link(-(b_num as i32), b_num as i32 * if link.strand { 1 } else { -1 });
-            }
-        }
-
-        // Distribute the two non-self links to the copies.
         let mut non_self_links = Vec::new();
-        for link in &target.forward_next {
-            if link.number() != target_num {
-                non_self_links.push((target_num as i32, link.signed_number()));
-            }
-        }
-        for link in &target.reverse_next {
-            if link.number() != target_num {
-                non_self_links.push((-(target_num as i32), link.signed_number()));
+        for (direction, next) in [(1, &target.forward_next), (-1, &target.reverse_next)] {
+            for link in next {
+                if link.number() == *unitig_num {
+                    for number in [a_num, b_num] {
+                        // Both orientations are already present in the target's links.
+                        self.create_link_one_way(number as i32 * direction,
+                                                 number as i32 * if link.strand { 1 } else { -1 });
+                    }
+                } else {
+                    non_self_links.push((target_num as i32 * direction, link.signed_number()));
+                }
             }
         }
         assert!(non_self_links.len() == 2);
@@ -655,141 +567,67 @@ impl UnitigGraph {
     fn check_if_unitig_can_be_duplicated(&self, unitig_num: &u32) {
         let unitig = self.unitig_index.get(unitig_num).unwrap().borrow();
         let unitig_num = unitig.number;
-        let mut links = Vec::new();
-        for link in &unitig.forward_next {
-            if unitig_num != link.number() { links.push(link); }
-        }
-        for link in &unitig.reverse_next {
-            if unitig_num != link.number() { links.push(link); }
-        }
-        if links.len() != 2 {
+        let link_count = unitig.forward_next.iter().chain(&unitig.reverse_next)
+            .filter(|link| link.number() != unitig_num).count();
+        if link_count != 2 {
             quit_with_error(&format!("unitig {unitig_num} does not contain exactly two non-self links"));
         }
     }
 
     pub fn remove_low_depth_unitigs(&mut self, min_depth: f64) {
-        // Removes unitigs with a depth at or below the specified threshold, but only if doing so
-        // would not create a dead end.
-        if self.unitigs.is_empty() { return; }
-        let indices: Vec<usize> = (0..self.unitigs.len()).collect();
-        for idx in indices.into_iter().rev() {  // loop in reverse to keep longer unitigs
-            if idx >= self.unitigs.len() { continue; }
-            let u_rc = self.unitigs[idx].clone();
-            let (u_num, u_depth, forward_next, forward_prev) = {
-                let u = u_rc.borrow();
-                (u.number, u.depth, u.forward_next.clone(), u.forward_prev.clone())
-            };
-            if u_depth > min_depth { continue; }
-            let mut ok_to_delete = true;
-
-            for next_us in &forward_next {
-                let next_rc = next_us.unitig();
-                let next_num = { next_rc.borrow().number };
-                if next_num == u_num { continue; }
-                let has_other = {
-                    let next_u = next_rc.borrow();
-                    if next_us.strand {
-                        next_u.forward_prev.iter().any(|lk| lk.unitig().borrow().number != u_num)
-                    } else {
-                        next_u.reverse_prev.iter().any(|lk| lk.unitig().borrow().number != u_num)
-                    }
-                };
-                if !has_other { ok_to_delete = false; break; }
-            }
-            if !ok_to_delete { continue; }
-
-            for prev_us in &forward_prev {
-                let prev_rc = prev_us.unitig();
-                let prev_num = { prev_rc.borrow().number };
-                if prev_num == u_num { continue; }
-                let has_other = {
-                    let prev_u = prev_rc.borrow();
-                    if prev_us.strand {
-                        prev_u.forward_next.iter().any(|lk| lk.unitig().borrow().number != u_num)
-                    } else {
-                        prev_u.reverse_next.iter().any(|lk| lk.unitig().borrow().number != u_num)
-                    }
-                };
-                if !has_other { ok_to_delete = false; break; }
-            }
-            if !ok_to_delete { continue; }
-
-            self.unitigs.retain(|x| x.borrow().number != u_num);
+        // Work backwards to preferentially keep longer unitigs in a sorted graph.
+        for idx in (0..self.unitigs.len()).rev() {
+            let Some(unitig_rc) = self.unitigs.get(idx) else { continue };
+            let unitig = unitig_rc.borrow();
+            if unitig.depth > min_depth || removal_creates_dead_end(&unitig) { continue; }
+            let number = unitig.number;
+            drop(unitig);
+            self.unitigs.retain(|u| u.borrow().number != number);
             self.delete_dangling_links();
             self.build_unitig_index();
         }
     }
 
     pub fn link_exists(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
-        // Checks if the given link exists (looks for it in forward_next/reverse_next).
-        if let Some(unitig_a) = self.unitig_index.get(&a_num) {
-            let unitig_a = unitig_a.borrow();
-            let next_links = if a_strand {&unitig_a.forward_next} else {&unitig_a.reverse_next};
-            for next in next_links {
-                if next.number() == b_num && next.strand == b_strand {
-                    return true;
-                }
-            }
-        }
-        false
+        let Some(unitig_a) = self.unitig_index.get(&a_num) else { return false };
+        let unitig_a = unitig_a.borrow();
+        let next_links = if a_strand { &unitig_a.forward_next } else { &unitig_a.reverse_next };
+        next_links.iter().any(|next| next.number() == b_num && next.strand == b_strand)
     }
 
     pub fn link_exists_prev(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) -> bool {
-        // This is like the link_exists method, but it checks in the opposite direction (looks for
-        // it in forward_prev/reverse_prev).
-        if let Some(unitig_b) = self.unitig_index.get(&b_num) {
-            let unitig_b = unitig_b.borrow();
-            let prev_links = if b_strand {&unitig_b.forward_prev} else {&unitig_b.reverse_prev};
-            for prev in prev_links {
-                if prev.number() == a_num && prev.strand == a_strand {
-                    return true;
-                }
-            }
-        }
-        false
+        let Some(unitig_b) = self.unitig_index.get(&b_num) else { return false };
+        let unitig_b = unitig_b.borrow();
+        let prev_links = if b_strand { &unitig_b.forward_prev } else { &unitig_b.reverse_prev };
+        prev_links.iter().any(|prev| prev.number() == a_num && prev.strand == a_strand)
     }
 
     pub fn check_links(&self) {
-        // Makes sure that all of the graph's links are valid:
-        // * Each link should have a corresponding link on the opposite strand.
-        // * Each next link should be matched with a prev link.
-        // * All linked Unitigs should be in the unitig_index.
-        // If any of the above aren't true, this method will panic.
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
-            for b in &a.forward_next {
-                let a_strand = strand::FORWARD;
-                if !self.link_exists(a.number, a_strand, b.number(), b.strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, a_strand, b.number(), b.strand) {panic!("missing prev link");}
-                if !self.link_exists(b.number(), !b.strand, a.number, !a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number(), !b.strand, a.number, !a_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
+            for (a_strand, next) in [(strand::FORWARD, &a.forward_next),
+                                     (strand::REVERSE, &a.reverse_next)] {
+                for b in next {
+                    self.check_link(a.number, a_strand, b.number(), b.strand);
+                    assert!(self.unitig_index.contains_key(&b.number()), "unitig missing from index");
+                }
             }
-            for b in &a.reverse_next {
-                let a_strand = strand::REVERSE;
-                if !self.link_exists(a.number, a_strand, b.number(), b.strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, a_strand, b.number(), b.strand) {panic!("missing prev link");}
-                if !self.link_exists(b.number(), !b.strand, a.number, !a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number(), !b.strand, a.number, !a_strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
-            }
-            for b in &a.forward_prev {
-                let a_strand = strand::FORWARD;
-                if !self.link_exists(b.number(), b.strand, a.number, a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number(), b.strand, a.number, a_strand) {panic!("missing prev link");}
-                if !self.link_exists(a.number, !a_strand, b.number(), !b.strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, !a_strand, b.number(), !b.strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
-            }
-            for b in &a.reverse_prev {
-                let a_strand = strand::REVERSE;
-                if !self.link_exists(b.number(), b.strand, a.number, a_strand) {panic!("missing next link");}
-                if !self.link_exists_prev(b.number(), b.strand, a.number, a_strand) {panic!("missing prev link");}
-                if !self.link_exists(a.number, !a_strand, b.number(), !b.strand) {panic!("missing next link");}
-                if !self.link_exists_prev(a.number, !a_strand, b.number(), !b.strand) {panic!("missing prev link");}
-                if !self.unitig_index.contains_key(&b.number()) {panic!("unitig missing from index");}
+            for (a_strand, prev) in [(strand::FORWARD, &a.forward_prev),
+                                     (strand::REVERSE, &a.reverse_prev)] {
+                for b in prev {
+                    self.check_link(b.number(), b.strand, a.number, a_strand);
+                    assert!(self.unitig_index.contains_key(&b.number()), "unitig missing from index");
+                }
             }
         }
+    }
+
+    fn check_link(&self, a_num: u32, a_strand: bool, b_num: u32, b_strand: bool) {
+        // Both orientations must have matching next/prev entries.
+        assert!(self.link_exists(a_num, a_strand, b_num, b_strand), "missing next link");
+        assert!(self.link_exists_prev(a_num, a_strand, b_num, b_strand), "missing prev link");
+        assert!(self.link_exists(b_num, !b_strand, a_num, !a_strand), "missing next link");
+        assert!(self.link_exists_prev(b_num, !b_strand, a_num, !a_strand), "missing prev link");
     }
 
     pub fn delete_outgoing_links(&mut self, signed_num: i32) {
@@ -872,24 +710,9 @@ impl UnitigGraph {
     }
 
     fn create_link_one_way(&mut self, start_num: i32, end_num: i32) {
-        let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let start_num = start_num.unsigned_abs();
-        let end_num = end_num.unsigned_abs();
-        let start_rc = self.unitig_index.get(&start_num).unwrap();
-        let end_rc = self.unitig_index.get(&end_num).unwrap();
-        {
-            let mut start = start_rc.borrow_mut();
-            let connection = UnitigStrand { unitig: Rc::downgrade(end_rc), strand: end_strand };
-            let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
-            next_unitigs.push(connection);
-        }
-        {
-            let mut end = end_rc.borrow_mut();
-            let reverse_connection = UnitigStrand { unitig: Rc::downgrade(start_rc), strand: start_strand };
-            let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
-            prev_unitigs.push(reverse_connection);
-        }
+        let start_rc = self.unitig_index.get(&start_num.unsigned_abs()).unwrap();
+        let end_rc = self.unitig_index.get(&end_num.unsigned_abs()).unwrap();
+        add_link(start_rc, start_num > 0, end_rc, end_num > 0);
     }
 
     pub fn clear_positions(&mut self) {
@@ -933,8 +756,6 @@ impl UnitigGraph {
     }
 
     fn connected_unitigs(&self, unitig_num: u32) -> HashSet<u32> {
-        // Given a unitig (by number), this function returns the unitigs (by number) it is directly
-        // connected to.
         let mut connections = HashSet::new();
         if let Some(unitig_rc) = self.unitig_index.get(&unitig_num) {
             let unitig = unitig_rc.borrow();
@@ -947,8 +768,6 @@ impl UnitigGraph {
     }
 
     pub fn component_is_circular_loop(&self, component: &[u32]) -> bool {
-        // Given a connected component of the graph, this function returns whether or not it forms
-        // a simple circular loop.
         if component.is_empty() { return false; }
         let first = component[0];
         let mut num = first;
@@ -965,6 +784,39 @@ impl UnitigGraph {
         }
         visited.len() == component.len()
     }
+}
+
+
+fn add_link(start_rc: &Rc<RefCell<Unitig>>, start_strand: bool,
+            end_rc: &Rc<RefCell<Unitig>>, end_strand: bool) {
+    // Borrow each end separately because links can connect a unitig to itself.
+    {
+        let mut start = start_rc.borrow_mut();
+        let next = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
+        next.push(UnitigStrand::new(end_rc, end_strand));
+    }
+    let mut end = end_rc.borrow_mut();
+    let prev = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
+    prev.push(UnitigStrand::new(start_rc, start_strand));
+}
+
+
+fn removal_creates_dead_end(unitig: &Unitig) -> bool {
+    for (outgoing, links) in [(true, &unitig.forward_next), (false, &unitig.forward_prev)] {
+        for link in links {
+            let neighbor_rc = link.unitig();
+            let neighbor = neighbor_rc.borrow();
+            if neighbor.number == unitig.number { continue; }
+            let alternatives = match (outgoing, link.strand) {
+                (true, true) => &neighbor.forward_prev,
+                (true, false) => &neighbor.reverse_prev,
+                (false, true) => &neighbor.forward_next,
+                (false, false) => &neighbor.reverse_next,
+            };
+            if !alternatives.iter().any(|link| link.number() != unitig.number) { return true; }
+        }
+    }
+    false
 }
 
 
@@ -1251,6 +1103,28 @@ mod tests {
     }
 
     #[test]
+    fn test_self_link_order_and_duplicates() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        for (start, end) in [(1, 1), (1, -1), (-1, 1), (1, -1)] {
+            graph.create_link(start, end);
+        }
+        graph.check_links();
+        let expected: Vec<_> = [("+", "+"), ("+", "-"), ("+", "-"), ("-", "-"), ("-", "+")]
+            .into_iter().map(|(a, b)| ("11".to_string(), a.to_string(), "11".to_string(), b.to_string()))
+            .collect();
+        assert_eq!(graph.get_links_for_gfa(10), expected);
+        assert_eq!(graph.link_count(), (4, 3));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("graph.gfa");
+        graph.save_gfa(&path, &[], false).unwrap();
+        let (reloaded, _) = UnitigGraph::from_gfa_file(&path);
+        assert_eq!(reloaded.get_links_for_gfa(10), expected);
+        graph.delete_link(1, -1);
+        graph.check_links();
+        assert_eq!(graph.link_count(), (3, 2));
+    }
+
+    #[test]
     fn test_get_sequence_from_path() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
@@ -1474,6 +1348,56 @@ mod tests {
         assert_eq!(graph.unitigs.len(), 7);
         assert_eq!(graph.total_length(), 79);
         assert_eq!(graph.link_count(), (8, 4));
+    }
+
+    #[test]
+    fn test_duplicate_unitig_with_self_links() {
+        let (mut graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
+        for number in [2, 3] {
+            graph.unitigs.push(Rc::new(RefCell::new(Unitig::bridge(number, b"A".to_vec(), 1.0))));
+        }
+        graph.build_unitig_index();
+        for (start, end) in [(2, 1), (1, -3), (1, 1), (1, -1), (-1, 1)] {
+            graph.create_link(start, end);
+        }
+        graph.duplicate_unitig_by_number(&1);
+        assert!(!graph.unitig_index.contains_key(&1));
+        for (number, next, reverse_next) in [(4, vec![4, -4, -3], vec![-4, 4]),
+                                             (5, vec![5, -5], vec![-5, 5, -2])] {
+            let unitig = graph.unitig_index[&number].borrow();
+            assert_eq!(unitig.depth, 0.5);
+            assert_eq!(unitig.forward_next.iter().map(|u| u.signed_number()).collect::<Vec<_>>(), next);
+            assert_eq!(unitig.reverse_next.iter().map(|u| u.signed_number()).collect::<Vec<_>>(), reverse_next);
+        }
+        graph.remove_unitigs_by_number(HashSet::from([2, 3]));
+        for number in [4, 5] {
+            graph.delete_link(number, -number);
+            graph.delete_link(-number, number);
+            assert!(graph.unitig_index[&(number as u32)].borrow().is_isolated_and_circular());
+            assert!(graph.component_is_circular_loop(&[number as u32]));
+        }
+        graph.check_links();
+    }
+
+    #[test]
+    fn test_remove_low_depth_unitigs_keeps_alternative_path() {
+        for directions in 0..16 {
+            let signed: Vec<i32> = (1..=4)
+                .map(|n| if directions & (1 << (n - 1)) == 0 { n } else { -n }).collect();
+            let mut graph = UnitigGraph::default();
+            for number in 1..=4 {
+                let depth = if number == 1 || number == 4 { 2.0 } else { 1.0 };
+                graph.unitigs.push(Rc::new(RefCell::new(Unitig::bridge(number, b"A".to_vec(), depth))));
+            }
+            graph.build_unitig_index();
+            for (start, end) in [(0, 1), (1, 3), (0, 2), (2, 3)] {
+                graph.create_link(signed[start], signed[end]);
+            }
+            graph.remove_low_depth_unitigs(1.0);
+            graph.check_links();
+            assert_eq!(graph.connected_components(), vec![vec![1, 2, 4]]);
+            assert_eq!(graph.link_count(), (4, 2));
+        }
     }
 
     #[test]

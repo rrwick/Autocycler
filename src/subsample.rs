@@ -11,8 +11,6 @@
 // Public License for more details. You should have received a copy of the GNU General Public
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(clippy::needless_range_loop)]
-
 use rand::{rngs::StdRng, SeedableRng};
 use rand::seq::SliceRandom;
 use seq_io::fastq::Record;
@@ -158,59 +156,44 @@ fn save_subsets(reads: &[PathBuf], subset_count: usize, input_count: usize,
         subset_files.push(subset_file);
         eprintln!();
     }
-    let sample_read_lengths = write_subsampled_reads(reads, subset_count, &subset_indices,
-                                                     &mut subset_files);
-    for i in 0..subset_count {
-        metrics.output_reads.push(ReadSetDetails::new(&sample_read_lengths[i]));
-    }
+    let sample_read_lengths = write_subsampled_reads(reads, &subset_indices, &mut subset_files);
+    metrics.output_reads.extend(sample_read_lengths.iter().map(ReadSetDetails::new));
 }
 
 
 fn subsample_indices(subset_count: usize, reads_per_subset: usize, read_order: &[usize], i: usize)
         -> HashSet<usize> {
-    // For a given subsample (index i), this function returns a HashSet of the read indices which
-    // will go in that subsample.
     let input_count = read_order.len();
     let mut subsample_indices = HashSet::new();
-    let start_1 = ((i * input_count) as f64 / subset_count as f64).round() as usize;
-    let mut end_1 = start_1 + reads_per_subset;
-    if end_1 > input_count {
-        let start_2 = 0;
-        let end_2 = end_1 - input_count;
-        end_1 = input_count;
-        eprintln!("  reads {}-{} and {}-{}", start_1 + 1, end_1, start_2 + 1, end_2);
-        for j in start_2..end_2 {
-            subsample_indices.insert(read_order[j]);
-        }
+    let start = ((i * input_count) as f64 / subset_count as f64).round() as usize;
+    let end = start + reads_per_subset;
+    if end > input_count {
+        let wrapped_end = end - input_count;
+        eprintln!("  reads {}-{} and 1-{}", start + 1, input_count, wrapped_end);
+        subsample_indices.extend(&read_order[..wrapped_end]);
     } else {
-        eprintln!("  reads {}-{}", start_1 + 1, end_1);
+        eprintln!("  reads {}-{}", start + 1, end);
     }
-    for j in start_1..end_1 {
-        subsample_indices.insert(read_order[j]);
-    }
+    subsample_indices.extend(&read_order[start..end.min(input_count)]);
     assert_eq!(subsample_indices.len(), reads_per_subset);
     subsample_indices
 }
 
 
-fn write_subsampled_reads(reads: &[PathBuf], subset_count: usize, subset_indices: &[HashSet<usize>],
+fn write_subsampled_reads(reads: &[PathBuf], subset_indices: &[HashSet<usize>],
                           subset_files: &mut [BufWriter<File>]) -> Vec<Vec<u64>> {
-    // This function loops through the input reads, and saves each read to the appropriate output
-    // file. It also gathers up and returns the sorted read lengths for each subsampled read set.
-    let mut sample_read_lengths: Vec<Vec<u64>> = vec![Vec::new(); subset_count];
+    let mut sample_read_lengths: Vec<Vec<u64>> = vec![Vec::new(); subset_indices.len()];
     let pb = spinner("writing subsampled reads to files...");
     for (read_i, record) in read_iter(reads).enumerate() {
-        for subset_i in 0..subset_count {
-            if subset_indices[subset_i].contains(&read_i) {
-                record.write(&mut subset_files[subset_i]).unwrap();
+        for (subset_i, (indices, file)) in subset_indices.iter().zip(subset_files.iter_mut()).enumerate() {
+            if indices.contains(&read_i) {
+                record.write(file).unwrap();
                 sample_read_lengths[subset_i].push(record.seq.len() as u64);
             }
         }
     }
     for file in subset_files.iter_mut() { file.flush().unwrap(); }
-    for i in 0..subset_count {
-        sample_read_lengths[i].sort_unstable();
-    }
+    for lengths in &mut sample_read_lengths { lengths.sort_unstable(); }
     pb.finish_and_clear();
     sample_read_lengths
 }
@@ -273,5 +256,12 @@ mod tests {
 
         assert_eq!(subsample_indices(2, 5, &read_order, 0), HashSet::from([4, 2, 3, 1, 0]));
         assert_eq!(subsample_indices(2, 5, &read_order, 1), HashSet::from([1, 0, 5, 4, 2]));
+
+        assert_eq!(subsample_indices(4, 2, &read_order, 1), HashSet::from([3, 1]));
+        assert_eq!(subsample_indices(4, 2, &read_order, 3), HashSet::from([5, 4]));
+        assert_eq!(subsample_indices(12, 1, &read_order, 11), HashSet::from([4]));
+        assert_eq!(subsample_indices(4, 6, &read_order, 1), HashSet::from([0, 1, 2, 3, 4, 5]));
+        assert_eq!(subsample_indices(3, 0, &read_order, 1), HashSet::new());
+        assert_eq!(subsample_indices(2, 0, &[], 0), HashSet::new());
     }
 }
