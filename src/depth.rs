@@ -21,29 +21,23 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use crate::log::{section_header, explanation};
-use crate::misc::{quit_with_error, read_batches, reverse_complement, strand};
+use crate::misc::{quit_with_error, read_batches, reverse_complement};
 use crate::unitig::{Unitig, UnitigStrand};
 use crate::unitig_graph::UnitigGraph;
 
 
-// Reads with fewer than this fraction of their k-mers in the assembly are excluded. It is a low
-// bar because low-accuracy reads have few exact k-mer matches: at 80% accuracy and k=19, only
-// about 1.4% of a read's k-mers survive, but a foreign read should match nothing at all.
-static MIN_READ_HIT_RATE: f64 = 0.005;
+// At 80% accuracy and k=19, only about 1.4% of a read's k-mers survive. A foreign read should
+// match nothing, so this low threshold still excludes it.
+const MIN_READ_HIT_RATE: f64 = 0.005;
 
-// Reads are processed in parallel batches of this many bases.
-static READ_BATCH_BASES: usize = 4 * 1024 * 1024;
+const READ_BATCH_BASES: usize = 4 * 1024 * 1024;
 
-// Walking outward from a tig to find its k-mers stops after this many steps. Hitting this limit
-// means a tig gets fewer k-mers than it might, making its depth less precise. It takes a
-// pathological graph to come close: a long chain of branching sub-k-mer-sized tigs.
-static MAX_WALK_STEPS: usize = 10000;
+// Bounds work in pathological graphs with long chains of branching, sub-k-mer-sized tigs.
+const MAX_WALK_STEPS: usize = 10000;
 
 
 pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) {
-    // Sets the depth of each tig in the given graphs using the given reads. The graphs are all
-    // handled together (not one at a time) because repeats must be found across the entire
-    // consensus assembly, not just within a single cluster.
+    // Handle graphs together to recognise repeats across the whole consensus assembly.
     section_header("Setting depths from reads");
     explanation("The reads are now used to set the depth of each sequence in the consensus \
                  assembly, replacing the input-assembly-count depths from the cluster graphs.");
@@ -66,30 +60,20 @@ pub fn set_read_depths(graphs: &[&UnitigGraph], reads: &[PathBuf], k_size: u32) 
     eprintln!();
     check_read_totals(&totals, reads);
 
-    // A read k-mer only matches the assembly if it is error-free, and a read holds fewer k-mers
-    // than bases, so k-mer counts fall short of read depth on both counts. The reads' own totals
-    // measure the combined shortfall: the bases they cover per k-mer hit.
+    // Bases per hit corrects for sequencing errors and for reads having fewer k-mers than bases.
     let scale = if totals.hits > 0 { totals.span_bases as f64 / totals.hits as f64 } else { 0.0 };
     set_tig_depths(graphs, k_size, &kmers, &repeats, scale);
 }
 
 
 fn build_kmer_table(graphs: &[&UnitigGraph], k_size: u32) -> FxHashMap<u64, AtomicU32> {
-    // Builds a table of all of the consensus assembly's k-mers, where the value is how many times
-    // that k-mer occurs in the assembly.
+    // Count occurrences in the assembly, including k-mers spanning links.
     let capacity: usize = graphs.iter().map(|g| g.total_length() as usize).sum();
     let mut kmers = FxHashMap::with_capacity_and_hasher(capacity, Default::default());
-    for graph in graphs {
-        for tig in &graph.unitigs {
-            let tig = tig.borrow();
-            add_seq_kmers(&tig.forward_seq, k_size, &mut kmers);
-        }
-    }
-    for graph in graphs {
-        for tig in &graph.unitigs {
-            for kmer in junction_kmers(tig, k_size) {
-                *kmers.entry(kmer).or_insert_with(|| AtomicU32::new(0)).get_mut() += 1;
-            }
+    for tig in graphs.iter().flat_map(|graph| &graph.unitigs) {
+        add_seq_kmers(&tig.borrow().forward_seq, k_size, &mut kmers);
+        for kmer in junction_kmers(tig, k_size) {
+            *kmers.entry(kmer).or_default().get_mut() += 1;
         }
     }
     kmers
@@ -97,32 +81,20 @@ fn build_kmer_table(graphs: &[&UnitigGraph], k_size: u32) -> FxHashMap<u64, Atom
 
 
 fn junction_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<u64> {
-    // Returns the k-mers which start inside a tig and run off its end into a neighbour, i.e. the
-    // ones which span a link and so are missed when each tig is read on its own.
-    // Every such k-mer is spelled twice by the graph, once in each direction, and it is kept only
-    // when spelled in its canonical direction. Together with the tigs' own k-mers, that means each
-    // k-mer of the assembly is counted once for each place it occurs, so a k-mer occurring in more
-    // than one place is still recognised as a repeat. That matters where the graph forks and
-    // rejoins, as the alternative paths often spell some of the same k-mers as each other.
+    // Each k-mer crossing a link is spelled in both directions. Keep only the canonical
+    // direction, but count separate walks even if they spell the same k-mer: those are repeats.
     let k = k_size as usize;
     let tig = tig.borrow();
     let mut kmers = Vec::new();
-    for strand in [strand::FORWARD, strand::REVERSE] {
-        let (seq, next) = if strand == strand::FORWARD { (&tig.forward_seq, &tig.forward_next) }
-                                                  else { (&tig.reverse_seq, &tig.reverse_next) };
+    for (seq, next) in [(&tig.forward_seq, &tig.forward_next),
+                       (&tig.reverse_seq, &tig.reverse_next)] {
         let mut steps = MAX_WALK_STEPS;
         let walks = extensions(next, k - 1, &mut steps);
         for start in seq.len().saturating_sub(k - 1)..seq.len() {
             let needed = k - (seq.len() - start);
             for walk in &walks {
-                // A walk which hit a dead end can be too short to finish this k-mer.
                 if needed > walk.len() { continue; }
-                // Each walk counts separately, even when two of them spell the same k-mer. Such a
-                // k-mer occurs in more than one place in the graph, so it cannot say which of the
-                // walks a read took, and counting it once would let each of them claim the
-                // other's reads.
-                if let Some((forward, reverse)) =
-                        encode_kmer(&[&seq[start..], &walk[..needed]].concat()) {
+                if let Some((forward, reverse)) = encode_kmer(&seq[start..], &walk[..needed]) {
                     if forward < reverse { kmers.push(forward); }
                 }
             }
@@ -132,14 +104,13 @@ fn junction_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<u64> {
 }
 
 
-fn encode_kmer(seq: &[u8]) -> Option<(u64, u64)> {
-    // Encodes a single k-mer, returning its value and that of its reverse complement, or nothing
-    // if it contains a base which isn't unambiguous.
-    let k = seq.len();
+fn encode_kmer(prefix: &[u8], suffix: &[u8]) -> Option<(u64, u64)> {
+    // Encode both strands across a junction without allocating a concatenated sequence.
+    let k = prefix.len() + suffix.len();
     let mask = (1u64 << (2 * k)) - 1;
     let shift = 2 * (k - 1);
     let (mut forward, mut reverse) = (0u64, 0u64);
-    for &base in seq {
+    for &base in prefix.iter().chain(suffix) {
         let bits = base_to_bits(base)?;
         forward = ((forward << 2) | bits) & mask;
         reverse = (reverse >> 2) | ((3 - bits) << shift);
@@ -149,18 +120,14 @@ fn encode_kmer(seq: &[u8]) -> Option<(u64, u64)> {
 
 
 fn add_seq_kmers(seq: &[u8], k_size: u32, kmers: &mut FxHashMap<u64, AtomicU32>) {
-    // Adds each of a sequence's k-mers to the table.
     each_kmer(seq, k_size, |_, kmer| {
-        *kmers.entry(kmer).or_insert_with(|| AtomicU32::new(0)).get_mut() += 1;
+        *kmers.entry(kmer).or_default().get_mut() += 1;
     });
 }
 
 
 fn each_kmer(seq: &[u8], k_size: u32, mut f: impl FnMut(usize, u64)) {
-    // Calls the given function for each of a sequence's k-mers, passing it the k-mer's starting
-    // position and its canonical form (the lesser of the k-mer and its reverse complement, so a
-    // sequence gives the same k-mers regardless of which strand it is on). K-mers which run off
-    // the end of the sequence are not included, as they need sequence from a neighbouring tig.
+    // Visit each unambiguous k-mer's start position and canonical (strand-independent) value.
     let k = k_size as usize;
     debug_assert!(k <= 31);
     if seq.len() < k { return; }
@@ -174,7 +141,6 @@ fn each_kmer(seq: &[u8], k_size: u32, mut f: impl FnMut(usize, u64)) {
                 reverse = (reverse >> 2) | ((3 - bits) << shift);
                 valid += 1;
             },
-            // Anything which isn't an unambiguous base (e.g. an N) breaks the run of k-mers.
             None => { forward = 0; reverse = 0; valid = 0; continue; },
         }
         if valid >= k { f(i + 1 - k, forward.min(reverse)); }
@@ -182,14 +148,9 @@ fn each_kmer(seq: &[u8], k_size: u32, mut f: impl FnMut(usize, u64)) {
 }
 
 
-fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<(i32, Vec<u64>)> {
-    // Returns the k-mers which overlap a tig but don't fit inside it, i.e. those which need
-    // sequence from neighbouring tigs, found by walking outward through the graph. Tigs shorter
-    // than the k-mer size have no k-mers of their own, so these are all they get, and they end up
-    // with none at all only when their whole part of the graph is too short to spell a k-mer.
-    // K-mers are grouped by offset: the position of the k-mer's first base relative to the start
-    // of the tig, which is negative for k-mers starting before it. The k-mers at a single offset
-    // are alternatives, as a read passing through the tig contains exactly one of them.
+fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> BTreeMap<i32, Vec<u64>> {
+    // K-mers overlapping a tig's ends, grouped by start offset relative to the tig. A read
+    // passing through the tig contains exactly one of the alternatives at each offset.
     let tig = tig.borrow();
     let (k, n) = (k_size as usize, tig.forward_seq.len());
     let mut steps = MAX_WALK_STEPS;
@@ -205,9 +166,7 @@ fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<(i32, Vec<u64>)>
 
     let mut kmers = BTreeMap::new();
     if n >= k {
-        // No k-mer can reach past both ends of the tig, so each end is handled on its own. This
-        // matters for long tigs, where pairing up the contexts would mean walking the whole tig
-        // once per pair just to collect the few k-mers at its ends.
+        // Handle each end separately: no k-mer reaches across both, and the middle needs no scan.
         for seq in &left {
             add_context_kmers(&[&seq[..], &tig.forward_seq[..k-1]].concat(),
                               k_size, -(seq.len() as i32), n, &mut kmers);
@@ -217,8 +176,7 @@ fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<(i32, Vec<u64>)>
                               k_size, (n - k + 1) as i32, n, &mut kmers);
         }
     } else {
-        // The tig is shorter than a k-mer, so its k-mers can need sequence from both sides at
-        // once and every combination of contexts has to be tried.
+        // Short tigs can need sequence from both sides, so try every context combination.
         for l in &left {
             for r in &right {
                 add_context_kmers(&[&l[..], &tig.forward_seq[..], &r[..]].concat(),
@@ -226,16 +184,13 @@ fn context_kmers(tig: &Rc<RefCell<Unitig>>, k_size: u32) -> Vec<(i32, Vec<u64>)>
             }
         }
     }
-    kmers.into_iter().collect()
+    kmers
 }
 
 
 fn add_context_kmers(context: &[u8], k_size: u32, first_offset: i32, tig_length: usize,
                      kmers: &mut BTreeMap<i32, Vec<u64>>) {
-    // Adds the k-mers of a context sequence, which is a tig with some of its neighbouring
-    // sequence attached. The first_offset argument gives the position of the context's first base
-    // relative to the start of the tig. K-mers which fit inside the tig are skipped, as they need
-    // no context and are taken from the tig's own sequence.
+    // Skip k-mers wholly inside the tig and deduplicate alternatives at each offset.
     let last_inside = tig_length as i32 - k_size as i32;
     each_kmer(context, k_size, |i, kmer| {
         let offset = first_offset + i as i32;
@@ -248,28 +203,27 @@ fn add_context_kmers(context: &[u8], k_size: u32, first_offset: i32, tig_length:
 
 
 fn extensions(next: &[UnitigStrand], length: usize, steps: &mut usize) -> Vec<Vec<u8>> {
-    // Returns the sequences of up to the given length which follow the given tig ends, spelled by
-    // walking through the graph. Walking stops at the required length, so cycles (including a
-    // tig's own circularising or hairpin links) cannot loop forever, and a sequence shorter than
-    // the required length means the walk reached a dead end.
-    // Two walks which spell the same sequence are both returned, as they are separate places in
-    // the graph: callers which want the distinct sequences deduplicate them, and callers which
-    // are counting occurrences need them kept apart.
-    let mut seqs: Vec<Vec<u8>> = Vec::new();
+    // Preserve separate walks even when they spell the same sequence. Stop at the requested
+    // length, a dead end or the shared step limit, which can leave a walk shorter than requested.
+    let mut seqs = Vec::new();
     for strand in next {
         if *steps == 0 { break; }
         *steps -= 1;
-        let seq = first_bases(strand, length);
+        let unitig = strand.unitig();
+        let unitig = unitig.borrow();
+        let (seq, next) = if strand.strand { (&unitig.forward_seq, &unitig.forward_next) }
+                                    else { (&unitig.reverse_seq, &unitig.reverse_next) };
+        let seq = &seq[..length.min(seq.len())];
         if seq.len() == length {
-            seqs.push(seq);
+            seqs.push(seq.to_vec());
             continue;
         }
-        let further = extensions(&next_strands(strand), length - seq.len(), steps);
+        let further = extensions(next, length - seq.len(), steps);
         if further.is_empty() {
-            seqs.push(seq);
+            seqs.push(seq.to_vec());
         } else {
-            for f in further {
-                seqs.push([&seq[..], &f[..]].concat());
+            for suffix in further {
+                seqs.push([seq, &suffix].concat());
             }
         }
     }
@@ -277,61 +231,27 @@ fn extensions(next: &[UnitigStrand], length: usize, steps: &mut usize) -> Vec<Ve
 }
 
 
-fn next_strands(strand: &UnitigStrand) -> Vec<UnitigStrand> {
-    // Returns the tig ends which follow the given one, i.e. the next step of a walk.
-    let unitig = strand.unitig();
-    let unitig = unitig.borrow();
-    if strand.strand { unitig.forward_next.clone() } else { unitig.reverse_next.clone() }
-}
-
-
-fn first_bases(strand: &UnitigStrand, length: usize) -> Vec<u8> {
-    // Returns up to the given number of bases from the start of a tig end's sequence. Taking just
-    // these avoids copying the whole sequence, which for a chromosome-sized tig is megabytes.
-    let unitig = strand.unitig();
-    let unitig = unitig.borrow();
-    let seq = if strand.strand { &unitig.forward_seq } else { &unitig.reverse_seq };
-    seq[..length.min(seq.len())].to_vec()
-}
-
-
 fn set_tig_depths(graphs: &[&UnitigGraph], k_size: u32, kmers: &FxHashMap<u64, AtomicU32>,
                   repeats: &FxHashSet<u64>, scale: f64) {
-    // Gives each tig a depth from the read counts of its k-mers. Tigs with no usable k-mers (i.e.
-    // tigs shorter than the k-mer size, or tigs whose sequence all occurs elsewhere in the
-    // consensus assembly) are left without a depth.
-    for graph in graphs {
-        for tig in &graph.unitigs {
-            // The counts are gathered before the tig is borrowed mutably, because gathering them
-            // involves walking the graph, which can come back to this same tig.
-            let counts = tig_kmer_counts(tig, k_size, kmers, repeats);
-            let depth = clipped_mean(&counts).map(|mean| mean * scale);
-            tig.borrow_mut().read_depth = depth;
-        }
+    for tig in graphs.iter().flat_map(|graph| &graph.unitigs) {
+        // Gather counts before borrowing mutably: a graph walk can return to this tig.
+        let counts = tig_kmer_counts(tig, k_size, kmers, repeats);
+        tig.borrow_mut().read_depth = clipped_mean(&counts).map(|mean| mean * scale);
     }
 }
 
 
 fn tig_kmer_counts(tig: &Rc<RefCell<Unitig>>, k_size: u32, kmers: &FxHashMap<u64, AtomicU32>,
                    repeats: &FxHashSet<u64>) -> Vec<u32> {
-    // Returns a read count for each of a tig's k-mer positions: those which fit inside the tig,
-    // plus those which overlap its ends and so need sequence from neighbouring tigs. Positions are
-    // skipped when a k-mer occurs more than once in the consensus assembly, as its count includes
-    // reads from its other occurrences.
+    // Exclude positions with repeated k-mers, whose counts include reads from elsewhere.
     let mut counts = Vec::new();
-    {
-        let tig = tig.borrow();
-        each_kmer(&tig.forward_seq, k_size, |_, kmer| {
-            if !repeats.contains(&kmer) {
-                if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
-            }
-        });
-    }
-    // A read passing through the tig contains exactly one of the k-mers at a given position, so
-    // the counts of the alternatives at that position are added together. Averaging them instead
-    // would drag the depth down whenever a neighbouring path exists in the graph but not in the
-    // reads, which is common where the graph is unresolved.
-    for (_, variants) in context_kmers(tig, k_size) {
+    each_kmer(&tig.borrow().forward_seq, k_size, |_, kmer| {
+        if !repeats.contains(&kmer) {
+            if let Some(count) = kmers.get(&kmer) { counts.push(count.load(Relaxed)); }
+        }
+    });
+    // Sum alternatives at each offset: a read takes exactly one path through the tig.
+    for variants in context_kmers(tig, k_size).into_values() {
         if variants.iter().any(|kmer| repeats.contains(kmer)) { continue; }
         counts.push(variants.iter().filter_map(|kmer| kmers.get(kmer))
                             .map(|count| count.load(Relaxed)).sum());
@@ -341,15 +261,8 @@ fn tig_kmer_counts(tig: &Rc<RefCell<Unitig>>, k_size: u32, kmers: &FxHashMap<u64
 
 
 fn clipped_mean(counts: &[u32]) -> Option<f64> {
-    // Returns the mean of the counts, with high outliers pulled down to a limit. This discards
-    // counts inflated by sequence which is repeated in the reads but not in the assembly (e.g. a
-    // collapsed repeat), while leaving the estimate unbiased when counts are low, which a trimmed
-    // mean or a median wouldn't.
-    // The limit is whichever is higher of six standard deviations above the mean (counts are
-    // roughly Poisson distributed, so the standard deviation is the square root of the mean) and
-    // twice the mean. The first covers low counts, where the scatter is large relative to the
-    // mean. The second covers high counts, where six standard deviations is a narrow margin that
-    // ordinary variation in read depth would exceed.
+    // Cap high outliers from collapsed repeats without discarding low counts. Six Poisson
+    // standard deviations allow low-depth scatter; twice the mean allows high-depth variation.
     if counts.is_empty() { return None; }
     let count = counts.len() as f64;
     let mean = counts.iter().map(|&c| c as f64).sum::<f64>() / count;
@@ -360,8 +273,6 @@ fn clipped_mean(counts: &[u32]) -> Option<f64> {
 
 fn count_read_kmers(reads: &[PathBuf], k_size: u32,
                     kmers: &FxHashMap<u64, AtomicU32>) -> ReadTotals {
-    // Tallies the reads' k-mers into the assembly's k-mer table, processing reads in parallel
-    // batches.
     read_batches(reads, READ_BATCH_BASES).map(|batch| batch.par_iter()
         .map_init(Vec::new, |hits, r| count_one_read(&r.seq, k_size, kmers, hits))
         .reduce(ReadTotals::default, |a, b| a + b))
@@ -380,39 +291,35 @@ fn check_read_totals(totals: &ReadTotals, reads: &[PathBuf]) {
 
 fn count_one_read<'a>(seq: &[u8], k_size: u32, kmers: &'a FxHashMap<u64, AtomicU32>,
                       hits: &mut Vec<&'a AtomicU32>) -> ReadTotals {
-    // Looks up each of a read's k-mers in the assembly's k-mer table. Reads with too few hits came
-    // from somewhere other than the consensus assembly (contamination, or sequence the assembly
-    // missed), so they are excluded and their k-mers left uncounted.
-    // An included read's length is measured from its first k-mer hit to its last, not end to end,
-    // so sequence which isn't in the assembly (e.g. untrimmed adapters) doesn't inflate depths.
+    // Exclude reads with too few hits before updating counts. Measure accepted reads from first
+    // hit to last so non-assembly sequence (e.g. adapters) doesn't inflate depths.
     hits.clear();
-    let (mut first, mut last, mut kmer_count) = (0, 0, 0u64);
+    let (mut first_hit, mut last_hit, mut valid_kmers) = (0, 0, 0u64);
     each_kmer(seq, k_size, |i, kmer| {
-        kmer_count += 1;
+        valid_kmers += 1;
         if let Some(count) = kmers.get(&kmer) {
-            if hits.is_empty() { first = i; }
-            last = i;
+            if hits.is_empty() { first_hit = i; }
+            last_hit = i;
             hits.push(count);
         }
     });
-    if kmer_count == 0 { return ReadTotals::default(); }
-    if (hits.len() as f64) < MIN_READ_HIT_RATE * kmer_count as f64 {
+    if valid_kmers == 0 { return ReadTotals::default(); }
+    if (hits.len() as f64) < MIN_READ_HIT_RATE * valid_kmers as f64 {
         return ReadTotals { rejected_reads: 1, ..Default::default() };
     }
     for count in hits.iter() { count.fetch_add(1, Relaxed); }
-    let span_kmers = (last - first + 1) as u64;
-    ReadTotals { reads: 1, rejected_reads: 0, read_bases: seq.len() as u64, span_kmers,
+    let span_kmers = (last_hit - first_hit + 1) as u64;
+    ReadTotals { reads: 1, rejected_reads: 0, span_kmers,
                  span_bases: span_kmers + k_size as u64 - 1, hits: hits.len() as u64 }
 }
 
 
 fn find_repeats_and_reset_counts(kmers: &mut FxHashMap<u64, AtomicU32>) -> FxHashSet<u64> {
-    // Returns the set of k-mers which occur more than once in the consensus assembly, and zeroes
-    // the table's counts so it is ready to tally read k-mers.
     let mut repeats = FxHashSet::default();
     for (kmer, count) in kmers.iter_mut() {
-        if *count.get_mut() > 1 { repeats.insert(*kmer); }
-        *count.get_mut() = 0;
+        let count = count.get_mut();
+        if *count > 1 { repeats.insert(*kmer); }
+        *count = 0;
     }
     repeats
 }
@@ -433,7 +340,6 @@ fn base_to_bits(base: u8) -> Option<u64> {
 struct ReadTotals {
     reads: u64,          // reads which look like they came from the consensus assembly
     rejected_reads: u64, // reads which don't
-    read_bases: u64,     // total bases in the included reads
     span_bases: u64,     // bases from each included read's first k-mer hit to its last
     span_kmers: u64,     // k-mers from each included read's first k-mer hit to its last
     hits: u64,           // read k-mers found in the consensus assembly
@@ -444,7 +350,6 @@ impl std::ops::Add for ReadTotals {
     fn add(self, other: Self) -> Self {
         ReadTotals { reads:          self.reads          + other.reads,
                      rejected_reads: self.rejected_reads + other.rejected_reads,
-                     read_bases:     self.read_bases     + other.read_bases,
                      span_bases:     self.span_bases     + other.span_bases,
                      span_kmers:     self.span_kmers     + other.span_kmers,
                      hits:           self.hits           + other.hits }
@@ -600,7 +505,6 @@ mod tests {
         assert_eq!(totals.reads, 1);
         assert_eq!(totals.rejected_reads, 0);
         assert_eq!(totals.hits, 15);
-        assert_eq!(totals.read_bases, 19);
         assert_eq!(totals.span_bases, 19);
         assert_eq!(totals.span_kmers, 15);
     }
@@ -636,7 +540,6 @@ mod tests {
         let totals = count_read("TTTTTTTTTTAGCATCGACATCGACTACG", &kmers);
         assert_eq!(totals.reads, 1);
         assert_eq!(totals.hits, 15);
-        assert_eq!(totals.read_bases, 29);
         assert_eq!(totals.span_bases, 19);
         assert_eq!(totals.span_kmers, 15);
     }
@@ -664,7 +567,6 @@ mod tests {
         assert_eq!(totals.reads, 2);
         assert_eq!(totals.rejected_reads, 1);
         assert_eq!(totals.hits, 30);
-        assert_eq!(totals.read_bases, 38);
         assert_eq!(totals.span_bases, 38);
         assert_eq!(kmers[&kmer("ATCGA")].load(Relaxed), 4);
     }
@@ -774,13 +676,36 @@ mod tests {
         assert_eq!(graph.unitig_index[&4].borrow().read_depth, Some(3.0));
     }
 
-    fn contexts(gfa: &Vec<String>, number: u32, k_size: u32) -> Vec<(i32, Vec<u64>)> {
+    fn contexts(gfa: &[String], number: u32, k_size: u32) -> Vec<(i32, Vec<u64>)> {
         let (graph, _) = UnitigGraph::from_gfa_lines(gfa);
-        context_kmers(&graph.unitig_index[&number], k_size)
+        context_kmers(&graph.unitig_index[&number], k_size).into_iter().collect()
     }
 
     fn offsets(kmers: &[(i32, Vec<u64>)]) -> Vec<i32> {
         kmers.iter().map(|(offset, _)| *offset).collect()
+    }
+
+    #[test]
+    fn test_extensions_step_budget() {
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_15());
+        let tig = graph.unitig_index[&1].borrow();
+        for (budget, expected) in [(0, vec![]), (1, vec!["CAA"]),
+                                   (2, vec!["CAAT"]), (3, vec!["CAAT", "CAAG"])] {
+            let mut steps = budget;
+            let walks = extensions(&tig.forward_next, 5, &mut steps);
+            let expected: Vec<_> = expected.iter().map(|s| s.as_bytes().to_vec()).collect();
+            assert_eq!(walks, expected);
+            assert_eq!(steps, 0);
+        }
+    }
+
+    #[test]
+    fn test_extensions_preserves_duplicate_walks() {
+        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_16());
+        let tig = graph.unitig_index[&2].borrow();
+        let mut steps = 3;
+        assert_eq!(extensions(&tig.reverse_next, 5, &mut steps), vec![b"CATGC", b"CATGC"]);
+        assert_eq!(steps, 1);
     }
 
     #[test]

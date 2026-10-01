@@ -331,10 +331,6 @@ impl UnitigStrand {
         Self { unitig: Rc::downgrade(unitig), strand }
     }
 
-    pub fn from_weak(unitig: &Weak<RefCell<Unitig>>, strand: bool) -> Self {
-        Self { unitig: unitig.clone(), strand }
-    }
-
     pub fn unitig(&self) -> Rc<RefCell<Unitig>> {
         self.unitig.upgrade().expect("unitig was dropped")
     }
@@ -357,10 +353,6 @@ impl UnitigStrand {
 
     pub fn depth(&self) -> f64 {
         self.unitig().borrow().depth
-    }
-
-    pub fn get_seq(&self) -> Vec<u8> {
-        self.unitig().borrow().get_seq(self.strand)
     }
 
     pub fn is_anchor(&self) -> bool {
