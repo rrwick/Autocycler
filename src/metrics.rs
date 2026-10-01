@@ -48,7 +48,7 @@ impl ReadSetDetails {
         let mut n50 = 0;
         for read_length in sorted_read_lengths {
             running_total += read_length;
-            if running_total >= n50_target_bases {
+            if running_total > n50_target_bases {
                 n50 = *read_length;
                 break;
             }
@@ -272,6 +272,18 @@ mod tests {
     use maplit::hashmap;
     use super::*;
     use crate::tests::assert_almost_eq;
+
+    #[test]
+    fn test_read_n50() {
+        let cases: &[(&[u64], u64)] = &[
+            (&[], 0), (&[0, 0], 0), (&[1], 1), (&[0, 1], 1),
+            (&[1000, 2000, 3000], 3000), (&[1, 2, 4], 4),
+            (&[2, 3, 4], 3), (&[2, 2, 2, 2], 2),
+        ];
+        for &(lengths, expected) in cases {
+            assert_eq!(ReadSetDetails::new(lengths).n50, expected, "{lengths:?}");
+        }
+    }
 
     #[test]
     fn test_calculate_balance() {
