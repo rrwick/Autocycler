@@ -76,14 +76,12 @@ pub fn find_all_assemblies(in_dir: &Path) -> Vec<PathBuf> {
 
 
 fn is_assembly_file(path: &Path) -> bool {
-    path.is_file() && 
-        (path.extension().unwrap_or_default() == "fasta" ||
-         path.extension().unwrap_or_default() == "fna" ||
-         path.extension().unwrap_or_default() == "fa" ||
-         (path.extension().unwrap_or_default() == "gz" &&
-          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fasta") ||
-          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fna") ||
-          path.file_stem().unwrap_or_default().to_str().unwrap_or_default().ends_with(".fa")))
+    let extension = path.extension().unwrap_or_default();
+    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or_default();
+    path.is_file() &&
+        (extension == "fasta" || extension == "fna" || extension == "fa" ||
+         (extension == "gz" &&
+          (stem.ends_with(".fasta") || stem.ends_with(".fna") || stem.ends_with(".fa"))))
 }
 
 
@@ -584,6 +582,26 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::tests::{make_test_file, make_gzipped_test_file, make_test_bam};
+
+    #[test]
+    fn test_is_assembly_file() {
+        let dir = tempdir().unwrap();
+        for (extension, expected) in [
+            ("fasta", true), ("fna", true), ("fa", true),
+            ("fasta.gz", true), ("fna.gz", true), ("fa.gz", true),
+            ("fasta.bak", false), ("fna.bak", false), ("fa.bak", false),
+            ("fasta.txt", false), ("fna.txt", false), ("fa.txt", false),
+            ("fa.gz.bak", false), ("gz", false), ("FASTA", false), ("FA.gz", false),
+        ] {
+            let path = dir.path().join(format!("sample.{extension}"));
+            make_test_file(&path, ">a\nACGT\n");
+            assert_eq!(is_assembly_file(&path), expected, "{}", path.display());
+        }
+        let directory = dir.path().join("directory.fasta.gz");
+        fs::create_dir(&directory).unwrap();
+        assert!(!is_assembly_file(&directory));
+        assert!(!is_assembly_file(&dir.path().join("missing.fasta")));
+    }
 
     #[test]
     fn test_decompress_if_gzipped() {
