@@ -27,26 +27,23 @@ use tempfile::{tempdir, TempDir};
 
 
 pub mod strand {
-    // This module lets me use strand::FORWARD for true and strand::REVERSE for false.
     pub const FORWARD: bool = true;
     pub const REVERSE: bool = false;
 }
 
 
 pub fn create_dir(dir_path: &Path) {
-    match create_dir_all(dir_path) {
-        Ok(_) => {},
-        Err(e) => quit_with_error(&format!("failed to create directory {}\n{}", dir_path.display(), e)),
-    }
+    create_dir_all(dir_path).unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to create directory {}\n{}", dir_path.display(), e))
+    });
 }
 
 
 pub fn delete_dir_if_exists(dir_path: &Path) {
     if dir_path.exists() && dir_path.is_dir() {
-        match remove_dir_all(dir_path) {
-            Ok(_) => {},
-            Err(e) => quit_with_error(&format!("failed to delete directory {}\n{}", dir_path.display(), e)),
-        }
+        remove_dir_all(dir_path).unwrap_or_else(|e| {
+            quit_with_error(&format!("failed to delete directory {}\n{}", dir_path.display(), e))
+        });
     }
 }
 
@@ -65,19 +62,11 @@ pub fn load_file_lines(filename: &Path) -> Vec<String> {
 
 
 pub fn find_all_assemblies(in_dir: &Path) -> Vec<PathBuf> {
-    let paths = match read_dir(in_dir) {
-        Ok(paths) => paths,
-        Err(e) => {
-            quit_with_error(&format!("unable to read directory {}\n{}", in_dir.display(), e));
-        },
-    };
-    let mut all_assemblies: Vec<PathBuf> = Vec::new();
-    for path in paths {
-        let path = path.unwrap().path();
-        if is_assembly_file(&path) {
-            all_assemblies.push(path);
-        }
-    }
+    let paths = read_dir(in_dir).unwrap_or_else(|e| {
+        quit_with_error(&format!("unable to read directory {}\n{}", in_dir.display(), e))
+    });
+    let mut all_assemblies: Vec<_> = paths.map(|entry| entry.unwrap().path())
+        .filter(|path| is_assembly_file(path)).collect();
     all_assemblies.sort_unstable();
     if all_assemblies.is_empty() {
         quit_with_error(&format!("no assemblies found in {}", in_dir.display()));
@@ -98,9 +87,7 @@ fn is_assembly_file(path: &Path) -> bool {
 }
 
 
-pub fn check_if_file_exists(filename: &Path) {
-    // Quits with an error if the given path is not an existing file.
-    let path = Path::new(filename);
+pub fn check_if_file_exists(path: &Path) {
     if !path.exists() {
         quit_with_error(&format!("file does not exist: {}", path.display()));
     }
@@ -110,9 +97,7 @@ pub fn check_if_file_exists(filename: &Path) {
 }
 
 
-pub fn check_if_dir_exists(dir: &Path) {
-    // Quits with an error if the given path is not an existing directory.
-    let path = Path::new(dir);
+pub fn check_if_dir_exists(path: &Path) {
     if !path.exists() {
         quit_with_error(&format!("directory does not exist: {}", path.display()));
     }
@@ -123,7 +108,6 @@ pub fn check_if_dir_exists(dir: &Path) {
 
 
 pub fn check_if_dir_is_not_dir(dir: &Path) {
-    // Quits with an error if the given path exists but is not a directory (not existing is okay).
     if dir.exists() && !dir.is_dir() {
         quit_with_error(&format!("{} exists but is not a directory", dir.display()));
     }
@@ -132,7 +116,6 @@ pub fn check_if_dir_is_not_dir(dir: &Path) {
 
 #[cfg(not(test))]
 pub fn quit_with_error(text: &str) -> ! {
-    // For friendly error messages, this function normally just prints the error and quits.
     remove_temp_dirs();
     eprintln!();
     eprintln!("Error: {text}");
@@ -140,44 +123,29 @@ pub fn quit_with_error(text: &str) -> ! {
 }
 #[cfg(test)]
 pub fn quit_with_error(text: &str) -> ! {
-    // But when running unit tests, this function instead panics so I can catch it for the test.
+    // Panicking lets tests catch errors without exiting the test process.
     panic!("{}", text);
 }
 
 
 pub fn load_fasta(filename: &Path) -> Vec<(String, String, String)> {
-    // This function loads a FASTA file and runs a few checks on the result. If everything looks
-    // good, it returns a vector of name+sequence tuples.
     if is_file_empty(filename) {
         quit_with_error(&format!("{} is an empty file", filename.display()));
     }
-    let load_result = if is_file_gzipped(filename) { load_fasta_gzipped(filename) }
-                                              else { load_fasta_not_gzipped(filename) };
-    match load_result {
-        Ok(_)  => (),
-        Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
-    }
-    let fasta_seqs = load_result.unwrap();
-    check_load_fasta(&fasta_seqs, filename);
+    let fasta_seqs = load_fasta_allow_empty(filename);
+    validate_fasta(&fasta_seqs, filename);
     fasta_seqs
 }
 
 
 pub fn load_fasta_allow_empty(filename: &Path) -> Vec<(String, String, String)> {
-    // Same as load_fasta, but will not quit with an error if the file is empty.
-    let load_result = if is_file_gzipped(filename) { load_fasta_gzipped(filename) }
-                                              else { load_fasta_not_gzipped(filename) };
-    match load_result {
-        Ok(_)  => (),
-        Err(e) => quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)),
-    }
-    load_result.unwrap()
+    // Skips validation of empty sequences and duplicate names as well as empty files.
+    text_file_reader(filename).and_then(|reader| parse_fasta(reader, filename))
+        .unwrap_or_else(|e| quit_with_error(&format!("unable to load {}\n{}", filename.display(), e)))
 }
 
 
-fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path) {
-    // This function looks at the result of the load_fasta function and does some checks to make
-    // sure everything looks okay. If any problems are found, it will quit with an error message.
+fn validate_fasta(fasta_seqs: &[(String, String, String)], filename: &Path) {
     if fasta_seqs.is_empty() {
         quit_with_error(&format!("{} contains no sequences", filename.display()));
     }
@@ -189,9 +157,9 @@ fn check_load_fasta(fasta_seqs: &Vec<(String, String, String)>, filename: &Path)
             quit_with_error(&format!("{} has an empty sequence", filename.display()));
         }
     }
-    let mut set = HashSet::new();
+    let mut names = HashSet::new();
     for (name, _, _) in fasta_seqs {
-        if !set.insert(name) {
+        if !names.insert(name) {
             quit_with_error(&format!("{} has a duplicate name: {}", filename.display(), name));
         }
     }
@@ -367,15 +335,11 @@ fn remove_temp_dirs() {
 
 
 pub fn is_file_empty(filename: &Path) -> bool {
-    match fs::metadata(filename) {
-        Ok(metadata) => metadata.len() == 0,
-        Err(_) => false,
-    }
+    fs::metadata(filename).is_ok_and(|metadata| metadata.len() == 0)
 }
 
 
 pub fn total_fasta_length(filename: &Path) -> usize {
-    // This function returns the total length of all sequences in a FASTA file.
     if !filename.exists() { return 0; }
     let fasta_seqs = load_fasta_allow_empty(filename);
     fasta_seqs.iter().map(|(_, _, seq)| seq.len()).sum()
@@ -383,15 +347,11 @@ pub fn total_fasta_length(filename: &Path) -> usize {
 
 
 pub fn is_fasta_empty(filename: &Path) -> bool {
-    // This function differs from is_file_empty in that it will return false even when the file
-    // size is non-zero, e.g. a gzipped empty file or a FASTA file with headers but no sequences.
     total_fasta_length(filename) == 0
 }
 
 
 fn is_file_gzipped(filename: &Path) -> bool {
-    // This function returns true if the file appears to be gzipped (based on the first two bytes)
-    // and false if not.
     let file = File::open(filename).unwrap_or_else(|e| {
         quit_with_error(&format!("unable to open {}: {e}", filename.display()))
     });
@@ -404,54 +364,23 @@ fn is_file_gzipped(filename: &Path) -> bool {
 }
 
 
-fn load_fasta_not_gzipped(filename: &Path) -> io::Result<Vec<(String, String, String)>> {
-    let mut fasta_seqs = Vec::new();
+fn text_file_reader(filename: &Path) -> io::Result<BufReader<Box<dyn Read>>> {
+    let gzipped = is_file_gzipped(filename);
     let file = File::open(filename)?;
-    let reader = BufReader::new(file);
-    let mut name = String::new();
-    let mut header = String::new();
-    let mut sequence = String::new();
-    for line in reader.lines() {
-        let text = line?;
-        if text.is_empty() {continue;}
-        if let Some(text) = text.strip_prefix('>') {
-            if !name.is_empty() {
-                sequence.make_ascii_uppercase();
-                fasta_seqs.push((name, header, sequence));
-                sequence = String::new();
-            }
-            header = text.to_string();
-            let first_piece = text.split_whitespace().next();
-            match first_piece {
-                Some(_) => (),
-                None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
-            }
-            name = first_piece.unwrap().to_string();
-        } else {
-            if name.is_empty() {
-                quit_with_error(&format!("{} is not correctly formatted", filename.display()));
-            }
-            sequence.push_str(&text);
-        }
-    }
-    if !name.is_empty() {
-        sequence.make_ascii_uppercase();
-        fasta_seqs.push((name, header, sequence));
-    }
-    Ok(fasta_seqs)
+    let reader: Box<dyn Read> = if gzipped { Box::new(MultiGzDecoder::new(file)) }
+                                    else { Box::new(file) };
+    Ok(BufReader::new(reader))
 }
 
 
-fn load_fasta_gzipped(filename: &Path) -> io::Result<Vec<(String, String, String)>> {
+fn parse_fasta(reader: impl BufRead, filename: &Path) -> io::Result<Vec<(String, String, String)>> {
     let mut fasta_seqs = Vec::new();
-    let file = File::open(filename)?;
-    let reader = BufReader::new(MultiGzDecoder::new(file));
     let mut name = String::new();
     let mut header = String::new();
     let mut sequence = String::new();
     for line in reader.lines() {
         let text = line?;
-        if text.is_empty() {continue;}
+        if text.is_empty() { continue; }
         if let Some(text) = text.strip_prefix('>') {
             if !name.is_empty() {
                 sequence.make_ascii_uppercase();
@@ -459,12 +388,9 @@ fn load_fasta_gzipped(filename: &Path) -> io::Result<Vec<(String, String, String
                 sequence = String::new();
             }
             header = text.to_string();
-            let first_piece = text.split_whitespace().next();
-            match first_piece {
-                Some(_) => (),
-                None    => quit_with_error(&format!("{} is not correctly formatted", filename.display())),
-            }
-            name = first_piece.unwrap().to_string();
+            name = text.split_whitespace().next().unwrap_or_else(|| {
+                quit_with_error(&format!("{} is not correctly formatted", filename.display()))
+            }).to_string();
         } else {
             if name.is_empty() {
                 quit_with_error(&format!("{} is not correctly formatted", filename.display()));
@@ -493,19 +419,15 @@ fn complement_base(base: u8) -> u8 {
 
 
 pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    let mut rev_seq: Vec<u8> = Vec::with_capacity(seq.len());
-    for &b in seq.iter().rev() {
-        rev_seq.push(complement_base(b));
-    }
-    rev_seq
+    seq.iter().rev().map(|&base| complement_base(base)).collect()
 }
 
 
-pub fn format_duration(duration: std::time::Duration) -> String {
-    let microseconds = duration.as_micros() % 1000000;
-    let seconds =      duration.as_micros() / 1000000 % 60;
-    let minutes =      duration.as_micros() / 1000000 / 60 % 60;
-    let hours =        duration.as_micros() / 1000000 / 60 / 60;
+pub fn format_duration(duration: Duration) -> String {
+    let microseconds = duration.subsec_micros();
+    let seconds = duration.as_secs() % 60;
+    let minutes = duration.as_secs() / 60 % 60;
+    let hours = duration.as_secs() / 3600;
     format!("{hours}:{minutes:02}:{seconds:02}.{microseconds:06}")
 }
 
@@ -548,7 +470,7 @@ pub fn format_float_sigfigs(value: f64, sigfigs: usize) -> String {
 pub fn median_usize(values: &[usize]) -> usize {
     if values.is_empty() { return 0; }
     let mut sorted_values = values.to_vec();
-    sorted_values.sort();
+    sorted_values.sort_unstable();
     let len = sorted_values.len();
     if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
                         else { sorted_values[len / 2] }
@@ -558,7 +480,7 @@ pub fn median_usize(values: &[usize]) -> usize {
 pub fn median_isize(values: &[isize]) -> isize {
     if values.is_empty() { return 0; }
     let mut sorted_values = values.to_vec();
-    sorted_values.sort();
+    sorted_values.sort_unstable();
     let len = sorted_values.len();
     if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
                         else { sorted_values[len / 2] }
@@ -631,34 +553,15 @@ pub fn after_first_space(string: &str) -> String {
 
 
 pub fn first_char_in_file(filename: &Path) -> io::Result<char> {
-    if is_file_gzipped(filename) {
-        first_char_in_file_gzipped(filename)
-    } else {
-        first_char_in_file_not_gzipped(filename)
-    }
-}
-
-
-fn first_char_in_file_not_gzipped(filename: &Path) -> io::Result<char> {
-    let file = File::open(filename)?;
-    let reader = BufReader::new(file);
-    first_non_empty_char(reader)
-}
-
-
-fn first_char_in_file_gzipped(filename: &Path) -> io::Result<char> {
-    let file = File::open(filename)?;
-    let reader = BufReader::new(MultiGzDecoder::new(file));
-    first_non_empty_char(reader)
+    first_non_empty_char(text_file_reader(filename)?)
 }
 
 
 fn first_non_empty_char<R: BufRead>(reader: R) -> io::Result<char> {
     for line in reader.lines() {
         let text = line?;
-        if !text.is_empty() {
-            return text.chars().next()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Empty line"));
+        if let Some(first_char) = text.chars().next() {
+            return Ok(first_char);
         }
     }
     Err(io::Error::new(io::ErrorKind::UnexpectedEof, "No non-empty lines found"))
@@ -715,6 +618,8 @@ mod tests {
     fn test_reverse_complement() {
         assert_eq!(reverse_complement(b"GGTATCACTCAGGAAGC"), b"GCTTCCTGAGTGATACC");
         assert_eq!(reverse_complement(b"XYZ"), b"NNN");
+        assert_eq!(reverse_complement(b".acgtnACGT."), b".ACGTNNNNN.");
+        assert!(reverse_complement(b"").is_empty());
     }
 
     #[test]
@@ -826,6 +731,9 @@ mod tests {
         assert_eq!(median_usize(&[10, 8, 6, 4, 2, 0]), 5);
 
         assert_eq!(median_isize(&[]), 0);
+        assert_eq!(median_isize(&[-4, -1, -2]), -2);
+        assert_eq!(median_isize(&[-4, -1, -2, -3]), -2);
+        assert_eq!(median_isize(&[-2, 1]), 0);
         assert_eq!(median_isize(&[0, 1, 2, 3, 4]), 2);
         assert_eq!(median_isize(&[4, 3, 2, 1, 0]), 2);
         assert_eq!(median_isize(&[0, 1, 2, 3, 4, 5]), 2);
@@ -882,72 +790,84 @@ mod tests {
     fn test_first_char_in_file() {
         let dir = tempdir().unwrap();
         let filename = dir.path().join("temp.fasta");
-
-        make_test_file(&filename, ">a\nACGT\n");
-        assert_eq!(first_char_in_file(&filename).unwrap(), '>');
-
-        make_test_file(&filename, "XYZ");
-        assert_eq!(first_char_in_file(&filename).unwrap(), 'X');
-    }
-
-    #[test]
-    fn test_first_char_in_file_gzipped() {
-        let dir = tempdir().unwrap();
-        let filename = dir.path().join("temp.fasta");
-
-        make_gzipped_test_file(&filename, ">a\nACGT\n");
-        assert_eq!(first_char_in_file(&filename).unwrap(), '>');
-
-        make_gzipped_test_file(&filename, "XYZ");
-        assert_eq!(first_char_in_file(&filename).unwrap(), 'X');
+        for write_file in [make_test_file, make_gzipped_test_file] {
+            for (text, expected) in [(">a\nACGT\n", '>'), ("XYZ", 'X'),
+                                     ("\n\r\n>seq", '>'), ("\n é", ' '), ("é", 'é')] {
+                write_file(&filename, text);
+                assert_eq!(first_char_in_file(&filename).unwrap(), expected);
+            }
+            for text in ["", "\n\r\n"] {
+                write_file(&filename, text);
+                let error = first_char_in_file(&filename).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+                assert_eq!(error.to_string(), "No non-empty lines found");
+            }
+        }
     }
 
     #[test]
     fn test_load_fasta() {
         let dir = tempdir().unwrap();
         let filename = dir.path().join("temp.fasta");
+        let expected = vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
+                            ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())];
+        for write_file in [make_test_file, make_gzipped_test_file] {
+            write_file(&filename, "\n>a\r\naCgT\r\n\n>b xyz\nacgt\nACGT");
+            assert_eq!(load_fasta(&filename), expected);
+            assert_eq!(load_fasta_allow_empty(&filename), expected);
 
-        make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta(&filename);
-        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
-                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
+            write_file(&filename, ">  a\tinfo\nac gté\n");
+            assert_eq!(load_fasta(&filename),
+                       vec![("a".into(), "  a\tinfo".into(), "AC GTé".into())]);
+        }
+    }
 
-        make_gzipped_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta(&filename);
-        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
-                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
-
-        make_test_file(&filename, "");
-        assert!(panic::catch_unwind(|| {
-            load_fasta(&filename);
-        }).is_err());
-
-        make_gzipped_test_file(&filename, "");
-        assert!(panic::catch_unwind(|| {
-            load_fasta(&filename);
-        }).is_err());
+    fn assert_panics_with(action: impl FnOnce() + panic::UnwindSafe, expected: &str) {
+        let error = panic::catch_unwind(action).unwrap_err();
+        assert_eq!(error.downcast_ref::<String>().unwrap(), expected);
     }
 
     #[test]
-    fn test_load_fasta_allow_empty() {
+    fn test_load_fasta_validation() {
         let dir = tempdir().unwrap();
         let filename = dir.path().join("temp.fasta");
+        for write_file in [make_test_file, make_gzipped_test_file] {
+            for (text, error) in [("\n\n", "contains no sequences"),
+                                  (">a\n", "has an empty sequence"),
+                                  (">a\nA\n>a\nT\n", "has a duplicate name: a"),
+                                  (">a\nA\n>a\nT\n>b\n", "has an empty sequence")] {
+                write_file(&filename, text);
+                load_fasta_allow_empty(&filename);
+                assert_panics_with(|| { load_fasta(&filename); },
+                                   &format!("{} {error}", filename.display()));
+            }
+            for text in ["ACGT\n", ">\n", "> \t\n", ">a\nA\n>\n"] {
+                write_file(&filename, text);
+                let error = format!("{} is not correctly formatted", filename.display());
+                assert_panics_with(|| { load_fasta(&filename); }, &error);
+                assert_panics_with(|| { load_fasta_allow_empty(&filename); }, &error);
+            }
+            write_file(&filename, "");
+            assert!(load_fasta_allow_empty(&filename).is_empty());
+            let error = if is_file_empty(&filename) { "is an empty file" }
+                                              else { "contains no sequences" };
+            assert_panics_with(|| { load_fasta(&filename); },
+                               &format!("{} {error}", filename.display()));
+        }
+    }
 
-        make_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta_allow_empty(&filename);
-        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
-                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
-
-        make_gzipped_test_file(&filename, ">a\nACGT\n>b xyz\nACGT\nACGT\n");
-        let fasta = load_fasta_allow_empty(&filename);
-        assert_eq!(fasta, vec![("a".to_string(), "a".to_string(), "ACGT".to_string()),
-                               ("b".to_string(), "b xyz".to_string(), "ACGTACGT".to_string())]);
-
-        make_test_file(&filename, "");
-        load_fasta_allow_empty(&filename);
-
-        make_gzipped_test_file(&filename, "");
-        load_fasta_allow_empty(&filename);
+    #[test]
+    fn test_load_fasta_concatenated_gzip() {
+        let dir = tempdir().unwrap();
+        let filename = dir.path().join("temp.fasta");
+        make_gzipped_test_file(&filename, ">a\nac");
+        let mut contents = fs::read(&filename).unwrap();
+        make_gzipped_test_file(&filename, "gt\n>b\ntt\n");
+        contents.extend(fs::read(&filename).unwrap());
+        fs::write(&filename, contents).unwrap();
+        assert_eq!(load_fasta(&filename),
+                   vec![("a".into(), "a".into(), "ACGT".into()),
+                        ("b".into(), "b".into(), "TT".into())]);
     }
 
     #[test]

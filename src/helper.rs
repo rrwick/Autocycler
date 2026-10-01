@@ -21,6 +21,7 @@ use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, read_dir, me
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use std::time::SystemTime;
 use which::which;
 use tempfile::{NamedTempFile, TempDir};
@@ -48,48 +49,22 @@ pub fn helper(task: Task, reads: Vec<PathBuf>, out_prefix: Option<PathBuf>,
     let out_prefix = check_prefix(out_prefix);
     match task {
         Task::GenomeSize => unreachable!(),
-        Task::Canu => {
-            canu(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
-        }
-        Task::Flye => {
-            flye(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Hifiasm => {
-            hifiasm(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Ilesta => {
-            ilesta(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Lja => {
-            lja(reads, &out_prefix, threads, dir, extra_args);
-        }
-        Task::Metamdbg => {
-            metamdbg(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Miniasm => {
-            miniasm(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Myloasm => {
-            myloasm(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Necat => {
-            necat(reads, &out_prefix, genome_size, threads, dir, extra_args);
-        }
-        Task::Nextdenovo => {
-            nextdenovo(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
-        }
-        Task::Plassembler => {
-            plassembler(reads, &out_prefix, threads, dir, read_type, extra_args);
-        }
-        Task::Raven => {
-            raven(reads, &out_prefix, threads, extra_args);
-        }
-        Task::Redbean => {
-            redbean(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args);
-        }
+        Task::Canu => canu(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args),
+        Task::Flye => flye(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Hifiasm => hifiasm(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Ilesta => ilesta(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Lja => lja(reads, &out_prefix, threads, dir, extra_args),
+        Task::Metamdbg => metamdbg(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Miniasm => miniasm(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Myloasm => myloasm(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Necat => necat(reads, &out_prefix, genome_size, threads, dir, extra_args),
+        Task::Nextdenovo => nextdenovo(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args),
+        Task::Plassembler => plassembler(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Raven => raven(reads, &out_prefix, threads, extra_args),
+        Task::Redbean => redbean(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args),
     }
 
-    depth_filter(&out_prefix, &min_depth_abs, &min_depth_rel);
+    depth_filter(&out_prefix, min_depth_abs, min_depth_rel);
     delete_fasta_if_empty(&out_prefix);
 }
 
@@ -102,8 +77,7 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads:
     check_requirements(&["canu"]);
 
     let input_flag = match read_type {
-        ReadType::OntR9      => "-nanopore",
-        ReadType::OntR10     => "-nanopore",
+        ReadType::OntR9 | ReadType::OntR10 => "-nanopore",
         ReadType::PacbioClr  => "-pacbio",
         ReadType::PacbioHifi => "-pacbio-hifi",
     };
@@ -116,9 +90,8 @@ fn canu(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads:
        .arg("useGrid=false")
        .arg(format!("maxThreads={threads}"))
        .arg(input_flag).arg(&reads);
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_canu_fasta(&dir.join("canu.contigs.fasta"), &dir.join("canu.contigs.layout.tigInfo"),
                     &add_extension(out_prefix, "fasta"));
@@ -143,9 +116,8 @@ fn flye(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_ty
     cmd.arg(input_flag).arg(&reads)
        .arg("--threads").arg(threads.to_string())
        .arg("--out-dir").arg(&dir);
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_flye_fasta(&dir.join("assembly.fasta"), &dir.join("assembly_info.txt"),
                     &add_extension(out_prefix, "fasta"));
@@ -168,10 +140,9 @@ fn hifiasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
     if read_type != ReadType::PacbioHifi {
         cmd.arg("--ont");
     }
-    for token in extra_args { cmd.arg(token); }
+    cmd.args(extra_args);
     cmd.arg(&reads);
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    run_command(&mut cmd, None);
 
     gfa_to_fasta(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "fasta"));
     copy_output_file(&dir.join("hifiasm.bp.p_ctg.gfa"), &add_extension(out_prefix, "gfa"));
@@ -185,13 +156,6 @@ fn ilesta(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_
 
     check_requirements(&["Ilesta", "minipolish", "minimap2", "racon"]);
 
-    let map_preset = match read_type {
-        ReadType::OntR9      => "map-ont",
-        ReadType::OntR10     => "lr:hq",
-        ReadType::PacbioClr  => "map-pb",
-        ReadType::PacbioHifi => "map-hifi",
-    };
-
     let unzipped_reads = decompress_if_gzipped(&reads);
     let input_reads = unzipped_reads.as_ref().map_or(reads.as_path(), |(p, _)| p.as_path());
 
@@ -200,20 +164,11 @@ fn ilesta(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_
        .arg("--output-dir").arg(&dir)
        .arg("--reads-fq").arg(input_reads)
        .arg("--threads").arg(threads.to_string());
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
     drop(unzipped_reads);
 
-    let mut cmd = Command::new("minipolish");
-    cmd.arg("--threads").arg(threads.to_string())
-       .arg("--minimap2-preset").arg(map_preset)
-       .arg(&reads)
-       .arg(dir.join("unitigs.gfa"));
-    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "gfa")));
-    run_command(&mut cmd);
-
-    gfa_to_fasta(&add_extension(out_prefix, "gfa"), &add_extension(out_prefix, "fasta"));
+    minipolish(&reads, &dir.join("unitigs.gfa"), out_prefix, threads, read_type);
 }
 
 
@@ -226,9 +181,8 @@ fn lja(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, extra_ar
     cmd.arg("--output-dir").arg(&dir)
        .arg("--reads").arg(&reads)
        .arg("--threads").arg(threads.to_string());
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("assembly.fasta"), &add_extension(out_prefix, "fasta"));
     copy_output_file(&dir.join("mdbg.gfa"), &add_extension(out_prefix, "gfa"));
@@ -243,9 +197,7 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, rea
     check_requirements(&["metaMDBG"]);
 
     let input_flag = match read_type {
-        ReadType::OntR9      => "--in-ont",
-        ReadType::OntR10     => "--in-ont",
-        ReadType::PacbioClr  => "--in-ont",
+        ReadType::OntR9 | ReadType::OntR10 | ReadType::PacbioClr => "--in-ont",
         ReadType::PacbioHifi => "--in-hifi",
     };
 
@@ -254,9 +206,8 @@ fn metamdbg(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, rea
        .arg("--out-dir").arg(&dir)
        .arg(input_flag).arg(&reads)
        .arg("--threads").arg(threads.to_string());
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("contigs.fasta.gz"), &add_extension(out_prefix, "fasta"));
     copy_output_file(&dir.join("metaMDBG.log"), &add_extension(out_prefix, "log"));
@@ -270,41 +221,40 @@ fn miniasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
 
     check_requirements(&["miniasm", "minipolish", "minimap2", "racon"]);
 
-    let ava_arg = match read_type {
-        ReadType::OntR9      => "ava-ont",
-        ReadType::OntR10     => "-k19 -Xw7 -e0 -m100",
-        ReadType::PacbioClr  => "ava-pb",
-        ReadType::PacbioHifi => "-k23 -Xw11 -e0 -m100",
+    let overlap_args: &[&str] = match read_type {
+        ReadType::OntR9      => &["-x", "ava-ont"],
+        ReadType::OntR10     => &["-k19", "-Xw7", "-e0", "-m100"],
+        ReadType::PacbioClr  => &["-x", "ava-pb"],
+        ReadType::PacbioHifi => &["-k23", "-Xw11", "-e0", "-m100"],
     };
+    let mut cmd = Command::new("minimap2");
+    cmd.arg("-t").arg(threads.to_string())
+       .args(overlap_args)
+       .arg(&reads).arg(&reads);
+    run_command(&mut cmd, Some(&dir.join("overlap.paf")));
+
+    let mut cmd = Command::new("miniasm");
+    cmd.arg("-f").arg(&reads)
+       .arg(dir.join("overlap.paf"));
+    cmd.args(extra_args);
+    run_command(&mut cmd, Some(&dir.join("unpolished.gfa")));
+
+    minipolish(&reads, &dir.join("unpolished.gfa"), out_prefix, threads, read_type);
+}
+
+
+fn minipolish(reads: &Path, gfa: &Path, out_prefix: &Path, threads: usize, read_type: ReadType) {
     let map_preset = match read_type {
         ReadType::OntR9      => "map-ont",
         ReadType::OntR10     => "lr:hq",
         ReadType::PacbioClr  => "map-pb",
         ReadType::PacbioHifi => "map-hifi",
     };
-
-    let mut cmd = Command::new("minimap2");
-    cmd.arg("-t").arg(threads.to_string());
-    if ava_arg.starts_with('-') { cmd.args(ava_arg.split_whitespace()); }
-                           else { cmd.arg("-x").arg(ava_arg); }
-    cmd.arg(&reads).arg(&reads);
-    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("overlap.paf")));
-    run_command(&mut cmd);
-
-    let mut cmd = Command::new("miniasm");
-    cmd.arg("-f").arg(&reads)
-       .arg(dir.join("overlap.paf"));
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("unpolished.gfa")));
-    run_command(&mut cmd);
-
     let mut cmd = Command::new("minipolish");
     cmd.arg("--threads").arg(threads.to_string())
        .arg("--minimap2-preset").arg(map_preset)
-       .arg(&reads)
-       .arg(dir.join("unpolished.gfa"));
-    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "gfa")));
-    run_command(&mut cmd);
+       .arg(reads).arg(gfa);
+    run_command(&mut cmd, Some(&add_extension(out_prefix, "gfa")));
 
     gfa_to_fasta(&add_extension(out_prefix, "gfa"), &add_extension(out_prefix, "fasta"));
 }
@@ -322,9 +272,8 @@ fn myloasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
        .arg("--threads").arg(threads.to_string());
     if read_type == ReadType::PacbioHifi { cmd.arg("--hifi"); }
     else if read_type == ReadType::OntR10 { cmd.arg("--nano-r10"); }
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("assembly_primary.fa"), &add_extension(out_prefix, "fasta"));
     replace_underscores_with_spaces(&add_extension(out_prefix, "fasta"));
@@ -342,10 +291,9 @@ fn necat(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads
 
     let mut cmd = Command::new(find_necat());
     cmd.arg("bridge").arg("config.txt");
-    for token in extra_args { cmd.arg(token); }
+    cmd.args(extra_args);
     cmd.current_dir(&dir);
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("necat/6-bridge_contigs/polished_contigs.fasta"),
                &add_extension(out_prefix, "fasta"));
@@ -363,16 +311,14 @@ fn nextdenovo(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, th
 
     let mut cmd = Command::new("nextDenovo");
     cmd.arg("nextdenovo_run.cfg");
-    for token in extra_args { cmd.arg(token); }
+    cmd.args(extra_args);
     cmd.current_dir(&dir);
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    run_command(&mut cmd, None);
 
     let mut cmd = Command::new("nextPolish");
     cmd.arg("nextpolish_run.cfg");
     cmd.current_dir(&dir);
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("nextpolish/genome.nextpolish.fasta"),
                &add_extension(out_prefix, "fasta"));
@@ -399,9 +345,8 @@ fn plassembler(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, 
     if read_type == ReadType::OntR9      { cmd.arg("--raw_flag"); }
     if read_type == ReadType::PacbioClr  { cmd.arg("--pacbio_model").arg("pacbio-raw"); }
     if read_type == ReadType::PacbioHifi { cmd.arg("--pacbio_model").arg("pacbio-hifi"); }
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     copy_output_file(&dir.join("plassembler_plasmids.gfa"), &add_extension(out_prefix, "gfa"));
     rotate_plassembler_contigs(&dir.join("plassembler_plasmids.fasta"),
@@ -420,9 +365,8 @@ fn raven(reads: PathBuf, out_prefix: &Path, threads: usize, extra_args: Vec<Stri
        .arg("--disable-checkpoints")
        .arg("--graphical-fragment-assembly").arg(add_extension(out_prefix, "gfa"))
        .arg(&reads);
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&add_extension(out_prefix, "fasta")));
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, Some(&add_extension(out_prefix, "fasta")));
 }
 
 
@@ -434,9 +378,8 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
        .arg("--disable-checkpoints")
        .arg("--polishing-rounds").arg("1")
        .arg(&reads);
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, Some(&dir.join("assembly.fasta")));
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, Some(&dir.join("assembly.fasta")));
 
     if is_fasta_empty(&dir.join("assembly.fasta")) {
         quit_with_error("Raven assembly failed");
@@ -453,8 +396,7 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
     check_requirements(&["wtdbg2", "wtpoa-cns"]);
 
     let preset = match read_type {
-        ReadType::OntR9      => "preset2",
-        ReadType::OntR10     => "preset2",
+        ReadType::OntR9 | ReadType::OntR10 => "preset2",
         ReadType::PacbioClr  => "preset1",
         ReadType::PacbioHifi => "preset4",
     };
@@ -466,17 +408,15 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
        .arg("-t").arg(threads.to_string())
        .arg("-f")
        .arg("-o").arg(dir.join("dbg"));
-    for token in extra_args { cmd.arg(token); }
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
 
     let mut cmd = Command::new("wtpoa-cns");
     cmd.arg("-t").arg(threads.to_string())
        .arg("-i").arg(dir.join("dbg.ctg.lay.gz"))
        .arg("-f")
        .arg("-o").arg(dir.join("assembly.fasta"));
-    redirect_stderr_and_stdout(&mut cmd, None);
-    run_command(&mut cmd);
+    run_command(&mut cmd, None);
 
     copy_fasta(&dir.join("assembly.fasta"), &add_extension(out_prefix, "fasta"));
 }
@@ -486,18 +426,18 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
 #[value(rename_all = "snake_case")]
 pub enum Task {
     GenomeSize,   // calculate genome size using a Raven assembly
-    Canu,         // assemble using Canu and clean results
-    Flye,         // assemble using Flye
-    Hifiasm,      // assemble using Hifiasm
-    Ilesta,       // assemble using Ilesta
-    Lja,          // assemble using LJA
-    Metamdbg,     // assemble using metaMDBG
+    Canu,
+    Flye,
+    Hifiasm,
+    Ilesta,
+    Lja,
+    Metamdbg,
     Miniasm,      // assemble using miniasm and Minipolish
-    Myloasm,      // assemble using Myloasm
-    Necat,        // assemble using NECAT
+    Myloasm,
+    Necat,
     Nextdenovo,   // assemble using NextDenovo and NextPolish
-    Plassembler,  // assemble using Plassembler
-    Raven,        // assemble using Raven
+    Plassembler,
+    Raven,
     Redbean,      // assemble using Redbean (aka wtdbg2)
 }
 
@@ -518,7 +458,6 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
         quit_with_error("assembly helper commands require --out_prefix")
     });
 
-    // Make parent directories if they don't exist.
     if let Some(parent) = prefix.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             quit_with_error(&format!("cannot create directory {}: {e}", parent.display()));
@@ -544,11 +483,10 @@ fn check_prefix(out_prefix: Option<PathBuf>) -> PathBuf {
 
 
 fn get_genome_size(genome_size: Option<String>, assembler_name: &str) -> u64 {
-    // Some assemblers require a genome size to be specified, others do not.
-    if genome_size.is_none() {
-        quit_with_error(&format!("assembly with {assembler_name} requires --genome_size"));
-    }
-    parse_genome_size(&genome_size.unwrap())
+    let genome_size = genome_size.unwrap_or_else(|| {
+        quit_with_error(&format!("assembly with {assembler_name} requires --genome_size"))
+    });
+    parse_genome_size(&genome_size)
 }
 
 
@@ -562,7 +500,6 @@ fn check_requirements(reqs: &[&str]) {
 
 
 fn find_necat() -> PathBuf {
-    // Either 'necat' or 'necat.pl' are acceptable commands for running NECAT.
     ["necat", "necat.pl"]
         .into_iter()
         .find_map(|cmd| which(cmd).ok())
@@ -627,22 +564,7 @@ fn print_command(cmd: &Command) {
 }
 
 
-fn run_command(cmd: &mut Command) {
-    let name = cmd.get_program().to_string_lossy().into_owned();
-    print_command(cmd);
-    let status = cmd.status().unwrap_or_else(|e| {
-        quit_with_error(&format!("failed to launch {name}: {e}"))
-    });
-    if !status.success() {
-        eprintln!("{name} failed with status {status}");
-    }
-}
-
-
-fn redirect_stderr_and_stdout(cmd: &mut Command, stdout_file: Option<&Path>) {
-    // Redirects the command's:
-    // * stderr to the terminal
-    // * stdout to a file if stdout_file is provided, otherwise to the terminal
+fn run_command(cmd: &mut Command, stdout_file: Option<&Path>) {
     cmd.stdin(Stdio::null());
     if let Some(file) = stdout_file {
         let out_file = File::create(file).unwrap_or_else(|e| {
@@ -653,6 +575,15 @@ fn redirect_stderr_and_stdout(cmd: &mut Command, stdout_file: Option<&Path>) {
         cmd.stdout(Stdio::inherit());
     }
     cmd.stderr(Stdio::inherit());
+
+    let name = cmd.get_program().to_string_lossy().into_owned();
+    print_command(cmd);
+    let status = cmd.status().unwrap_or_else(|e| {
+        quit_with_error(&format!("failed to launch {name}: {e}"))
+    });
+    if !status.success() {
+        eprintln!("{name} failed with status {status}");
+    }
 }
 
 
@@ -699,7 +630,6 @@ fn copy_flye_fasta(src: &Path, assembly_info: &Path, dest: &Path) {
 
 
 fn load_flye_assembly_info(assembly_info: &Path) -> HashMap<String, (bool, String)> {
-    // Loads Flye's assembly_info.txt file, returns a map of contig names to circularity and depth.
     let mut info: HashMap<String, (bool, String)> = HashMap::new();
     for line in BufReader::new(File::open(assembly_info).unwrap()).lines() {
         let line = line.unwrap();
@@ -737,7 +667,6 @@ fn copy_canu_fasta(src: &Path, assembly_info: &Path, dest: &Path) {
 
 
 fn load_canu_assembly_depth(assembly_info: &Path) -> HashMap<String, String> {
-    // Loads Canu's *.contigs.layout.tigInfo file, returns a map of contig names to depth.
     let mut info: HashMap<String, String> = HashMap::new();
     for line in BufReader::new(File::open(assembly_info).unwrap()).lines() {
         let line = line.unwrap();
@@ -754,18 +683,18 @@ fn load_canu_assembly_depth(assembly_info: &Path) -> HashMap<String, String> {
 
 
 fn trim_canu_contig(mut header: String, mut seq: String) -> (String, String) {
+    static TRIM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"trim=(\d+)-(\d+)").unwrap());
+    static LENGTH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"len=\d+").unwrap());
     if !header.contains("suggestCircular=yes") {
         return (header, seq);
     }
-    let re_trim = Regex::new(r"trim=(\d+)-(\d+)").unwrap();
-    let re_len = Regex::new(r"len=\d+").unwrap();
-    if let Some(cap) = re_trim.captures(&header) {
+    if let Some(cap) = TRIM.captures(&header) {
         let start: usize = cap[1].parse().unwrap_or(0);
         let end: usize = cap[2].parse().unwrap_or(seq.len());
         if start < end && end <= seq.len() {
             seq = seq[start..end].to_owned();
-            header = re_trim.replace(&header, format!("trim=0-{}", seq.len())).into_owned();
-            header = re_len.replace(&header, format!("len={}", seq.len())).into_owned();
+            header = TRIM.replace(&header, format!("trim=0-{}", seq.len())).into_owned();
+            header = LENGTH.replace(&header, format!("len={}", seq.len())).into_owned();
         }
     }
     (header, seq)
@@ -853,7 +782,6 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
 
 
 fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
-    // Combines the two pid*.log.info files from NextDenovo and NextPolish into a single file.
     let mut logs: Vec<_> = read_dir(dir).unwrap().filter_map(|e| {
         let p = e.ok()?.path();
         let is_log = p.file_name().and_then(|s| s.to_str())
@@ -914,9 +842,8 @@ fn replace_underscores_with_spaces(filename: &Path) {
 }
 
 
-fn depth_filter(out_prefix: &Path, min_depth_abs: &Option<f64>, min_depth_rel: &Option<f64>) {
-    // Filters the final FASTA file by depth, overwriting the original file. If any contig does
-    // not have depth, the function does nothing.
+fn depth_filter(out_prefix: &Path, min_depth_abs: Option<f64>, min_depth_rel: Option<f64>) {
+    // Leave the file unchanged if any contig lacks a depth.
     if min_depth_abs.is_none() && min_depth_rel.is_none() { return; }
     let fasta = add_extension(out_prefix, "fasta");
     if !fasta.exists() || is_fasta_empty(&fasta) { return; }
@@ -936,26 +863,22 @@ fn depth_filter(out_prefix: &Path, min_depth_abs: &Option<f64>, min_depth_rel: &
     underline("Autocycler helper depth filter");
     eprintln!("threshold = {threshold:.3}");
 
-    let kept: Vec<_> = records.into_iter().filter_map(|(name, header, seq, depth)| {
-        let pass = depth >= threshold;
+    records.retain(|(name, _, _, depth)| {
+        let pass = *depth >= threshold;
         eprintln!("{name}: depth={:.3}, {}", depth, if pass { "PASS" } else { "FAIL" });
-        if pass { Some((header, seq)) } else { None }
-    }).collect();
+        pass
+    });
 
-    if kept.is_empty() { let _ = remove_file(&fasta); return; }
-    let mut w = BufWriter::new(File::create(&fasta).unwrap());
-    for (header, seq) in kept { writeln!(w, ">{header}\n{seq}").unwrap(); }
+    if records.is_empty() { let _ = remove_file(&fasta); return; }
+    let mut writer = BufWriter::new(File::create(&fasta).unwrap());
+    for (_, header, seq, _) in records { writeln!(writer, ">{header}\n{seq}").unwrap(); }
 }
 
 
 fn depth_from_header(header: &str) -> Option<f64> {
-    fn parse_num(s: &str) -> Option<f64> {
-        s.split(['-', '_', ' ']).next()?.parse().ok()
-    }
-    if let Some(i) = header.find("depth=")    { return parse_num(&header[i + 6..]); }
-    if let Some(i) = header.find("depth-")    { return parse_num(&header[i + 6..]); }
-    if let Some(i) = header.find("coverage=") { return parse_num(&header[i + 9..]); }
-    None
+    let value = ["depth=", "depth-", "coverage="].into_iter()
+        .find_map(|tag| header.split_once(tag).map(|(_, value)| value))?;
+    value.split(['-', '_', ' ']).next()?.parse().ok()
 }
 
 
@@ -1010,6 +933,11 @@ mod tests {
         assert_eq!(depth_from_header(">a len-12 circular-no depth-37-37-37 mult-2.00"), Some(37.0));
         assert_eq!(depth_from_header(">b len-9 circular-yes depth-25-24-23 mult-1.00"), Some(25.0));
         assert_eq!(depth_from_header(">ctg15 length=123 coverage=49.70 circular=yes"), Some(49.7));
+        assert_eq!(depth_from_header(">a coverage=30 depth-20 depth=10"), Some(10.0));
+        assert_eq!(depth_from_header(">a coverage=30 depth-20"), Some(20.0));
+        assert_eq!(depth_from_header(">a depth=10 depth=20"), Some(10.0));
+        assert_eq!(depth_from_header(">a depth=bad coverage=30"), None);
+        assert_eq!(depth_from_header(">a depth- coverage=30"), None);
     }
 
     #[test]
@@ -1023,28 +951,58 @@ mod tests {
                                 >c depth=200\nACAGACTACGACTACGACGACGATCAGCGACATCGACGT\n\
                                 >d depth=100\nCGATCGACTACC\n");
 
-        depth_filter(&out_prefix, &None, &None);
+        depth_filter(&out_prefix, None, None);
         assert_eq!(load_fasta(&fasta).len(), 4);
 
-        depth_filter(&out_prefix, &None, &Some(0.09));
+        depth_filter(&out_prefix, None, Some(0.09));
         assert_eq!(load_fasta(&fasta).len(), 4);
 
-        depth_filter(&out_prefix, &None, &Some(0.11));
+        depth_filter(&out_prefix, None, Some(0.11));
         assert_eq!(load_fasta(&fasta).len(), 3);
 
-        depth_filter(&out_prefix, &Some(99.0), &None);
+        depth_filter(&out_prefix, Some(99.0), None);
         assert_eq!(load_fasta(&fasta).len(), 3);
 
-        depth_filter(&out_prefix, &Some(101.0), &None);
+        depth_filter(&out_prefix, Some(101.0), None);
         assert_eq!(load_fasta(&fasta).len(), 2);
 
-        depth_filter(&out_prefix, &None, &Some(0.61));
+        depth_filter(&out_prefix, None, Some(0.61));
         assert_eq!(load_fasta(&fasta).len(), 1);
 
-        depth_filter(&out_prefix, &Some(201.0), &None);
+        depth_filter(&out_prefix, Some(201.0), None);
         assert!(panic::catch_unwind(|| {
             load_fasta(&fasta).len();
         }).is_err());
+    }
+
+    #[test]
+    fn test_depth_filter_missing_depth_preserves_file() {
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("test");
+        let fasta = add_extension(&prefix, "fasta");
+        for header in ["b", "b depth=bad coverage=100"] {
+            let contents = format!(">a depth=1\nAC\nGT\n>{header}\nACGT\n");
+            make_test_file(&fasta, &contents);
+            depth_filter(&prefix, Some(10.0), Some(0.5));
+            assert_eq!(std::fs::read_to_string(&fasta).unwrap(), contents);
+        }
+    }
+
+    #[test]
+    fn test_depth_filter_ties_and_combined_thresholds() {
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("test");
+        let fasta = add_extension(&prefix, "fasta");
+        let contents = ">a depth=20\nACGT\n>b depth=100\nTGCA\n>c depth=10\nAG\n";
+        for (absolute, relative, expected) in [
+            (None, Some(0.5), contents),
+            (Some(15.0), Some(0.5), ">a depth=20\nACGT\n>b depth=100\nTGCA\n"),
+            (Some(5.0), Some(2.0), ">b depth=100\nTGCA\n"),
+        ] {
+            make_test_file(&fasta, contents);
+            depth_filter(&prefix, absolute, relative);
+            assert_eq!(std::fs::read_to_string(&fasta).unwrap(), expected);
+        }
     }
 
     #[test]
