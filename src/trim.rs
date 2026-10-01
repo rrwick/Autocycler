@@ -24,7 +24,7 @@ use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::metrics::TrimmedClusterMetrics;
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, quit_with_error,
-                  median_isize, mad_isize, reverse_path};
+                  median, mad_isize, reverse_path};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -204,7 +204,7 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, mut sequences: Vec<Sequen
     section_header("Exclude outliers");
     explanation("Sequences which vary too much in their length are now excluded from the cluster.");
     let lengths: Vec<_> = sequences.iter().map(|s| s.length as isize).collect();
-    let median = median_isize(&lengths);
+    let median = median(&lengths);
     let median_absolute_deviation = mad_isize(&lengths);
     let min_length = (median as f64 - (median_absolute_deviation as f64 * mad_threshold)).round() as usize;
     let max_length = (median as f64 + (median_absolute_deviation as f64 * mad_threshold)).round() as usize;

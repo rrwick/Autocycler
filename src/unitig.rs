@@ -30,8 +30,6 @@ static OTHER_COLOUR: &str = "orangered";
 #[derive(Clone, Default)]
 pub struct Unitig {
     pub number: u32,
-    pub forward_kmers: VecDeque<*const Kmer>,
-    pub reverse_kmers: VecDeque<*const Kmer>,
     pub forward_seq: Vec<u8>,
     pub reverse_seq: Vec<u8>,
     pub depth: f64,
@@ -46,12 +44,25 @@ pub struct Unitig {
 }
 
 impl Unitig {
-    pub fn from_kmers(number: u32, forward_kmer: &Kmer, reverse_kmer: &Kmer) -> Self {
-        // K-mers are added at either end, then combined by simplify_seqs before trimming overlaps.
+    pub fn from_kmer_paths(number: u32, forward: &VecDeque<&Kmer<'_>>,
+                           reverse: &VecDeque<&Kmer<'_>>) -> Self {
+        let sequence = |kmers: &VecDeque<&Kmer<'_>>| {
+            let mut seq = kmers.front().unwrap().seq().to_vec();
+            seq.extend(kmers.iter().skip(1).map(|kmer| *kmer.seq().last().unwrap()));
+            seq
+        };
+        let average_depth = |kmers: &VecDeque<&Kmer<'_>>| {
+            kmers.iter().map(|k| k.depth() as f64).sum::<f64>() / kmers.len() as f64
+        };
+        let depth = average_depth(forward);
+        assert_eq!(depth, average_depth(reverse));
         Unitig {
             number,
-            forward_kmers: VecDeque::from([forward_kmer as *const Kmer]),
-            reverse_kmers: VecDeque::from([reverse_kmer as *const Kmer]),
+            forward_seq: sequence(forward),
+            reverse_seq: sequence(reverse),
+            depth,
+            forward_positions: forward.front().unwrap().positions.clone(),
+            reverse_positions: reverse.front().unwrap().positions.clone(),
             ..Default::default()
         }
     }
@@ -96,55 +107,6 @@ impl Unitig {
         }
     }
 
-    pub fn add_kmer_to_end(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
-        self.forward_kmers.push_back(forward_kmer);
-        self.reverse_kmers.push_front(reverse_kmer);
-    }
-
-    pub fn add_kmer_to_start(&mut self, forward_kmer: &Kmer, reverse_kmer: &Kmer) {
-        self.forward_kmers.push_front(forward_kmer);
-        self.reverse_kmers.push_back(reverse_kmer);
-    }
-
-    pub fn simplify_seqs(&mut self) {
-        self.combine_kmers_into_sequences();
-        self.set_positions();
-        self.set_average_depth();
-        self.forward_kmers.clear();
-        self.reverse_kmers.clear();
-    }
-
-    fn combine_kmers_into_sequences(&mut self) {
-        for (kmers, seq) in [(&self.forward_kmers, &mut self.forward_seq),
-                             (&self.reverse_kmers, &mut self.reverse_seq)] {
-            if let Some(first_kmer) = kmers.front() {
-                *seq = unsafe { &**first_kmer }.seq().to_vec();
-                seq.extend(kmers.iter().skip(1).map(|kmer| {
-                    *unsafe { &**kmer }.seq().last().unwrap()
-                }));
-            }
-        }
-    }
-
-    fn set_positions(&mut self) {
-        for (kmers, positions) in [(&self.forward_kmers, &mut self.forward_positions),
-                                   (&self.reverse_kmers, &mut self.reverse_positions)] {
-            if let Some(&kmer) = kmers.front() {
-                positions.extend_from_slice(&unsafe { &*kmer }.positions);
-            }
-        }
-    }
-
-    fn set_average_depth(&mut self) {
-        let average_depth = |kmers: &VecDeque<*const Kmer>| {
-            kmers.iter().map(|k| unsafe { &**k }.depth() as f64).sum::<f64>() / kmers.len() as f64
-        };
-        let forward_avg = average_depth(&self.forward_kmers);
-        let reverse_avg = average_depth(&self.reverse_kmers);
-        assert_eq!(forward_avg, reverse_avg);
-        self.depth = forward_avg;
-    }
-
     pub fn trim_overlaps(&mut self, k_size: usize) {
         let overlap = k_size / 2;
         assert!(self.forward_seq.len() >= k_size);
@@ -160,13 +122,14 @@ impl Unitig {
     }
 
     pub fn colour_tag(&self, use_other_colour: bool) -> String {
-        match self.unitig_type {
-            UnitigType::Consentig => format!("\tCL:Z:{CONSENTIG_COLOUR}"),
-            UnitigType::Anchor => format!("\tCL:Z:{ANCHOR_COLOUR}"),
-            UnitigType::Bridge => format!("\tCL:Z:{BRIDGE_COLOUR}"),
-            UnitigType::Other => { if use_other_colour { format!("\tCL:Z:{OTHER_COLOUR}") }
-                                                  else { String::new() } }
-        }
+        let colour = match self.unitig_type {
+            UnitigType::Consentig => CONSENTIG_COLOUR,
+            UnitigType::Anchor => ANCHOR_COLOUR,
+            UnitigType::Bridge => BRIDGE_COLOUR,
+            UnitigType::Other if use_other_colour => OTHER_COLOUR,
+            UnitigType::Other => return String::new(),
+        };
+        format!("\tCL:Z:{colour}")
     }
 
     pub fn length(&self) -> u32 {
@@ -385,31 +348,28 @@ mod tests {
     }
 
     #[test]
-    fn test_from_kmers() {
+    fn test_from_kmer_paths() {
         let k_size = 5; let half_k = k_size / 2;
         let seq = Sequence::new_with_seq(1, "ACGCATAGCACTAGCTACGA".to_string(),
                                          "assembly.fasta".to_string(), "contig_1".to_string(), 20, half_k);
-        let forward_raw = seq.forward_seq.as_ptr();
-        let reverse_raw = seq.reverse_seq.as_ptr();
-        let make_kmer = |pointer, depth| {
-            let mut kmer = Kmer::new(pointer, 5, 1);
+        let make_kmer = |sequence, depth| {
+            let mut kmer = Kmer::new(sequence, 1);
             kmer.positions = vec![Position::new(1, strand::FORWARD, 0); depth];
             kmer
         };
 
-        let forward_k1 = make_kmer(unsafe{forward_raw.add(4)}, 1);
-        let reverse_k1 = make_kmer(unsafe{reverse_raw.add(15)}, 1);
+        let forward_k1 = make_kmer(&seq.forward_seq[4..9], 1);
+        let reverse_k1 = make_kmer(&seq.reverse_seq[15..20], 1);
 
-        let forward_k2 = make_kmer(unsafe{forward_raw.add(5)}, 1);
-        let reverse_k2 = make_kmer(unsafe{reverse_raw.add(14)}, 1);
+        let forward_k2 = make_kmer(&seq.forward_seq[5..10], 1);
+        let reverse_k2 = make_kmer(&seq.reverse_seq[14..19], 1);
 
-        let forward_k3 = make_kmer(unsafe{forward_raw.add(6)}, 2);
-        let reverse_k3 = make_kmer(unsafe{reverse_raw.add(13)}, 2);
+        let forward_k3 = make_kmer(&seq.forward_seq[6..11], 2);
+        let reverse_k3 = make_kmer(&seq.reverse_seq[13..18], 2);
 
-        let mut u = Unitig::from_kmers(123, &forward_k2, &reverse_k2);
-        u.add_kmer_to_start(&forward_k1, &reverse_k1);
-        u.add_kmer_to_end(&forward_k3, &reverse_k3);
-        u.simplify_seqs();
+        let mut u = Unitig::from_kmer_paths(123,
+            &VecDeque::from([&forward_k1, &forward_k2, &forward_k3]),
+            &VecDeque::from([&reverse_k3, &reverse_k2, &reverse_k1]));
 
         assert_eq!(u.length(), 7_u32);
         assert_eq!(std::str::from_utf8(&u.forward_seq).unwrap(), "GCATAGC");

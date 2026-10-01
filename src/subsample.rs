@@ -157,7 +157,7 @@ fn save_subsets(reads: &[PathBuf], subset_count: usize, input_count: usize,
         eprintln!();
     }
     let sample_read_lengths = write_subsampled_reads(reads, &subset_indices, &mut subset_files);
-    metrics.output_reads.extend(sample_read_lengths.iter().map(ReadSetDetails::new));
+    metrics.output_reads.extend(sample_read_lengths.iter().map(|lengths| ReadSetDetails::new(lengths)));
 }
 
 

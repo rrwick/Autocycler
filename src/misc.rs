@@ -20,6 +20,7 @@ use std::fs;
 use std::fs::{File, read_dir, create_dir_all, remove_dir_all};
 use std::io;
 use std::io::{prelude::*, BufReader, BufWriter, Read};
+use std::ops::{Add, Div};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
 use std::time::Duration;
@@ -465,40 +466,31 @@ pub fn format_float_sigfigs(value: f64, sigfigs: usize) -> String {
 }
 
 
-pub fn median_usize(values: &[usize]) -> usize {
-    if values.is_empty() { return 0; }
+pub fn median<T>(values: &[T]) -> T
+where T: Copy + Ord + From<u8> + Add<Output = T> + Div<Output = T> {
+    if values.is_empty() { return T::from(0); }
     let mut sorted_values = values.to_vec();
     sorted_values.sort_unstable();
     let len = sorted_values.len();
-    if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
-                        else { sorted_values[len / 2] }
-}
-
-
-pub fn median_isize(values: &[isize]) -> isize {
-    if values.is_empty() { return 0; }
-    let mut sorted_values = values.to_vec();
-    sorted_values.sort_unstable();
-    let len = sorted_values.len();
-    if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / 2 }
+    if len.is_multiple_of(2) { (sorted_values[len / 2 - 1] + sorted_values[len / 2]) / T::from(2) }
                         else { sorted_values[len / 2] }
 }
 
 
 pub fn mad_usize(values: &[usize]) -> usize {
     if values.is_empty() { return 0; }
-    let median = median_usize(values);
+    let midpoint = median(values);
     let absolute_deviations: Vec<_> = values.iter()
-        .map(|v| (*v as isize - median as isize).abs()).collect();
-    median_isize(&absolute_deviations) as usize
+        .map(|v| (*v as isize - midpoint as isize).abs()).collect();
+    median(&absolute_deviations) as usize
 }
 
 
 pub fn mad_isize(values: &[isize]) -> isize {
     if values.is_empty() { return 0; }
-    let median = median_isize(values);
-    let absolute_deviations: Vec<_> = values.iter().map(|v| (*v - median).abs()).collect();
-    median_isize(&absolute_deviations)
+    let midpoint = median(values);
+    let absolute_deviations: Vec<_> = values.iter().map(|v| (*v - midpoint).abs()).collect();
+    median(&absolute_deviations)
 }
 
 
@@ -744,24 +736,24 @@ mod tests {
 
     #[test]
     fn test_median() {
-        assert_eq!(median_usize(&[]), 0);
-        assert_eq!(median_usize(&[0, 1, 2, 3, 4]), 2);
-        assert_eq!(median_usize(&[4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_usize(&[0, 1, 2, 3, 4, 5]), 2);
-        assert_eq!(median_usize(&[5, 4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_usize(&[0, 2, 4, 6, 8, 10]), 5);
-        assert_eq!(median_usize(&[10, 8, 6, 4, 2, 0]), 5);
+        assert_eq!(median::<usize>(&[]), 0);
+        assert_eq!(median::<usize>(&[0, 1, 2, 3, 4]), 2);
+        assert_eq!(median::<usize>(&[4, 3, 2, 1, 0]), 2);
+        assert_eq!(median::<usize>(&[0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median::<usize>(&[5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median::<usize>(&[0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median::<usize>(&[10, 8, 6, 4, 2, 0]), 5);
 
-        assert_eq!(median_isize(&[]), 0);
-        assert_eq!(median_isize(&[-4, -1, -2]), -2);
-        assert_eq!(median_isize(&[-4, -1, -2, -3]), -2);
-        assert_eq!(median_isize(&[-2, 1]), 0);
-        assert_eq!(median_isize(&[0, 1, 2, 3, 4]), 2);
-        assert_eq!(median_isize(&[4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_isize(&[0, 1, 2, 3, 4, 5]), 2);
-        assert_eq!(median_isize(&[5, 4, 3, 2, 1, 0]), 2);
-        assert_eq!(median_isize(&[0, 2, 4, 6, 8, 10]), 5);
-        assert_eq!(median_isize(&[10, 8, 6, 4, 2, 0]), 5);
+        assert_eq!(median::<isize>(&[]), 0);
+        assert_eq!(median::<isize>(&[-4, -1, -2]), -2);
+        assert_eq!(median::<isize>(&[-4, -1, -2, -3]), -2);
+        assert_eq!(median::<isize>(&[-2, 1]), 0);
+        assert_eq!(median::<isize>(&[0, 1, 2, 3, 4]), 2);
+        assert_eq!(median::<isize>(&[4, 3, 2, 1, 0]), 2);
+        assert_eq!(median::<isize>(&[0, 1, 2, 3, 4, 5]), 2);
+        assert_eq!(median::<isize>(&[5, 4, 3, 2, 1, 0]), 2);
+        assert_eq!(median::<isize>(&[0, 2, 4, 6, 8, 10]), 5);
+        assert_eq!(median::<isize>(&[10, 8, 6, 4, 2, 0]), 5);
     }
 
     #[test]

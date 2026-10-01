@@ -13,7 +13,6 @@
 
 use fxhash::FxHashMap;
 use std::fmt;
-use std::slice::from_raw_parts;
 
 use crate::misc::{reverse_complement, strand};
 use crate::position::Position;
@@ -22,25 +21,21 @@ use crate::sequence::Sequence;
 pub static ALPHABET: [u8; 5] = *b".ACGT";
 
 
-pub struct Kmer {
-    // Borrows sequence storage without copying. The source sequence must outlive this k-mer
-    // and must not be modified while the pointer is in use.
-    pointer: *const u8,
-    length: usize,
+pub struct Kmer<'a> {
+    sequence: &'a [u8],
     pub positions: Vec<Position>,
 }
 
-impl Kmer {
-    pub fn new(pointer: *const u8, length: usize, assembly_count: usize) -> Kmer {
+impl<'a> Kmer<'a> {
+    pub fn new(sequence: &'a [u8], assembly_count: usize) -> Self {
         Kmer {
-            pointer,
-            length,
+            sequence,
             positions: Vec::with_capacity(assembly_count), // most k-mers occur once per assembly
         }
     }
 
     pub fn seq(&self) -> &[u8] {
-        unsafe { from_raw_parts(self.pointer, self.length) }
+        self.sequence
     }
 
     pub fn add_position(&mut self, seq_id: u16, strand: bool, pos: usize) {
@@ -57,7 +52,7 @@ impl Kmer {
     }
 }
 
-impl fmt::Display for Kmer {
+impl fmt::Display for Kmer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let seq = std::str::from_utf8(self.seq()).unwrap();
         let positions = self.positions.iter().map(|p| p.to_string())
@@ -69,7 +64,7 @@ impl fmt::Display for Kmer {
 
 pub struct KmerGraph<'a> {
     pub k_size: u32,
-    pub kmers: FxHashMap<&'a [u8], Kmer>,
+    pub kmers: FxHashMap<&'a [u8], Kmer<'a>>,
 }
 
 impl<'a> KmerGraph<'a> {
@@ -95,13 +90,13 @@ impl<'a> KmerGraph<'a> {
                                           (&seq.reverse_seq, strand::REVERSE, reverse_start)] {
                 let kmer = &bases[start..start + k_size];
                 self.kmers.entry(kmer)
-                    .or_insert_with(|| Kmer::new(kmer.as_ptr(), k_size, assembly_count))
+                    .or_insert_with(|| Kmer::new(kmer, assembly_count))
                     .add_position(seq.id, strand, start);
             }
         }
     }
 
-    pub fn next_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+    pub fn next_kmers(&self, kmer: &[u8]) -> Vec<&Kmer<'a>> {
         // Given an input k-mer, this function returns all k-mers in the graph which overlap by k-1
         // bases on the right side. For example, ACGACT -> CGACTA, CGACTG.
         let mut next_kmer = kmer.to_vec();
@@ -109,7 +104,7 @@ impl<'a> KmerGraph<'a> {
         self.matching_kmers(next_kmer, kmer.len() - 1)
     }
 
-    pub fn prev_kmers(&self, kmer: &[u8]) -> Vec<&Kmer> {
+    pub fn prev_kmers(&self, kmer: &[u8]) -> Vec<&Kmer<'a>> {
         // Given an input k-mer, this function returns all k-mers in the graph which overlap by k-1
         // bases on the left side. For example, ACGACT -> AACGAC, GACGAC.
         let mut prev_kmer = kmer.to_vec();
@@ -117,7 +112,7 @@ impl<'a> KmerGraph<'a> {
         self.matching_kmers(prev_kmer, 0)
     }
 
-    fn matching_kmers(&self, mut sequence: Vec<u8>, variable_base: usize) -> Vec<&Kmer> {
+    fn matching_kmers(&self, mut sequence: Vec<u8>, variable_base: usize) -> Vec<&Kmer<'a>> {
         let mut kmers = Vec::new();
         for base in ALPHABET {
             sequence[variable_base] = base;
@@ -129,14 +124,14 @@ impl<'a> KmerGraph<'a> {
         kmers
     }
 
-    pub fn iterate_kmers(&self) -> impl Iterator<Item = &Kmer> {
+    pub fn iterate_kmers(&self) -> impl Iterator<Item = &Kmer<'a>> {
         // Iterates through the Kmer objects in alphabetical order.
         let mut kmers: Vec<_> = self.kmers.values().collect();
         kmers.sort_unstable_by_key(|kmer| kmer.seq());
         kmers.into_iter()
     }
 
-    pub fn reverse(&self, kmer: &Kmer) -> &Kmer {
+    pub fn reverse(&self, kmer: &Kmer<'_>) -> &Kmer<'a> {
         // Every k-mer is added on both strands, so its reverse complement must exist.
         self.kmers.get(reverse_complement(kmer.seq()).as_slice()).unwrap()
     }
@@ -150,8 +145,7 @@ mod tests {
     #[test]
     fn test_kmer() {
         let seq = String::from("ACGACTGACATCAGCACTGA").into_bytes();
-        let raw = seq.as_ptr();
-        let mut k = Kmer::new(raw, 4, 2);
+        let mut k = Kmer::new(&seq[..4], 2);
         k.add_position(1, strand::FORWARD, 123);
         k.add_position(2, strand::REVERSE, 456);
         assert_eq!(format!("{k}"), "ACGA:1+123,2-456");

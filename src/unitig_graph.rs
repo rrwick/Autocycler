@@ -12,9 +12,9 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -40,7 +40,6 @@ impl UnitigGraph {
             ..Default::default()
         };
         u_graph.build_unitigs_from_kmer_graph(k_graph);
-        u_graph.simplify_seqs();
         u_graph.create_links();
         u_graph.trim_overlaps();
         u_graph.renumber_unitigs();
@@ -66,12 +65,12 @@ impl UnitigGraph {
         let mut link_lines: Vec<&str> = Vec::new();
         let mut path_lines: Vec<&str> = Vec::new();
         for line in gfa_lines {
-            let parts: Vec<&str> = line.trim_end_matches('\n').split('\t').collect();
-            match parts.first() {
-                Some(&"H") => u_graph.read_gfa_header_line(&parts),
-                Some(&"S") => u_graph.unitigs.push(Rc::new(RefCell::new(Unitig::from_segment_line(line)))),
-                Some(&"L") => link_lines.push(line),
-                Some(&"P") => path_lines.push(line),
+            let trimmed_line = line.trim_end_matches('\n');
+            match trimmed_line.split('\t').next() {
+                Some("H") => u_graph.read_gfa_header_line(trimmed_line),
+                Some("S") => u_graph.unitigs.push(Rc::new(RefCell::new(Unitig::from_segment_line(line)))),
+                Some("L") => link_lines.push(line),
+                Some("P") => path_lines.push(line),
                 _ => {}
             }
         }
@@ -86,8 +85,8 @@ impl UnitigGraph {
         self.unitig_index = self.unitigs.iter().map(|u| (u.borrow().number, Rc::clone(u))).collect();
     }
 
-    fn read_gfa_header_line(&mut self, parts: &[&str]) {
-        if let Some(k) = parts.iter().find_map(|p| p.strip_prefix("KM:i:")?.parse().ok()) {
+    fn read_gfa_header_line(&mut self, line: &str) {
+        if let Some(k) = line.split('\t').find_map(|p| p.strip_prefix("KM:i:")?.parse().ok()) {
             self.k_size = k;
         }
     }
@@ -175,7 +174,8 @@ impl UnitigGraph {
             }
             let reverse_kmer = k_graph.reverse(forward_kmer);
             unitig_number += 1;
-            let mut unitig = Unitig::from_kmers(unitig_number, forward_kmer, reverse_kmer);
+            let mut forward_path = VecDeque::from([forward_kmer]);
+            let mut reverse_path = VecDeque::from([reverse_kmer]);
             seen.insert(forward_kmer.seq());
             seen.insert(reverse_kmer.seq());
 
@@ -192,21 +192,18 @@ impl UnitigGraph {
                     reverse = k_graph.reverse(kmer);
                     if kmer.first_position() { break; }
                     if strand {
-                        unitig.add_kmer_to_end(kmer, reverse);
+                        forward_path.push_back(kmer);
+                        reverse_path.push_front(reverse);
                     } else {
-                        unitig.add_kmer_to_start(reverse, kmer);
+                        forward_path.push_front(reverse);
+                        reverse_path.push_back(kmer);
                     }
                     seen.insert(kmer.seq());
                     seen.insert(reverse.seq());
                 }
             }
+            let unitig = Unitig::from_kmer_paths(unitig_number, &forward_path, &reverse_path);
             self.unitigs.push(Rc::new(RefCell::new(unitig)));
-        }
-    }
-
-    fn simplify_seqs(&mut self) {
-        for unitig in &self.unitigs {
-            unitig.borrow_mut().simplify_seqs();
         }
     }
 
@@ -276,7 +273,7 @@ impl UnitigGraph {
 
     pub fn save_gfa(&self, gfa_filename: &Path, sequences: &[Sequence],
                     use_other_colour: bool) -> io::Result<()> {
-        let mut file = File::create(gfa_filename)?;
+        let mut file = BufWriter::new(File::create(gfa_filename)?);
         writeln!(file, "H\tVN:Z:1.0\tKM:i:{}", self.k_size)?;
         for unitig in &self.unitigs {
             writeln!(file, "{}", unitig.borrow().gfa_segment_line(use_other_colour))?;
@@ -287,10 +284,10 @@ impl UnitigGraph {
         for s in sequences {
             writeln!(file, "{}", self.get_gfa_path_line(s))?;
         }
-        Ok(())
+        file.flush()
     }
 
-    pub fn get_links_for_gfa(&self, offset: u32) -> Vec<(String, String, String, String)> {
+    pub fn get_links_for_gfa(&self, offset: u32) -> Vec<(u32, &'static str, u32, &'static str)> {
         let mut links = Vec::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
@@ -298,8 +295,7 @@ impl UnitigGraph {
             for (a_strand, next) in [("+", &a.forward_next), ("-", &a.reverse_next)] {
                 for b in next {
                     let b_num = b.number() + offset;
-                    links.push((a_num.to_string(), a_strand.to_string(), b_num.to_string(),
-                                (if b.strand {"+"} else {"-"}).to_string()));
+                    links.push((a_num, a_strand, b_num, if b.strand { "+" } else { "-" }));
                 }
             }
         }
@@ -418,22 +414,19 @@ impl UnitigGraph {
 
     pub fn link_count(&self) -> (usize, usize) {
         // Counts both orientations and unique links; hairpins have only one orientation.
-        let mut all_links = HashSet::new();
-        let mut one_way_links = HashSet::new();
+        let mut links = HashSet::new();
         for a_rc in &self.unitigs {
             let a = a_rc.borrow();
             let a_num = a.number as i32;
             for (direction, next) in [(1, &a.forward_next), (-1, &a.reverse_next)] {
                 for b in next {
                     let link = (a_num * direction, b.signed_number());
-                    let rev_link = (-link.1, -link.0);
-                    all_links.insert(link);
-                    all_links.insert(rev_link);
-                    one_way_links.insert(link.max(rev_link));
+                    links.insert(link.max((-link.1, -link.0)));
                 }
             }
         }
-        (all_links.len(), one_way_links.len())
+        let oriented_count = links.iter().map(|&(a, b)| if a == -b { 1 } else { 2 }).sum();
+        (oriented_count, links.len())
     }
 
     pub fn print_basic_graph_info(&self) {
@@ -707,7 +700,7 @@ impl UnitigGraph {
             let unitig_num = unitig.borrow().number;
             if !visited.contains(&unitig_num) {
                 let mut component = Vec::new();
-                self.dfs(unitig_num, &mut visited, &mut component);
+                self.collect_component(unitig_num, &mut visited, &mut component);
                 component.sort();
                 components.push(component);
             }
@@ -716,25 +709,17 @@ impl UnitigGraph {
         components
     }
 
-    fn dfs(&self, unitig_num: u32, visited: &mut HashSet<u32>, component: &mut Vec<u32>) {
+    fn collect_component(&self, unitig_num: u32, visited: &mut HashSet<u32>, component: &mut Vec<u32>) {
+        visited.insert(unitig_num);
         let mut stack = vec![unitig_num];
         while let Some(current) = stack.pop() {
-            if visited.insert(current) {
-                component.push(current);
-                for neighbor in self.connected_unitigs(current) {
-                    if !visited.contains(&neighbor) {
-                        stack.push(neighbor);
-                    }
-                }
-            }
+            component.push(current);
+            let Some(unitig) = self.unitig_index.get(&current) else { continue };
+            let unitig = unitig.borrow();
+            stack.extend([&unitig.forward_next, &unitig.forward_prev,
+                          &unitig.reverse_next, &unitig.reverse_prev].into_iter().flatten()
+                .map(UnitigStrand::number).filter(|number| visited.insert(*number)));
         }
-    }
-
-    fn connected_unitigs(&self, unitig_num: u32) -> HashSet<u32> {
-        let Some(unitig_rc) = self.unitig_index.get(&unitig_num) else { return HashSet::new() };
-        let unitig = unitig_rc.borrow();
-        [&unitig.forward_next, &unitig.forward_prev, &unitig.reverse_next, &unitig.reverse_prev]
-            .into_iter().flatten().map(UnitigStrand::number).collect()
     }
 
     pub fn component_is_circular_loop(&self, component: &[u32]) -> bool {
@@ -1087,7 +1072,7 @@ mod tests {
         }
         graph.check_links();
         let expected: Vec<_> = [("+", "+"), ("+", "-"), ("+", "-"), ("-", "-"), ("-", "+")]
-            .into_iter().map(|(a, b)| ("11".to_string(), a.to_string(), "11".to_string(), b.to_string()))
+            .into_iter().map(|(a, b)| (11, a, 11, b))
             .collect();
         assert_eq!(graph.get_links_for_gfa(10), expected);
         assert_eq!(graph.link_count(), (4, 3));
@@ -1112,7 +1097,7 @@ mod tests {
                 }
             }
             let expected = graph.get_links_for_gfa(0).into_iter()
-                .filter(|(a, _, b, _)| (a == "1" || a == "3") && (b == "1" || b == "3"))
+                .filter(|(a, _, b, _)| (*a == 1 || *a == 3) && (*b == 1 || *b == 3))
                 .collect::<Vec<_>>();
             if remove_by_number {
                 graph.remove_unitigs_by_number(HashSet::from([2, 4]));

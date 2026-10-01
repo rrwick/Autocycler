@@ -381,10 +381,11 @@ fn genome_size_raven(reads: PathBuf, threads: usize, dir: PathBuf, extra_args: V
     cmd.args(extra_args);
     run_command(&mut cmd, Some(&dir.join("assembly.fasta")));
 
-    if is_fasta_empty(&dir.join("assembly.fasta")) {
+    let genome_size = total_fasta_length(&dir.join("assembly.fasta"));
+    if genome_size == 0 {
         quit_with_error("Raven assembly failed");
     }
-    println!("{}", total_fasta_length(&dir.join("assembly.fasta")));
+    println!("{genome_size}");
 }
 
 
@@ -601,11 +602,11 @@ fn gfa_to_fasta(gfa: &Path, fasta: &Path) {
     let mut writer = BufWriter::new(File::create(fasta).unwrap());
     for line in reader.lines().map_while(Result::ok) {
         if !line.starts_with('S') { continue; }
-        let col: Vec<&str> = line.split('\t').collect();
-        let name = *col.get(1).unwrap_or(&"");
-        let seq  = *col.get(2).unwrap_or(&"");
-        let depth = col.iter().skip(3).find_map(|f| f.strip_prefix("dp:f:"))
-                       .or_else(|| col.iter().skip(3).find_map(|f| f.strip_prefix("rd:i:")));
+        let mut columns = line.split('\t').skip(1);
+        let name = columns.next().unwrap_or("");
+        let seq = columns.next().unwrap_or("");
+        let depth = columns.clone().find_map(|f| f.strip_prefix("dp:f:"))
+            .or_else(|| columns.find_map(|f| f.strip_prefix("rd:i:")));
         let mut header = format!(">{name}");
         if name.ends_with('c') { header.push_str(" circular=true"); }
         if let Some(d) = depth { header.push_str(&format!(" depth={d}")); }
@@ -618,9 +619,8 @@ fn copy_flye_fasta(src: &Path, assembly_info: &Path, dest: &Path) {
     if !src.exists() || is_fasta_empty(src) { return; }
     let mut writer = BufWriter::new(File::create(dest).unwrap());
     let info = load_flye_assembly_info(assembly_info);
-    for (name, _, seq) in load_fasta(src) {
-        let mut header = name.to_string();
-        if let Some((is_circ, depth)) = info.get(&name) {
+    for (mut header, _, seq) in load_fasta(src) {
+        if let Some((is_circ, depth)) = info.get(&header) {
             if *is_circ { header.push_str(" circular=true"); }
             header.push_str(&format!(" depth={depth}"));
         }
@@ -782,12 +782,9 @@ fn make_nextdenovo_files(dir: &Path, reads: &Path, genome_size: u64, threads: us
 
 
 fn combine_nextdenovo_logs(dir: &Path, dest: &Path) {
-    let mut logs: Vec<_> = read_dir(dir).unwrap().filter_map(|e| {
-        let p = e.ok()?.path();
-        let is_log = p.file_name().and_then(|s| s.to_str())
-            .map(|name| name.starts_with("pid") && name.ends_with(".log.info")).unwrap_or(false);
-        if is_log { Some(p) } else { None }
-    }).collect();
+    let mut logs: Vec<_> = read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.file_name().and_then(|s| s.to_str())
+            .is_some_and(|name| name.starts_with("pid") && name.ends_with(".log.info"))).collect();
     if logs.is_empty() { return; }
     logs.sort_by_key(|p| {
         metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)

@@ -16,6 +16,7 @@ use image::{RgbImage, Rgb, ImageBuffer};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::log::{section_header, explanation};
@@ -118,12 +119,8 @@ fn load_sequences(input: &Path, input_type: InputType) -> Vec<(FileSeqName, Vec<
             reconstructed.into_iter().map(|((filename, seqname), seq)|
                                           (FileSeqName { filename, seqname }, seq)).collect()
         },
-        InputType::Fasta => {
-            load_from_fasta(input)
-        }
-        InputType::Directory => {
-            load_from_directory(input)
-        }
+        InputType::Fasta => load_from_fasta(input),
+        InputType::Directory => load_from_directory(input),
     };
     if seqs.is_empty() {
         quit_with_error("no sequences were loaded")
@@ -176,43 +173,39 @@ fn load_from_directory(dir: &Path) -> Vec<(FileSeqName, Vec<u8>)> {
 }
 
 
-fn create_dotplot(seqs: &Vec<(FileSeqName, Vec<u8>)>, png_filename: &Path, res: u32, kmer: u32) {
+fn create_dotplot(seqs: &[(FileSeqName, Vec<u8>)], png_filename: &Path, res: u32, kmer: u32) {
     section_header("Creating dotplot");
     explanation("K-mers common between sequences are now used to build the dotplot image.");
     let pb = spinner("creating dotplot...");
 
-    // We create an initial image to test the label sizes.
     let (top_left_gap, border_gap, between_seq_gap, text_gap, max_font_size) =
         get_sizes(res, seqs.len());
-    let (start_positions, end_positions, _) =
+    let (positions, _) =
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
     let mut img = ImageBuffer::from_pixel(res, res, BACKGROUND_COLOUR);
     let font = FontArc::try_from_slice(include_bytes!("assets/DejaVuSans.ttf")).unwrap();
-    let (text_height, _, _) = reduce_scale(seqs, &start_positions, &end_positions, &font,
-                                           max_font_size);
+    let (text_height, _, _) = fit_labels(seqs, &positions, &font, max_font_size);
 
-    // Now that we know the values for text_height, we start over, this time readjusting the
-    // top-left gap (so it isn't bigger than necessary).
+    // Fit the margin to the labels, then recalculate the plot positions.
     let top_left_gap = (2.0 * text_height) as u32 + border_gap;
-    let (start_positions, end_positions, bp_per_pixel) =
+    let (positions, bp_per_pixel) =
         get_positions(seqs, res, kmer, top_left_gap, border_gap, between_seq_gap);
-    draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, true);
-    draw_labels(&mut img, seqs, &start_positions, &end_positions, text_gap, &font, max_font_size);
+    draw_sequence_boxes(&mut img, seqs, &positions, true);
+    draw_labels(&mut img, seqs, &positions, text_gap, &font, max_font_size);
 
     let mut count = 0;
     for (name_a, seq_a) in seqs {
         let rev_comp_seq_a = reverse_complement(seq_a);
         let kmers = get_all_kmer_positions(kmer as usize, seq_a, &rev_comp_seq_a);
         for (name_b, seq_b) in seqs {
-            draw_dots(&mut img, start_positions[name_a], start_positions[name_b], seq_a, seq_b,
+            draw_dots(&mut img, positions[name_a].start, positions[name_b].start, seq_a, seq_b,
                       &kmers, bp_per_pixel);
             count += 1;
         }
     }
 
-    // The boxes are drawn once more, this time with no fill, to overwrite any dots which leaked
-    // into the outline.
-    draw_sequence_boxes(&mut img, seqs, &start_positions, &end_positions, false);
+    // Redraw outlines over any dots that overlap them.
+    draw_sequence_boxes(&mut img, seqs, &positions, false);
 
     img.save(png_filename).unwrap();
     pb.finish_and_clear();
@@ -234,9 +227,6 @@ fn get_sizes(res: u32, seq_count: usize) -> (u32, u32, u32, u32, u32) {
 
 
 fn between_seq_gap(gap: f64, max_total_gap: f64, seq_count: usize) -> f64 {
-    // The amount of space to use for gaps between sequences is set by BETWEEN_SEQ_GAP, unless
-    // there are so many sequences that these gaps would exceed TOTAL_BETWEEN_SEQ_GAP, in which
-    // case the gap size is scaled down.
     if seq_count <= 1 { return gap; }
     if (seq_count - 1) as f64 * gap > max_total_gap{
         max_total_gap / (seq_count - 1) as f64
@@ -246,11 +236,10 @@ fn between_seq_gap(gap: f64, max_total_gap: f64, seq_count: usize) -> f64 {
 }
 
 
-fn get_positions(seqs: &Vec<(FileSeqName, Vec<u8>)>, res: u32, kmer: u32, top_left_gap: u32,
+fn get_positions(seqs: &[(FileSeqName, Vec<u8>)], res: u32, kmer: u32, top_left_gap: u32,
                  bottom_right_gap: u32, mut between_seq_gap: u32) ->
-        (HashMap<FileSeqName, u32>, HashMap<FileSeqName, u32>, f64) {
-    // This function returns the image coordinates that start/end each sequence. Since the dotplot
-    // is symmetrical, there is only one start/end per sequence (used for both x and y coordinates).
+        (HashMap<FileSeqName, Range<u32>>, f64) {
+    // Each sequence uses the same pixel range on both axes.
     let mut seq_lengths: HashMap<FileSeqName, u32> = HashMap::new();
     for (key, seq) in seqs {
         seq_lengths.insert(key.clone(), (seq.len() as u32).saturating_sub(kmer).saturating_add(1));
@@ -268,30 +257,27 @@ fn get_positions(seqs: &Vec<(FileSeqName, Vec<u8>)>, res: u32, kmer: u32, top_le
     let total_seq_length: u32 = seq_lengths.values().sum();
     let bp_per_pixel = total_seq_length as f64 / pixels_for_sequence as f64;
 
-    let mut start_positions = HashMap::new();
-    let mut end_positions = HashMap::new();
+    let mut positions = HashMap::new();
     let mut current_pos = top_left_gap;
 
     for (name, _) in seqs {
-        start_positions.insert(name.clone(), current_pos);
         let rect_size = (seq_lengths[name] as f64 / bp_per_pixel).round() as u32;
+        positions.insert(name.clone(), current_pos..current_pos + rect_size);
         current_pos += rect_size;
-        end_positions.insert(name.clone(), current_pos);
         current_pos += between_seq_gap;
     }
-    (start_positions, end_positions, bp_per_pixel)
+    (positions, bp_per_pixel)
 }
 
 
-fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<(FileSeqName, Vec<u8>)>,
-                       start_positions: &HashMap<FileSeqName, u32>,
-                       end_positions: &HashMap<FileSeqName, u32>, fill: bool) {
+fn draw_sequence_boxes(img: &mut RgbImage, seqs: &[(FileSeqName, Vec<u8>)],
+                       positions: &HashMap<FileSeqName, Range<u32>>, fill: bool) {
     for (name_a, _) in seqs {
-        let start_a = start_positions[name_a] - 1;
-        let end_a = end_positions[name_a] + 2;
+        let start_a = positions[name_a].start - 1;
+        let end_a = positions[name_a].end + 2;
         for (name_b, _) in seqs {
-            let start_b = start_positions[name_b] - 1;
-            let end_b = end_positions[name_b] + 2;
+            let start_b = positions[name_b].start - 1;
+            let end_b = positions[name_b].end + 2;
             let rect = Rect::at(start_a as i32, start_b as i32)
                 .of_size(end_a - start_a, end_b - start_b);
             if fill {
@@ -305,17 +291,15 @@ fn draw_sequence_boxes(img: &mut RgbImage, seqs: &Vec<(FileSeqName, Vec<u8>)>,
 }
 
 
-fn reduce_scale(seqs: &Vec<(FileSeqName, Vec<u8>)>, start_positions: &HashMap<FileSeqName, u32>,
-                end_positions: &HashMap<FileSeqName, u32>, font: &FontArc, max_font_size: u32)
+fn fit_labels(seqs: &[(FileSeqName, Vec<u8>)], positions: &HashMap<FileSeqName, Range<u32>>,
+              font: &FontArc, max_font_size: u32)
         -> (f32, f32, PxScale) {
-    // Reduces the scale as needed to ensure that all labels will fit in their available space.
     let mut text_height = max_font_size as f32;
     let mut scale = PxScale::from(text_height);
     let mut available_width: f32 = 1.0;
     for (name, _) in seqs {
-        let start = start_positions[name];
-        let end = end_positions[name];
-        available_width = (end - start) as f32;
+        let range = &positions[name];
+        available_width = (range.end - range.start) as f32;
         let text_width = calculate_text_width(&name.filename, scale, font)
                              .max(calculate_text_width(&name.seqname, scale, font));
         if text_width > available_width {
@@ -333,27 +317,25 @@ struct TextDimensions {
 }
 
 
-fn draw_labels(img: &mut RgbImage, seqs: &Vec<(FileSeqName, Vec<u8>)>,
-               start_positions: &HashMap<FileSeqName, u32>,
-               end_positions: &HashMap<FileSeqName, u32>,
+fn draw_labels(img: &mut RgbImage, seqs: &[(FileSeqName, Vec<u8>)],
+               positions: &HashMap<FileSeqName, Range<u32>>,
                text_gap: u32, font: &FontArc, max_font_size: u32) {
-    let min_pos = start_positions.values().min().cloned().unwrap_or_default();
+    let min_pos = positions.values().map(|range| range.start).min().unwrap_or_default();
     let (text_height, available_width, scale) =
-        reduce_scale(seqs, start_positions, end_positions, font, max_font_size);
+        fit_labels(seqs, positions, font, max_font_size);
     let dim = TextDimensions { width: (available_width.ceil()) as u32, height: text_height as u32 };
     for (name, _) in seqs {
-        let start = start_positions[name];
-        let end = end_positions[name];
+        let range = &positions[name];
         let pos_1 = min_pos - text_gap - dim.height;
         let pos_2 = pos_1 - dim.height;
 
         // Horizontal labels on the top side.
-        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_1 as i32, scale, &font, &name.seqname);
-        draw_text_mut(img, TEXT_COLOUR, start as i32, pos_2 as i32, scale, &font, &name.filename);
+        draw_text_mut(img, TEXT_COLOUR, range.start as i32, pos_1 as i32, scale, font, &name.seqname);
+        draw_text_mut(img, TEXT_COLOUR, range.start as i32, pos_2 as i32, scale, font, &name.filename);
 
         // Vertical labels on the left side.
-        draw_vertical_text(img, &dim, &name.seqname, pos_1, end, &scale, font);
-        draw_vertical_text(img, &dim, &name.filename, pos_2, end, &scale, font);
+        draw_vertical_text(img, &dim, &name.seqname, pos_1, range.end, &scale, font);
+        draw_vertical_text(img, &dim, &name.filename, pos_2, range.end, &scale, font);
     }
 }
 
@@ -369,9 +351,7 @@ fn calculate_text_width(text: &str, scale: PxScale, font: &FontArc) -> f32 {
 
 fn draw_vertical_text(img: &mut RgbImage, dim: &TextDimensions, text: &str, x: u32, y: u32,
                       scale: &PxScale, font: &FontArc) {
-    // Draws text onto the image rotated 90 degrees counterclockwise. Does this by creating a temp
-    // image with the text and then copying it over, pixel-by-pixel, with the appropriate
-    // transformation.
+    // Rotate the rendered text 90 degrees counterclockwise.
     let (full_width, full_height) = (img.width(), img.height());
     let mut temp_img = ImageBuffer::from_pixel(dim.width, dim.height, BACKGROUND_COLOUR);
     draw_text_mut(&mut temp_img, TEXT_COLOUR, 0, 0, *scale, font, text);
@@ -405,17 +385,12 @@ fn draw_dots(img: &mut RgbImage, a_start_pos: u32, b_start_pos: u32,
             if let Some(positions) = positions.get(k) {
                 for &i in positions {
                     let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
-                    draw_dot(img, i_pixel, j_pixel, width, height, colour);
+                    if i_pixel < width && j_pixel < height {
+                        img.put_pixel(i_pixel, j_pixel, colour);
+                    }
                 }
             }
         }
-    }
-}
-
-
-fn draw_dot(img: &mut RgbImage, i: u32, j: u32, width: u32, height: u32, colour: Rgb<u8>) {
-    if i < width && j < height {
-        img.put_pixel(i, j, colour);
     }
 }
 

@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use crate::misc::{median_usize, mad_usize};
+use crate::misc::{median, mad_usize};
 use crate::sequence::Sequence;
 
 
@@ -41,7 +41,7 @@ pub struct ReadSetDetails {
 }
 
 impl ReadSetDetails {
-    pub fn new(sorted_read_lengths: &Vec<u64>) -> Self {
+    pub fn new(sorted_read_lengths: &[u64]) -> Self {
         let bases: u64 = sorted_read_lengths.iter().sum();
         let n50_target_bases = bases / 2;
         let mut running_total = 0;
@@ -188,7 +188,7 @@ impl UntrimmedClusterMetrics {
     pub fn new(sequence_lengths: Vec<usize>, untrimmed_cluster_distance: f64) -> Self {
         UntrimmedClusterMetrics {
             untrimmed_cluster_size: sequence_lengths.len() as u32,
-            untrimmed_cluster_median: median_usize(&sequence_lengths) as u32,
+            untrimmed_cluster_median: median(&sequence_lengths) as u32,
             untrimmed_cluster_mad: mad_usize(&sequence_lengths) as u32,
             untrimmed_cluster_lengths: sequence_lengths,
             untrimmed_cluster_distance,
@@ -209,7 +209,7 @@ impl TrimmedClusterMetrics {
     pub fn new(sequence_lengths: Vec<usize>) -> Self {
         TrimmedClusterMetrics {
             trimmed_cluster_size: sequence_lengths.len() as u32,
-            trimmed_cluster_median: median_usize(&sequence_lengths) as u32,
+            trimmed_cluster_median: median(&sequence_lengths) as u32,
             trimmed_cluster_mad: mad_usize(&sequence_lengths) as u32,
             trimmed_cluster_lengths: sequence_lengths,
         }

@@ -14,13 +14,13 @@
 use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
 use crate::metrics::{ClusteringMetrics, UntrimmedClusterMetrics};
-use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
+use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median,
                   quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
                   load_file_lines, parse_node_numbers};
 use crate::sequence::Sequence;
@@ -158,7 +158,7 @@ fn pairwise_contig_distances(graph: &UnitigGraph, sequences: &[Sequence], file_p
 fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &[Sequence],
                         file_path: &Path) {
     eprintln!("Saving distance matrix:");
-    let mut f = File::create(file_path).unwrap();
+    let mut f = BufWriter::new(File::create(file_path).unwrap());
     writeln!(f, "{}", sequences.len()).unwrap();
     for seq_a in sequences {
         write!(f, "{seq_a}").unwrap();
@@ -167,6 +167,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &[Seque
         }
         writeln!(f).unwrap();
     }
+    f.flush().unwrap();
     eprintln!("  {}", file_path.display());
     eprintln!();
 }
@@ -174,9 +175,7 @@ fn save_distance_matrix(distances: &HashMap<(u16, u16), f64>, sequences: &[Seque
 
 fn make_symmetrical_distances(asymmetrical_distances: &HashMap<(u16, u16), f64>,
                               sequences: &[Sequence]) -> HashMap<(u16, u16), f64> {
-    // This function takes in an asymmetrical distance matrix (where A vs B is not necessarily
-    // equal to B vs A) and makes it symmetric by setting each distance (both orders) to the
-    // maximum distance of the two orders.
+    // Use the larger distance for both directions.
     let mut symmetrical_distances: HashMap<(u16, u16), f64> = HashMap::new();
     for seq_a in sequences {
         for seq_b in sequences {
@@ -378,8 +377,7 @@ fn upgma(distances: &HashMap<(u16, u16), f64>, sequences: &[Sequence]) -> TreeNo
         };
         nodes.insert(new_id, new_node);
 
-        cluster_distances = cluster_distances.into_iter()
-            .filter(|((a, b), _)| clusters.contains_key(a) && clusters.contains_key(b)).collect();
+        cluster_distances.retain(|(a, b), _| clusters.contains_key(a) && clusters.contains_key(b));
         for &other_id in clusters.keys() {
             if other_id != new_id {
                 let distance = mean_cluster_distance(&clusters[&new_id], &clusters[&other_id], distances);
@@ -692,17 +690,11 @@ fn save_cluster_gfa(sequences: &[Sequence], cluster_num: u16, gfa_lines: &[Strin
 
 
 fn filter_gfa_lines(gfa_lines: &[String], paths_to_remove: &[u16]) -> Vec<String> {
-    // This function produces a new set of GFA lines, excluding specified path lines.
+    let paths_to_remove: HashSet<_> = paths_to_remove.iter().copied().collect();
     gfa_lines.iter().filter(|line| {
-        if let Some(rest) = line.strip_prefix("P\t") {
-            let path_name = rest.split('\t').next().unwrap_or_default();
-            match path_name.parse::<u16>() {
-                Ok(id) => !paths_to_remove.contains(&id),
-                Err(_) => true,
-            }
-        } else {
-            true
-        }
+        let Some(rest) = line.strip_prefix("P\t") else { return true; };
+        let path_name = rest.split('\t').next().unwrap_or_default();
+        path_name.parse::<u16>().map_or(true, |id| !paths_to_remove.contains(&id))
     }).cloned().collect()
 }
 
@@ -761,7 +753,7 @@ fn reorder_clusters(sequences: &mut [Sequence]) -> HashMap<u16, u16> {
     // of old cluster numbers to new cluster numbers.
     let mut cluster_lengths: Vec<_> = (1..=get_max_cluster(sequences)).map(|c| {
         let lengths: Vec<_> = sequences.iter().filter(|s| s.cluster == c).map(|s| s.length).collect();
-        (c, median_usize(&lengths))
+        (c, median(&lengths))
     }).collect();
     cluster_lengths.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     let old_to_new: HashMap<_, _> = cluster_lengths.iter().enumerate()
