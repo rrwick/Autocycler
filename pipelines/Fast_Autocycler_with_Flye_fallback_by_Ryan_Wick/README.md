@@ -9,6 +9,7 @@ This script requires Autocycler v0.7.0 or later.
 ## Notes and key features
 
 * No quality control is performed on the input reads – they must be ready for assembly.
+* Input reads can be FASTQ (optionally gzipped) or uBAM.
 * Basic input read statistics (count, total bases and N50) are reported in `assembly.log`.
 * Genome size is estimated using a Raven assembly, via `autocycler helper genome_size`, unless supplied with `--genome_size`.
 * [Rasusa](https://github.com/mbhall88/rasusa) downsamples the reads to 100× depth for the initial Flye assembly. This is because Flye can crash with excessively deep read sets. If the input depth is already ≤100×, this step is skipped.
@@ -57,6 +58,7 @@ This script uses only the Python standard library, but assumes the following com
 * `autocycler`
 * [Rasusa](https://github.com/mbhall88/rasusa): `rasusa`
 * [GNU Parallel](https://www.gnu.org/software/parallel): `parallel`
+* [Samtools](https://github.com/samtools/samtools): `samtools`
 * `nice`
 * Long-read assemblers and supporting tools: `flye`, `metaMDBG`, `miniasm`, `minimap2`,
   `minipolish`, `myloasm`, `plassembler`, `racon`, `raven`
@@ -69,7 +71,7 @@ Installing these into a single conda environment is usually possible – see [Co
 
 The script takes two positional arguments:
 
-1. **Reads**: path to the input FASTQ file (can be gzipped).
+1. **Reads**: path to the input FASTQ file (can be gzipped) or uBAM file.
 2. **Output directory**: directory for working files and final outputs. This directory must not already exist.
 
 **Example command:**
@@ -88,7 +90,7 @@ usage: autocycler_and_flye.py [--read_type {ont_r9,ont_r10,pacbio_clr,pacbio_hif
 Fast Autocycler with Flye fallback
 
 Positional arguments:
-  reads                 Read FASTQ file (can be gzipped)
+  reads                 Read FASTQ file (can be gzipped) or uBAM file
   out_dir               Directory for working files and final assembly (will be created)
 
 Settings:
@@ -129,6 +131,7 @@ The most important outputs are:
 * **`plassembler_summary.tsv`**: per-contig depths, copy numbers and PLSDB matches for the final assembly.
 * **`assembly.log`**: concise, timestamped pipeline summary.
 * **`logs/`**: detailed tool logs:
+  * `samtools.log` when BAM input was converted
   * `raven_genome_size.log` when genome size estimation was run
   * `rasusa.log` when Rasusa was run
   * `flye.log`
@@ -137,6 +140,8 @@ The most important outputs are:
 
 Depending on the cleanup level, the output directory can also contain:
 
+* **`input_reads.fastq`**: BAM input converted to FASTQ (only created for BAM input and only
+  retained with `--clean 0`).
 * **`rasusa_reads.fastq.gz`**: reads downsampled to 100× for Flye (only created when needed and only
   retained with `--clean 0`).
 * **`flye/`**: Flye assembly and working files.

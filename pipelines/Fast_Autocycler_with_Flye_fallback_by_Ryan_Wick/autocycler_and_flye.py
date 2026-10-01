@@ -4,7 +4,7 @@ This pipeline builds both Flye and Autocycler assemblies. It uses Autocycler whe
 successful, otherwise falling back to Flye.
 
 Usage:
-    autocycler_and_flye.py [options] <reads.fastq[.gz]> <out_dir> 
+    autocycler_and_flye.py [options] <reads.fastq[.gz]|reads.bam> <out_dir>
     autocycler_and_flye.py --help
 
 Copyright 2026 Ryan Wick (rrwick@gmail.com)
@@ -41,7 +41,8 @@ logger = logging.getLogger('autocycler_and_flye')
 AUTOCYCLER_ASSEMBLERS = ('plassembler', 'raven', 'myloasm', 'miniasm', 'flye', 'metamdbg')
 
 DEPENDENCIES = ('autocycler', 'flye', 'metaMDBG', 'miniasm', 'minimap2', 'minipolish',
-                'myloasm', 'nice', 'parallel', 'plassembler', 'racon', 'rasusa', 'raven')
+                'myloasm', 'nice', 'parallel', 'plassembler', 'racon', 'rasusa', 'raven',
+                'samtools')
 
 
 def get_arguments(args):
@@ -51,7 +52,7 @@ def get_arguments(args):
 
     required_args = parser.add_argument_group('Positional arguments')
     required_args.add_argument('reads', type=str,
-                               help='Read FASTQ file (can be gzipped)')
+                               help='Read FASTQ file (can be gzipped) or uBAM file')
     required_args.add_argument('out_dir', type=str,
                                help='Directory for working files and final assembly (will be created)')
 
@@ -98,21 +99,22 @@ def main(args=None):
     check_dependencies()
     out_dir = create_output_dir(args.out_dir)
     configure_logging(out_dir)
-    input_read_stats = get_fastq_stats(args.reads)
+    reads = convert_bam_to_fastq(args.reads, out_dir)
+    input_read_stats = get_fastq_stats(reads)
     logger.info(format_read_stats('Input reads', input_read_stats))
     if args.genome_size is None:
-        genome_size = estimate_genome_size_with_raven(args.reads, out_dir, args.threads)
+        genome_size = estimate_genome_size_with_raven(reads, out_dir, args.threads)
     else:
         genome_size = args.genome_size
         logger.info(f'Genome size: {genome_size:,} bp (user-supplied)')
     logger.info(f'Estimated read depth: {input_read_stats[1] / genome_size:.1f}×')
     try:
-        rasusa_reads = subsample_with_rasusa(args.reads, out_dir, genome_size,
-                                             input_read_stats[1], args.seed)
+        rasusa_reads = subsample_with_rasusa(reads, out_dir, genome_size, input_read_stats[1],
+                                             args.seed)
         flye_fasta = flye_assembly(rasusa_reads, out_dir, args.threads, args.read_type)
         report_flye_assembly_size(flye_fasta, genome_size,
                                   args.min_size_ratio, args.max_size_ratio)
-        autocycler_fasta = autocycler_assembly(args.reads, flye_fasta, out_dir, genome_size,
+        autocycler_fasta = autocycler_assembly(reads, flye_fasta, out_dir, genome_size,
                                                args.threads, args.jobs, args.subset_count,
                                                args.max_job_time, args.seed, args.read_type)
         create_autocycler_metrics(args.reads, out_dir)
@@ -181,6 +183,23 @@ def configure_logging(out_dir):
     logger.propagate = False
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
+
+
+def convert_bam_to_fastq(reads, out_dir):
+    try:
+        with gzip.open(reads, 'rb') as f:
+            if f.read(4) != b'BAM\x01':
+                return reads
+    except (OSError, EOFError):
+        return reads
+    logger.info('Converting BAM to FASTQ')
+    fastq = out_dir / 'input_reads.fastq'
+    samtools_log = out_dir / 'logs' / 'samtools.log'
+    with fastq.open('wb') as out, samtools_log.open('wb') as log:
+        result = subprocess.run(['samtools', 'fastq', reads], stdout=out, stderr=log)
+    if result.returncode != 0 or fastq.stat().st_size == 0:
+        quit_with_error(f"samtools fastq failed (see '{samtools_log}')")
+    return fastq
 
 
 def estimate_genome_size_with_raven(reads, out_dir, threads):
@@ -796,6 +815,7 @@ def clean_up(out_dir, clean_level):
 def clean_up_reads(out_dir):
     rasusa_reads = out_dir / 'rasusa_reads.fastq.gz'
     remove_path(rasusa_reads)
+    remove_path(out_dir / 'input_reads.fastq')
     subsampled_reads_dir = out_dir / 'autocycler' / 'subsampled_reads'
     for pattern in ('*.fastq', '*.fastq.gz', '*.fq', '*.fq.gz'):
         for reads in subsampled_reads_dir.glob(pattern):
