@@ -16,18 +16,18 @@ use std::path::{Path, PathBuf};
 
 use crate::graph_simplification::merge_linear_paths;
 use crate::log::{section_header, explanation};
-use crate::misc::{check_if_file_exists, quit_with_error};
+use crate::misc::{check_if_file_exists, parse_node_numbers, quit_with_error};
 use crate::unitig_graph::UnitigGraph;
 
 
 pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicate: Option<String>,
              min_depth: Option<f64>) {
-    check_settings(&in_gfa);
+    check_if_file_exists(&in_gfa);
     starting_message();
-    let remove = parse_tig_numbers(remove);
-    let duplicate = parse_tig_numbers(duplicate);
+    let remove = parse_node_numbers(remove);
+    let duplicate = parse_node_numbers(duplicate);
     print_settings(&in_gfa, &out_gfa, &remove, &duplicate);
-    let mut graph = load_graph(&in_gfa);
+    let (mut graph, _) = UnitigGraph::load_gfa_with_summary(&in_gfa);
     check_tig_numbers_are_valid(&in_gfa, &graph, &remove);
     check_tig_numbers_are_valid(&in_gfa, &graph, &duplicate);
     if !remove.is_empty() {
@@ -45,11 +45,6 @@ pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicat
 }
 
 
-fn check_settings(in_gfa: &Path) {
-    check_if_file_exists(in_gfa);
-}
-
-
 fn starting_message() {
     section_header("Starting autocycler clean");
     explanation("This command removes user-specified tigs from a combined Autocycler graph and \
@@ -61,13 +56,10 @@ fn print_settings(in_gfa: &Path, out_gfa: &Path, remove: &[u32], duplicate: &[u3
     eprintln!("Settings:");
     eprintln!("  --in_gfa {}", in_gfa.display());
     eprintln!("  --out_gfa {}", out_gfa.display());
-    if !remove.is_empty() {
-        eprintln!("  --remove {}", remove.iter().map(|c| c.to_string())
-                                         .collect::<Vec<String>>() .join(","));
-    }
-    if !duplicate.is_empty() {
-        eprintln!("  --duplicate {}", duplicate.iter().map(|c| c.to_string())
-                                               .collect::<Vec<String>>() .join(","));
+    for (name, numbers) in [("remove", remove), ("duplicate", duplicate)] {
+        if !numbers.is_empty() {
+            eprintln!("  --{name} {}", numbers.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","));
+        }
     }
     eprintln!();
 }
@@ -117,51 +109,10 @@ fn merge_graph(graph: &mut UnitigGraph) {
 }
 
 
-fn load_graph(gfa: &Path) -> UnitigGraph {
-    section_header("Loading graph");
-    explanation("The unitig graph is now loaded into memory.");
-    let (graph, _) = UnitigGraph::from_gfa_file(gfa);
-    graph.print_basic_graph_info();
-    graph
-}
-
-
 fn check_tig_numbers_are_valid(in_gfa: &Path, graph: &UnitigGraph, tig_numbers: &[u32]) {
-    let mut all_tig_numbers = HashSet::new();
-    for unitig in &graph.unitigs {
-        all_tig_numbers.insert(unitig.borrow().number);
-    }
     for tig in tig_numbers {
-        if !all_tig_numbers.contains(tig) {
+        if !graph.unitig_index.contains_key(tig) {
             quit_with_error(&format!("{} does not contain tig {}", in_gfa.display(), tig));
         }
-    }
-}
-
-
-fn parse_tig_numbers(tig_num_str: Option<String>) -> Vec<u32> {
-    let Some(tig_num_str) = tig_num_str else { return Vec::new(); };
-    let mut tig_numbers: Vec<_> = tig_num_str.replace(' ', "").split(',')
-            .map(|s| s.parse::<u32>().unwrap_or_else(|_| quit_with_error(
-                &format!("failed to parse '{s}' as a node number")))).collect();
-    tig_numbers.sort();
-    tig_numbers
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::panic;
-
-    #[test]
-    fn test_parse_tig_numbers() {
-        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("".to_string())); }).is_err());
-        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("ABC".to_string())); }).is_err());
-        assert!(panic::catch_unwind(|| { parse_tig_numbers(Some("1,X,3".to_string())); }).is_err());
-        assert_eq!(parse_tig_numbers(None), Vec::<u32>::new());
-        assert_eq!(parse_tig_numbers(Some("1,2,3".to_string())), vec![1, 2, 3]);
-        assert_eq!(parse_tig_numbers(Some("4, 5, 6".to_string())), vec![4, 5, 6]);
-        assert_eq!(parse_tig_numbers(Some("  5 , 10 ,15 ".to_string())), vec![5, 10, 15]);
     }
 }

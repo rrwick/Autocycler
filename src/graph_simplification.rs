@@ -221,12 +221,11 @@ fn get_common_seq(unitigs: &[UnitigStrand], from_start: bool) -> Vec<u8> {
     let Some(first) = unitigs.first() else { return Vec::new(); };
     let first_rc = first.unitig();
     let first_unitig = first_rc.borrow();
-    let mut common = if first.strand { &first_unitig.forward_seq[..] }
-                               else { &first_unitig.reverse_seq[..] };
+    let mut common = first_unitig.get_seq(first.strand);
     for unitig in &unitigs[1..] {
         let unitig_rc = unitig.unitig();
         let borrowed = unitig_rc.borrow();
-        let seq = if unitig.strand { &borrowed.forward_seq } else { &borrowed.reverse_seq };
+        let seq = borrowed.get_seq(unitig.strand);
         let matching = if from_start {
             common.iter().zip(seq).take_while(|(a, b)| a == b).count()
         } else {
@@ -416,8 +415,7 @@ fn merge_unitig_seqs(path: &[UnitigStrand]) -> Vec<u8> {
     for u in path {
         let unitig_rc = u.unitig();
         let unitig = unitig_rc.borrow();
-        let seq = if u.strand { &unitig.forward_seq } else { &unitig.reverse_seq };
-        merged_seq.extend_from_slice(seq);
+        merged_seq.extend_from_slice(unitig.get_seq(u.strand));
     }
     merged_seq
 }

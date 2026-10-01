@@ -22,6 +22,7 @@ use crate::depth::set_read_depths;
 use crate::log::{section_header, explanation};
 use crate::metrics::{CombineMetrics, ResolvedClusterDetails};
 use crate::misc::{check_if_file_exists, create_dir, quit_with_error};
+use crate::unitig::Unitig;
 use crate::unitig_graph::UnitigGraph;
 
 
@@ -176,33 +177,7 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
         for unitig in &graph.unitigs {
             let unitig = unitig.borrow();
             let unitig_num = unitig.number + offset;
-            let unitig_seq = String::from_utf8_lossy(&unitig.forward_seq);
-            let topology = if unitig.is_isolated_and_circular() {
-                " circular=true topology=circular".to_string()
-            } else if unitig.is_isolated_and_linear() {
-                " circular=false topology=linear".to_string()
-            } else {
-                "".to_string()
-            };
-            // Tigs without a read depth (too short, or all of their sequence occurs elsewhere in
-            // the assembly) are marked as unavailable in the FASTA header, which distinguishes
-            // them from tigs the reads genuinely gave a depth of zero. The GFA cannot make that
-            // distinction, as its depth tag has to be a number.
-            let depth = if read_depths { unitig.read_depth.unwrap_or(0.0) } else { unitig.depth };
-            let depth_header = match (read_depths, unitig.read_depth) {
-                (false, _) => String::new(),
-                (true, Some(d)) => format!(" depth={d:.1}"),
-                (true, None) => " depth=unavailable".to_string(),
-            };
-            let depth_tag = format!("\tDP:f:{depth:.2}");
-            let mut colour_tag = unitig.colour_tag(true);
-            if colour_tag.is_empty() {
-                colour_tag = "\tCL:Z:orangered".to_string();
-            }
-            writeln!(gfa_file, "S\t{unitig_num}\t{unitig_seq}{depth_tag}{colour_tag}").unwrap();
-            writeln!(fasta_file, ">{} length={}{}{}", unitig_num, unitig.length(), depth_header,
-                     topology).unwrap();
-            writeln!(fasta_file, "{unitig_seq}").unwrap();
+            write_unitig(&unitig, unitig_num, read_depths, &mut gfa_file, &mut fasta_file);
             tigs.push((unitig_num, unitig.length(), unitig.read_depth));
         }
         for (a, a_strand, b, b_strand) in &graph.get_links_for_gfa(offset) {
@@ -221,4 +196,29 @@ fn combine_clusters(clusters: Vec<UnitigGraph>, combined_gfa: &Path, combined_fa
         if unitig_count != 1 { metrics.consensus_assembly_fully_resolved = false; }
     }
     tigs
+}
+
+
+fn write_unitig(unitig: &Unitig, number: u32, read_depths: bool,
+                 gfa_file: &mut File, fasta_file: &mut File) {
+    let sequence = String::from_utf8_lossy(&unitig.forward_seq);
+    let topology = if unitig.is_isolated_and_circular() {
+        " circular=true topology=circular"
+    } else if unitig.is_isolated_and_linear() {
+        " circular=false topology=linear"
+    } else {
+        ""
+    };
+    // GFA requires a numeric depth; FASTA distinguishes unavailable depth from measured zero.
+    let depth = if read_depths { unitig.read_depth.unwrap_or(0.0) } else { unitig.depth };
+    let depth_header = match (read_depths, unitig.read_depth) {
+        (false, _) => String::new(),
+        (true, Some(d)) => format!(" depth={d:.1}"),
+        (true, None) => " depth=unavailable".to_string(),
+    };
+    let colour_tag = unitig.colour_tag(true);
+    writeln!(gfa_file, "S\t{number}\t{sequence}\tDP:f:{depth:.2}{colour_tag}").unwrap();
+    writeln!(fasta_file, ">{} length={}{}{}", number, unitig.length(), depth_header,
+             topology).unwrap();
+    writeln!(fasta_file, "{sequence}").unwrap();
 }

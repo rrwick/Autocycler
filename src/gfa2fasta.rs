@@ -24,7 +24,7 @@ pub fn gfa2fasta(in_gfa: PathBuf, out_fasta: PathBuf) {
     check_if_file_exists(&in_gfa);
     starting_message();
     print_settings(&in_gfa, &out_fasta);
-    let graph = load_graph(&in_gfa);
+    let (graph, _) = UnitigGraph::load_gfa_with_summary(&in_gfa);
     save_graph_to_fasta(&graph, &out_fasta);
 }
 
@@ -44,15 +44,6 @@ fn print_settings(in_gfa: &Path, out_fasta: &Path) {
 }
 
 
-fn load_graph(gfa: &Path) -> UnitigGraph {
-    section_header("Loading graph");
-    explanation("The unitig graph is now loaded into memory.");
-    let (graph, _) = UnitigGraph::from_gfa_file(gfa);
-    graph.print_basic_graph_info();
-    graph
-}
-
-
 fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
     section_header("Saving to FASTA");
     explanation("The unitig graph is now saved to a FASTA file.");
@@ -64,21 +55,21 @@ fn save_graph_to_fasta(graph: &UnitigGraph, out_fasta: &Path) {
         if seq.is_empty() { continue; }
         let topology = if unitig.is_isolated_and_circular() {
             circ_count += 1;
-            " circular=true topology=circular".to_string()
+            " circular=true topology=circular"
         } else if unitig.is_isolated_and_linear() {
             linear_count += 1;
-            " circular=false topology=linear".to_string()
+            " circular=false topology=linear"
         } else {
             other_count += 1;
-            "".to_string()
+            ""
         };
         writeln!(fasta_file, ">{} length={} depth={:.1}{}", unitig.number, unitig.length(),
                  unitig.depth, topology).unwrap();
         writeln!(fasta_file, "{seq}").unwrap();
     }
-    eprintln!("{} circular sequence{}", circ_count, if circ_count == 1 { "" } else { "s" });
-    eprintln!("{} linear sequence{}", linear_count, if linear_count == 1 { "" } else { "s" });
-    eprintln!("{} other sequence{}", other_count, if other_count == 1 { "" } else { "s" });
+    for (count, topology) in [(circ_count, "circular"), (linear_count, "linear"), (other_count, "other")] {
+        eprintln!("{count} {topology} sequence{}", if count == 1 { "" } else { "s" });
+    }
     eprintln!();
 }
 
@@ -89,92 +80,83 @@ mod tests {
     use crate::test_gfa::*;
     use super::*;
 
-    #[test]
-    fn test_gfa2fasta_1() {
+    fn assert_fasta(gfa_lines: &[String], expected: &str) {
         let temp_dir = tempdir().unwrap();
         let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
+        let (graph, _) = UnitigGraph::from_gfa_lines(gfa_lines);
         save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=22 depth=5.0\nTTCGCTGCGCTCGCTTCGCTTT\n\
-                              >2 length=18 depth=4.0\nTGCCGTCGTCGCTGTGCA\n\
-                              >3 length=15 depth=1.0\nTGCCTGAATCGCCTA\n\
-                              >4 length=10 depth=4.0\nGCTCGGCTCG\n\
-                              >5 length=8 depth=2.0\nCGAACCAT\n\
-                              >6 length=7 depth=1.0\nTACTTGT\n\
-                              >7 length=5 depth=2.0\nGCCTT\n\
-                              >8 length=4 depth=1.0\nATCT\n\
-                              >9 length=2 depth=1.0\nGC\n\
-                              >10 length=1 depth=1.0\nT\n");
+        assert_eq!(std::fs::read_to_string(fasta_file).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_gfa2fasta_empty_sequences() {
+        assert_fasta(&[], "");
+        let empty = "S\t1\t\tDP:f:1".to_string();
+        assert_fasta(std::slice::from_ref(&empty), "");
+        assert_fasta(&[empty, "S\t10\tACGT\tDP:f:1.25".to_string(),
+                      "S\t2\tGATTAC\tDP:f:2".to_string()],
+                     ">10 length=4 depth=1.2 circular=false topology=linear\nACGT\n\
+                      >2 length=6 depth=2.0 circular=false topology=linear\nGATTAC\n");
+    }
+
+    #[test]
+    fn test_gfa2fasta_1() {
+        assert_fasta(&get_test_gfa_1(),
+                     ">1 length=22 depth=5.0\nTTCGCTGCGCTCGCTTCGCTTT\n\
+                      >2 length=18 depth=4.0\nTGCCGTCGTCGCTGTGCA\n\
+                      >3 length=15 depth=1.0\nTGCCTGAATCGCCTA\n\
+                      >4 length=10 depth=4.0\nGCTCGGCTCG\n\
+                      >5 length=8 depth=2.0\nCGAACCAT\n\
+                      >6 length=7 depth=1.0\nTACTTGT\n\
+                      >7 length=5 depth=2.0\nGCCTT\n\
+                      >8 length=4 depth=1.0\nATCT\n\
+                      >9 length=2 depth=1.0\nGC\n\
+                      >10 length=1 depth=1.0\nT\n");
     }
 
 
     #[test]
     fn test_gfa2fasta_2() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_2());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=22 depth=1.0\nACCGCTGCGCTCGCTTCGCTCT\n\
-                              >2 length=5 depth=1.0\nATGAT\n\
-                              >3 length=4 depth=1.0\nGCGC\n");
+        assert_fasta(&get_test_gfa_2(),
+                     ">1 length=22 depth=1.0\nACCGCTGCGCTCGCTTCGCTCT\n\
+                      >2 length=5 depth=1.0\nATGAT\n\
+                      >3 length=4 depth=1.0\nGCGC\n");
     }
 
 
     #[test]
     fn test_gfa2fasta_5() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_5());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 depth=1.0\nAGCATCGACATCGACTACG\n\
-                              >2 length=15 depth=1.0 circular=false topology=linear\nAGCATCAGCATCAGC\n\
-                              >3 length=9 depth=1.0\nGTCGCATTT\n\
-                              >4 length=7 depth=1.0 circular=true topology=circular\nTCGCGAA\n\
-                              >5 length=6 depth=1.0\nTTAAAC\n\
-                              >6 length=4 depth=1.0\nCACA\n");
+        assert_fasta(&get_test_gfa_5(),
+                     ">1 length=19 depth=1.0\nAGCATCGACATCGACTACG\n\
+                      >2 length=15 depth=1.0 circular=false topology=linear\nAGCATCAGCATCAGC\n\
+                      >3 length=9 depth=1.0\nGTCGCATTT\n\
+                      >4 length=7 depth=1.0 circular=true topology=circular\nTCGCGAA\n\
+                      >5 length=6 depth=1.0\nTTAAAC\n\
+                      >6 length=4 depth=1.0\nCACA\n");
     }
 
 
     #[test]
     fn test_gfa2fasta_8() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_8());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 depth=1.0 circular=true topology=circular\nAGCATCGACATCGACTACG\n");
+        assert_fasta(&get_test_gfa_8(),
+                     ">1 length=19 depth=1.0 circular=true topology=circular\nAGCATCGACATCGACTACG\n");
     }
 
     #[test]
     fn test_gfa2fasta_9() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_9());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 depth=1.0 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
+        assert_fasta(&get_test_gfa_9(),
+                     ">1 length=19 depth=1.0 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
     }
 
     #[test]
     fn test_gfa2fasta_10() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_10());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 depth=1.0 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
+        assert_fasta(&get_test_gfa_10(),
+                     ">1 length=19 depth=1.0 circular=false topology=linear\nAGCATCGACATCGACTACG\n");
     }
 
     #[test]
     fn test_gfa2fasta_13() {
-        let temp_dir = tempdir().unwrap();
-        let fasta_file = temp_dir.path().join("temp.fasta");
-        let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_13());
-        save_graph_to_fasta(&graph, &fasta_file);
-        let contents = std::fs::read_to_string(&fasta_file).unwrap();
-        assert_eq!(contents, ">1 length=19 depth=1.0\nAGCATCGACATCGACTACG\n");
+        assert_fasta(&get_test_gfa_13(),
+                     ">1 length=19 depth=1.0\nAGCATCGACATCGACTACG\n");
     }
 }

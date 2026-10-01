@@ -138,33 +138,20 @@ impl ClusteringMetrics {
     }
 
     pub fn calculate_balance(&mut self, cluster_filenames: HashMap<u16, Vec<String>>) {
-        // Calculates the balance score for clustering, indicating how evenly filenames are
-        // distributed.
-        // * For each cluster:
-        //   * Count the occurrences of each filename.
-        //   * Score each filename based on the count: 0 => 0.0, 1 => 1.0, 2+ => 0.0
-        //     (a count of 1 is the best number, i.e. the cluster contains one contig from the file)
-        //   * Average (mean) the filename scores to get the cluster score.
-        // * The overall balance score is a weighted mean of the cluster scores, weighted by the
-        //   number of sequences in the cluster.
-        fn count_score(count: u32) -> f64 {
-            if count == 0 { 0.0 } else if count == 1 { 1.0 } else { 0.0 }
-        }
-        let all_filenames: HashSet<String> = cluster_filenames.values()
-            .flat_map(|cluster| cluster.iter().cloned()).collect();
-        let mut cluster_scores = Vec::new();
+        // Score each cluster by the fraction of assemblies represented exactly once, then
+        // average the scores weighted by cluster size.
+        let assembly_count = cluster_filenames.values().flatten().collect::<HashSet<_>>().len();
+        let mut weighted_scores = 0.0;
         let mut total_weight = 0.0;
         for cluster in cluster_filenames.values() {
             let mut counter = HashMap::new();
-            for filename in cluster { *counter.entry(filename).or_insert(0) += 1; }
-            let scores: Vec<f64> = all_filenames.iter()
-                .map(|filename| count_score(*counter.get(filename).unwrap_or(&0))).collect();
-            let cluster_score: f64 = scores.iter().sum::<f64>() / all_filenames.len() as f64;
-            cluster_scores.push((cluster_score, cluster.len() as f64));
+            for filename in cluster { *counter.entry(filename).or_insert(0u32) += 1; }
+            let single_copy_count = counter.values().filter(|&&count| count == 1).count();
+            let cluster_score = single_copy_count as f64 / assembly_count as f64;
+            weighted_scores += cluster_score * cluster.len() as f64;
             total_weight += cluster.len() as f64;
         }
-        self.cluster_balance_score = cluster_scores.iter().map(|(score, weight)| score * weight)
-            .sum::<f64>() / total_weight;
+        self.cluster_balance_score = weighted_scores / total_weight;
     }
 
     pub fn calculate_tightness(&mut self, pass_cluster_stats: Vec<(f64, usize)>) {
@@ -333,6 +320,23 @@ mod tests {
         assert!(metrics_4.cluster_balance_score < metrics_3.cluster_balance_score);
         assert!(metrics_5.cluster_balance_score < metrics_4.cluster_balance_score);
         assert!(metrics_6.cluster_balance_score < metrics_5.cluster_balance_score);
+    }
+
+    #[test]
+    fn test_calculate_balance_missing_and_repeated_assemblies() {
+        let mut metrics = ClusteringMetrics::default();
+        metrics.calculate_balance(hashmap!{
+            1 => vec!["a".to_string(), "a".to_string(), "b".to_string()],
+            2 => vec!["a".to_string(), "c".to_string()],
+            3 => Vec::new(),
+        });
+        assert_almost_eq(metrics.cluster_balance_score, 7.0 / 15.0, 1e-12);
+        metrics.calculate_balance(hashmap!{1 => vec!["a".to_string(), "a".to_string()]});
+        assert_eq!(metrics.cluster_balance_score, 0.0);
+        metrics.calculate_balance(HashMap::new());
+        assert!(metrics.cluster_balance_score.is_nan());
+        metrics.calculate_balance(hashmap!{1 => Vec::new()});
+        assert!(metrics.cluster_balance_score.is_nan());
     }
 
     #[test]

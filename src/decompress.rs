@@ -28,7 +28,7 @@ pub fn decompress(in_gfa: PathBuf, out_dir: Option<PathBuf>, out_file: Option<Pa
     check_settings(&in_gfa, &out_dir, &out_file);
     starting_message();
     print_settings(&in_gfa, &out_dir, &out_file);
-    let (unitig_graph, sequences) = load_graph(&in_gfa);
+    let (unitig_graph, sequences) = UnitigGraph::load_gfa_with_summary(&in_gfa);
     if let Some(out_dir) = out_dir {
         create_dir(&out_dir);
         save_original_seqs_to_dir(&out_dir, &unitig_graph, &sequences);
@@ -71,41 +71,27 @@ fn print_settings(in_gfa: &Path, out_dir: &Option<PathBuf>, out_file: &Option<Pa
 }
 
 
-fn load_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
-    section_header("Loading graph");
-    explanation("The unitig graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
-    unitig_graph.print_basic_graph_info();
-    (unitig_graph, sequences)
-}
-
-
 pub fn save_original_seqs_to_dir(out_dir: &Path, unitig_graph: &UnitigGraph,
                                  sequences: &[Sequence]) {
     section_header("Reconstructing assemblies from unitig graph");
     explanation("Each contig is reconstructed by tracing its path through the unitig graph, with \
                  the results saved to a directory.");
-    let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
-    let mut filenames: Vec<&String> = original_seqs.keys().collect();
-    filenames.sort();
-    for filename in filenames {
-        let headers_seqs = &original_seqs[filename];
+    for (filename, headers_seqs) in unitig_graph.reconstruct_original_sequences(sequences) {
         let file_path = out_dir.join(filename);
         let file = File::create(&file_path).unwrap();
         eprintln!("{}:", file_path.display());
-        if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            let buf_writer = BufWriter::new(GzEncoder::new(file, Compression::default()));
-            write_sequences(buf_writer, headers_seqs);
+        if file_path.extension().is_some_and(|ext| ext == "gz") {
+            write_sequences(GzEncoder::new(file, Compression::default()), &headers_seqs);
         } else {
-            let buf_writer = BufWriter::new(file);
-            write_sequences(buf_writer, headers_seqs);
+            write_sequences(file, &headers_seqs);
         }
         eprintln!();
     }
 }
 
 
-fn write_sequences<W: Write>(mut writer: BufWriter<W>, headers_seqs: &Vec<(String, String)>) {
+fn write_sequences(writer: impl Write, headers_seqs: &[(String, String)]) {
+    let mut writer = BufWriter::new(writer);
     for (header, seq) in headers_seqs {
         eprintln!("  {} ({} bp)", up_to_first_space(header), seq.len());
         writeln!(writer, ">{header}").unwrap();
@@ -123,12 +109,9 @@ fn save_original_seqs_to_file(out_file: &Path, unitig_graph: &UnitigGraph,
     let original_seqs = unitig_graph.reconstruct_original_sequences(sequences);
     let file = File::create(out_file).unwrap();
     let mut buf_writer = BufWriter::new(file);
-    let mut filenames: Vec<&String> = original_seqs.keys().collect();
-    filenames.sort();
-    for filename in filenames {
-        let headers_seqs = &original_seqs[filename];
-        let clean_filename = filename.replace(" ", "_");
-        for (header, seq) in headers_seqs {
+    for (filename, headers_seqs) in original_seqs {
+        let clean_filename = filename.replace(' ', "_");
+        for (header, seq) in &headers_seqs {
             eprintln!("  {}__{} ({} bp)", filename, up_to_first_space(header), seq.len());
             writeln!(buf_writer, ">{clean_filename}__{header}").unwrap();
             writeln!(buf_writer, "{seq}").unwrap();

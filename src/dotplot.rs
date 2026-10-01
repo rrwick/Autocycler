@@ -151,7 +151,7 @@ fn load_from_fasta(filename: &Path) -> Vec<(FileSeqName, Vec<u8>)> {
     for (name, _, seq) in load_fasta(filename) {
         eprintln!("{} ({} bp)", name, seq.len());
         seqs.push((FileSeqName { filename: String::new(), seqname: name },
-                   seq.as_bytes().to_owned()));
+                   seq.into_bytes()));
     }
     eprintln!();
     seqs
@@ -168,7 +168,7 @@ fn load_from_directory(dir: &Path) -> Vec<(FileSeqName, Vec<u8>)> {
         for (name, _, seq) in load_fasta(assembly) {
             eprintln!("{} {} ({} bp)", filename, name, seq.len());
             seqs.push((FileSeqName { filename: filename.clone(), seqname: name },
-                       seq.as_bytes().to_owned()));
+                       seq.into_bytes()));
         }
     }
     eprintln!();
@@ -400,16 +400,13 @@ fn draw_dots(img: &mut RgbImage, a_start_pos: u32, b_start_pos: u32,
     for j in 0..(seq_b.len() - a_kmers.size + 1) {
         let j_pixel = (j as f64 / bp_per_pixel).round() as u32 + b_start_pos;
         let k = &seq_b[j..j + a_kmers.size];
-        if let Some(a_reverse_positions) = a_kmers.reverse.get(k) {
-            for &i in a_reverse_positions {
-                let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
-                draw_dot(img, i_pixel, j_pixel, width, height, REVERSE_DOT_COLOUR);
-            }
-        }
-        if let Some(a_forward_positions) = a_kmers.forward.get(k) {
-            for &i in a_forward_positions {
-                let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
-                draw_dot(img, i_pixel, j_pixel, width, height, FORWARD_DOT_COLOUR);
+        for (positions, colour) in [(&a_kmers.reverse, REVERSE_DOT_COLOUR),
+                                    (&a_kmers.forward, FORWARD_DOT_COLOUR)] {
+            if let Some(positions) = positions.get(k) {
+                for &i in positions {
+                    let i_pixel = (i as f64 / bp_per_pixel).round() as u32 + a_start_pos;
+                    draw_dot(img, i_pixel, j_pixel, width, height, colour);
+                }
             }
         }
     }

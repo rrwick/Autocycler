@@ -40,12 +40,12 @@ pub fn trim(cluster_dir: PathBuf, min_identity: f64, max_unitigs: usize, mad: f6
     check_settings(&cluster_dir, &untrimmed_gfa, min_identity, mad, threads);
     starting_message();
     print_settings(&cluster_dir, min_identity, max_unitigs, mad, threads);
-    let (mut graph, sequences) = load_graph(&untrimmed_gfa);
+    let (mut graph, sequences) = UnitigGraph::load_gfa_with_summary(&untrimmed_gfa);
     let unitig_lengths: HashMap<_, _> = graph.unitigs.iter().map(|rc| {let u = rc.borrow(); (u.number as i32, u.length())}).collect();
     let start_end_results = trim_start_end_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
-    let hairpin_results = trim_harpin_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
-    let sequences = choose_trim_type(start_end_results, hairpin_results, &mut graph, &sequences);
-    let sequences = exclude_outliers_in_length(&mut graph, &sequences, mad);
+    let hairpin_results = trim_hairpin_overlap(&graph, &sequences, &unitig_lengths, min_identity, max_unitigs);
+    let sequences = choose_trim_type(start_end_results, hairpin_results, &mut graph, sequences);
+    let sequences = exclude_outliers_in_length(&mut graph, sequences, mad);
     clean_up_graph(&mut graph, &sequences);
     graph.save_gfa(&trimmed_gfa, &sequences, false).unwrap();
     save_metrics(&trimmed_yaml, &sequences);
@@ -101,16 +101,7 @@ fn print_settings(cluster_dir: &Path, min_identity: f64, max_unitigs: usize, mad
 }
 
 
-fn load_graph(gfa: &Path) -> (UnitigGraph, Vec<Sequence>) {
-    section_header("Loading graph");
-    explanation("The unitig graph is now loaded into memory.");
-    let (unitig_graph, sequences) = UnitigGraph::from_gfa_file(gfa);
-    unitig_graph.print_basic_graph_info();
-    (unitig_graph, sequences)
-}
-
-
-fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
+fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &[Sequence], weights: &HashMap<i32, u32>,
                           min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32)>> {
     if max_unitigs == 0 {
         return vec![None; sequences.len()];
@@ -119,7 +110,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
     explanation("Paths for circular replicons may contain start-end overlaps. These overlaps \
                  are searched for and trimmed if found.");
     let paths: Vec<_> = sequences.iter().map(|seq| graph.get_unitig_path_for_sequence_i32(seq)).collect();
-    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
+    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {
         let trimmed_path = trim_path_start_end(path, weights, min_identity, max_unitigs);
         if let Some(trimmed_path) = trimmed_path {
             let trimmed_length: u32 = trimmed_path.iter().map(|&u| weights[&u.abs()]).sum();
@@ -136,7 +127,7 @@ fn trim_start_end_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weight
 }
 
 
-fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: &HashMap<i32, u32>,
+fn trim_hairpin_overlap(graph: &UnitigGraph, sequences: &[Sequence], weights: &HashMap<i32, u32>,
                        min_identity: f64, max_unitigs: usize) -> Vec<Option<(Vec<i32>, u32)>> {
     if max_unitigs == 0 {
         return vec![None; sequences.len()];
@@ -145,36 +136,21 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
     explanation("Paths for linear replicons may contain hairpin overlaps at the start and/or end \
                  of the contig. These overlaps are searched for and trimmed if found.");
     let paths: Vec<_> = sequences.iter().map(|seq| graph.get_unitig_path_for_sequence_i32(seq)).collect();
-    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {  // parallel for loop with rayon
-        let mut trimmed_start = false;
-        let mut trimmed_end = false;
-
-        let path_2 = if let Some(p) = trim_path_hairpin_start(path, weights, min_identity, max_unitigs) {
-            trimmed_start = true;
-            p
-        } else {
-            path.clone()
+    let results: Vec<_> = sequences.par_iter().zip(paths.par_iter()).map(|(seq, path)| {
+        let trimmed_start = trim_path_hairpin_start(path, weights, min_identity, max_unitigs);
+        let trimmed_end = trim_path_hairpin_end(trimmed_start.as_deref().unwrap_or(path),
+                                                weights, min_identity, max_unitigs);
+        let ends = match (trimmed_start.is_some(), trimmed_end.is_some()) {
+            (true, true) => "start and end",
+            (true, false) => "start",
+            _ => "end",
         };
-
-        let path_3 = if let Some(p) = trim_path_hairpin_end(&path_2, weights, min_identity, max_unitigs) {
-            trimmed_end = true;
-            p
+        if let Some(path) = trimmed_end.or(trimmed_start) {
+            let trimmed_length: u32 = path.iter().map(|&u| weights[&u.abs()]).sum();
+            let message = format!("trimmed from {ends} to {trimmed_length} bp");
+            (Some((path, trimmed_length)), format!("{}: {}", seq, message.red()))
         } else {
-            path_2
-        };
-
-        if !trimmed_start && !trimmed_end {
             (None, format!("{}: {}", seq, "not trimmed".green()))
-        } else {
-            let trimmed_length: u32 = path_3.iter().map(|&u| weights[&u.abs()]).sum();
-            let message = if trimmed_start && trimmed_end {
-                format!("{}: {}", seq, format!("trimmed from start and end to {trimmed_length} bp").red())
-            } else if trimmed_start {
-                format!("{}: {}", seq, format!("trimmed from start to {trimmed_length} bp").red())
-            } else {
-                format!("{}: {}", seq, format!("trimmed from end to {trimmed_length} bp").red())
-            };
-            (Some((path_3, trimmed_length)), message)
         }
     }).collect();
     for (_, message) in &results {
@@ -186,14 +162,13 @@ fn trim_harpin_overlap(graph: &UnitigGraph, sequences: &Vec<Sequence>, weights: 
 
 
 fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_results: Vec<Option<(Vec<i32>, u32)>>,
-                    graph: &mut UnitigGraph, sequences: &[Sequence]) -> Vec<Sequence> {
+                    graph: &mut UnitigGraph, mut sequences: Vec<Sequence>) -> Vec<Sequence> {
     let start_end_count = start_end_results.iter().filter(|x| x.is_some()).count();
     let hairpin_count = hairpin_results.iter().filter(|x| x.is_some()).count();
     if start_end_count == 0 && hairpin_count == 0 {
-        return sequences.to_owned();
+        return sequences;
     }
 
-    let mut trimmed_sequences = vec![];
     let results;
     if start_end_count >= hairpin_count {
         results = start_end_results;
@@ -201,7 +176,7 @@ fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_res
             eprintln!("Start-end trimming was more successful than hairpin trimming. Discarding \
                        hairpin trimming.\n");
         }
-    } else {  // hairpin_count > start_end_count
+    } else {
         results = hairpin_results;
         if start_end_count > 0 {
             eprintln!("Hairpin trimming was more successful than start-end trimming. Discarding \
@@ -210,25 +185,21 @@ fn choose_trim_type(start_end_results: Vec<Option<(Vec<i32>, u32)>>, hairpin_res
     }
     assert!(sequences.len() == results.len());
 
-    for (seq, result) in sequences.iter().zip(results.iter()) {
-        if result.is_none() {
-            trimmed_sequences.push(seq.clone());
-        } else {
+    for (seq, result) in sequences.iter_mut().zip(results.iter()) {
+        if let Some((path, trimmed_length)) = result {
             graph.remove_sequence_from_graph(seq.id);
-            let (path, trimmed_length) = result.as_ref().unwrap();
-            let trimmed_sequence = graph.create_sequence_and_positions(seq.id, *trimmed_length, seq.filename.clone(),
-                                                                        seq.contig_header.clone(), seq.cluster, path_to_tuples(path));
-            trimmed_sequences.push(trimmed_sequence);
+            *seq = graph.create_sequence_and_positions(seq.id, *trimmed_length, seq.filename.clone(),
+                                                       seq.contig_header.clone(), seq.cluster, path_to_tuples(path));
         }
     }
-    trimmed_sequences
+    sequences
 }
 
 
-fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>,
+fn exclude_outliers_in_length(graph: &mut UnitigGraph, mut sequences: Vec<Sequence>,
                               mad_threshold: f64) -> Vec<Sequence> {
     if mad_threshold == 0.0 {
-        return sequences.clone();
+        return sequences;
     }
     section_header("Exclude outliers");
     explanation("Sequences which vary too much in their length are now excluded from the cluster.");
@@ -241,18 +212,18 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
     eprintln!("Median absolute deviation: {median_absolute_deviation} bp");
     eprintln!("Allowed length range:      {min_length}-{max_length} bp");
     eprintln!();
-    let mut new_sequences = vec![];
-    for seq in sequences {
-        if min_length <= seq.length && seq.length <= max_length {
-            new_sequences.push(seq.clone());
+    sequences.retain(|seq| {
+        let keep = min_length <= seq.length && seq.length <= max_length;
+        if keep {
             eprintln!("{}: {}", seq, "kept".green());
         } else {
             eprintln!("{} {}", format!("{seq}:").dimmed(), "excluded".red());
             graph.remove_sequence_from_graph(seq.id);
         }
-    }
+        keep
+    });
     eprintln!();
-    new_sequences
+    sequences
 }
 
 
@@ -319,9 +290,8 @@ fn trim_path_hairpin_end(path: &[i32], weights: &HashMap<i32, u32>, min_identity
 fn trim_path_hairpin_start(path: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
                            max_unitigs: usize) -> Option<Vec<i32>> {
     let rev_path = reverse_path(path);
-    let trimmed_reverse_path = trim_path_hairpin_end(&rev_path, weights, min_identity, max_unitigs);
-    trimmed_reverse_path.as_ref()?;
-    Some(reverse_path(&trimmed_reverse_path.unwrap()))
+    trim_path_hairpin_end(&rev_path, weights, min_identity, max_unitigs)
+        .map(|trimmed| reverse_path(&trimmed))
 }
 
 
@@ -349,14 +319,14 @@ impl fmt::Debug for AlignmentPiece {
 
 
 fn trim_gaps_a_front(alignment: &mut VecDeque<AlignmentPiece>) {
-    while !alignment.is_empty() && alignment.front().unwrap().a_unitig == GAP {
+    while alignment.front().is_some_and(|p| p.a_unitig == GAP) {
         alignment.pop_front();
     }
 }
 
 
 fn trim_gaps_b_back(alignment: &mut VecDeque<AlignmentPiece>) {
-    while !alignment.is_empty() && alignment.back().unwrap().b_unitig == GAP {
+    while alignment.back().is_some_and(|p| p.b_unitig == GAP) {
         alignment.pop_back();
     }
 }
@@ -364,117 +334,92 @@ fn trim_gaps_b_back(alignment: &mut VecDeque<AlignmentPiece>) {
 
 fn overlap_alignment(path_a: &[i32], path_b: &[i32], weights: &HashMap<i32, u32>, min_identity: f64,
                      max_unitigs: usize, skip_diagonal: bool) -> VecDeque<AlignmentPiece> {
-    // This function performs a dynamic-programming alignment to find overlaps between two paths,
-    // with some special logic for Autocycler trim:
-    // * Scores are weighted by the length of the unitig (matches are positive scores, mismatches
-    //   and indels are negative scores).
-    // * Looks only for overlap alignments that extend from the right edge of the matrix to the top
-    //   edge of the matrix.
-    // * The matrix is limited in size (by max_unitigs) to prevent bad scaling with huge paths.
-    // * Only sufficiently high identity alignments are returned (min_identity).
-    // This function can be used on a path vs itself (same strand), in which case path_a and path_b
-    // will be the same. Or it can be used on a path vs its opposite strand, in which case path_b
-    // will be the reverse complement of path_a.
     assert!(path_a.len() == path_b.len());
+    let matrix = score_overlap(path_a, path_b, weights, max_unitigs, skip_diagonal);
+    let k = matrix.len() - 1;
+    let mut max_score = f64::NEG_INFINITY;
+    let mut max_i = 0;
+    for i in 1..=k {
+        if matrix[i][k] > max_score {
+            max_score = matrix[i][k];
+            max_i = i;
+        }
+    }
+    if max_score <= 0.0 { return VecDeque::new(); }
+    let alignment = traceback_overlap(path_a, path_b, &matrix, max_i);
+    if alignment_identity(&alignment, weights) < min_identity { return VecDeque::new(); }
+    alignment
+}
+
+
+fn score_overlap(path_a: &[i32], path_b: &[i32], weights: &HashMap<i32, u32>,
+                  max_unitigs: usize, skip_diagonal: bool) -> Vec<Vec<f64>> {
+    // Align the start of A to the end of B, weighting matches and penalties by unitig length.
+    // Limit the matrix size to bound work on long paths.
     let n = path_a.len();
     let k = max_unitigs.min(n);
-    let mut scoring_matrix = vec![vec![-f64::INFINITY; k + 1]; k + 1];
-
-    // Initialize the top and left edges to zero.
+    let mut matrix = vec![vec![f64::NEG_INFINITY; k + 1]; k + 1];
     for i in 0..=k {
-        scoring_matrix[i][0] = 0.0;
-        scoring_matrix[0][i] = 0.0;
+        matrix[i][0] = 0.0;
+        matrix[0][i] = 0.0;
     }
-
-    // Fill the scoring matrix.
     for i in 1..=k {
         for j in 1..=k {
             let global_i = i - 1;
             let global_j = n - k + j - 1;
-            if skip_diagonal && global_i == global_j {continue;}  // skipping the diagonal avoids whole-vs-whole alignment
-            let weight_i = *weights.get(&path_a[global_i].abs()).unwrap() as f64;
-            let weight_j = *weights.get(&path_b[global_j].abs()).unwrap() as f64;
-            let match_score = scoring_matrix[i - 1][j - 1] + if path_a[global_i] == path_b[global_j] {
+            // Skipping the diagonal avoids whole-vs-whole alignment.
+            if skip_diagonal && global_i == global_j { continue; }
+            let weight_i = weights[&path_a[global_i].abs()] as f64;
+            let weight_j = weights[&path_b[global_j].abs()] as f64;
+            let match_score = matrix[i - 1][j - 1] + if path_a[global_i] == path_b[global_j] {
                 weight_i
             } else {
                 -(weight_i + weight_j) / 2.0
             };
-            let delete_score = scoring_matrix[i - 1][j] - weight_i;
-            let insert_score = scoring_matrix[i][j - 1] - weight_j;
-            scoring_matrix[i][j] = match_score.max(delete_score).max(insert_score);
+            let delete_score = matrix[i - 1][j] - weight_i;
+            let insert_score = matrix[i][j - 1] - weight_j;
+            matrix[i][j] = match_score.max(delete_score).max(insert_score);
         }
     }
+    matrix
+}
 
-    // Find the maximum score from the right edge.
-    let mut max_score = f64::NEG_INFINITY;
-    let mut max_i = 0;
-    let mut max_j = 0;
-    for i in 1..=k {
-        if scoring_matrix[i][k] > max_score {
-            max_score = scoring_matrix[i][k];
-            max_i = i;
-            max_j = k;
-        }
-    }
 
-    // A negative score indicates a very poor alignment.
-    if max_score <= 0.0 {
-        return VecDeque::new();
-    }
-
-    // Traceback to get the alignment and record indices
-    let mut alignment_a = Vec::new();
-    let mut alignment_b = Vec::new();
-    let mut alignment_a_indices = Vec::new();
-    let mut alignment_b_indices = Vec::new();
-    let mut i = max_i;
-    let mut j = max_j;
+fn traceback_overlap(path_a: &[i32], path_b: &[i32], matrix: &[Vec<f64>], mut i: usize)
+        -> VecDeque<AlignmentPiece> {
+    let k = matrix.len() - 1;
+    let mut j = k;
+    let mut alignment = VecDeque::new();
     while i > 0 && j > 0 {
-        let global_i = i - 1;
-        let global_j = n - k + j - 1;
-        if path_a[global_i] == path_b[global_j] {
-            alignment_a.push(path_a[global_i]);
-            alignment_b.push(path_b[global_j]);
-            alignment_a_indices.push(global_i);
-            alignment_b_indices.push(global_j);
+        let a_index = i - 1;
+        let b_index = path_b.len() - k + j - 1;
+        let piece = if path_a[a_index] == path_b[b_index] {
             i -= 1;
             j -= 1;
-        } else if scoring_matrix[i - 1][j] >= scoring_matrix[i][j - 1] {
-            alignment_a.push(path_a[global_i]);
-            alignment_b.push(GAP);
-            alignment_a_indices.push(global_i);
-            alignment_b_indices.push(NONE);
+            AlignmentPiece { a_unitig: path_a[a_index], a_index,
+                             b_unitig: path_b[b_index], b_index }
+        } else if matrix[i - 1][j] >= matrix[i][j - 1] {
             i -= 1;
+            AlignmentPiece { a_unitig: path_a[a_index], a_index, b_unitig: GAP, b_index: NONE }
         } else {
-            alignment_a.push(GAP);
-            alignment_b.push(path_b[global_j]);
-            alignment_a_indices.push(NONE);
-            alignment_b_indices.push(global_j);
             j -= 1;
-        }
+            AlignmentPiece { a_unitig: GAP, a_index: NONE, b_unitig: path_b[b_index], b_index }
+        };
+        alignment.push_front(piece);
     }
+    // Only accept tracebacks that reach the top edge, rather than the left edge.
+    if i > 0 { alignment.clear(); }
+    alignment
+}
 
-    // Ensure that the traceback hit the top edge and not the left edge.
-    if i > 0 {
-        return VecDeque::new();
-    }
 
-    alignment_a.reverse();
-    alignment_b.reverse();
-    alignment_a_indices.reverse();
-    alignment_b_indices.reverse();
-
-    let alignment_a_length: u32 = alignment_a.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum();
-    let alignment_b_length: u32 = alignment_b.iter().filter_map(|&u| if u != GAP { Some(weights[&u.abs()]) } else { None }).sum();
-    let mean_length = (alignment_a_length as f64 + alignment_b_length as f64) / 2.0;
-    let total_matches = alignment_a.iter().zip(alignment_b.iter()).fold(0, |acc, (a, b)| { if a == b { acc + weights[&a.abs()] } else { acc }});
-    let alignment_identity = total_matches as f64 / mean_length;
-    if alignment_identity < min_identity {
-        return VecDeque::new();
-    }
-
-    alignment_a.iter().zip(alignment_a_indices.iter()).zip(alignment_b.iter()).zip(alignment_b_indices.iter())
-        .map(|(((a_u, a_i), b_u), b_i)| AlignmentPiece {a_unitig: *a_u, a_index: *a_i, b_unitig: *b_u, b_index: *b_i}).collect()
+fn alignment_identity(alignment: &VecDeque<AlignmentPiece>, weights: &HashMap<i32, u32>) -> f64 {
+    let length = |unitig: i32| if unitig == GAP { 0 } else { weights[&unitig.abs()] };
+    let a_length: u32 = alignment.iter().map(|p| length(p.a_unitig)).sum();
+    let b_length: u32 = alignment.iter().map(|p| length(p.b_unitig)).sum();
+    let matches: u32 = alignment.iter().filter(|p| p.a_unitig == p.b_unitig)
+        .map(|p| weights[&p.a_unitig.abs()]).sum();
+    matches as f64 / ((a_length as f64 + b_length as f64) / 2.0)
 }
 
 

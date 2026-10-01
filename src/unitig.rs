@@ -173,12 +173,8 @@ impl Unitig {
         self.forward_seq.len() as u32
     }
 
-    pub fn get_seq(&self, strand: bool) -> Vec<u8> {
-        if strand {
-            self.forward_seq.clone()
-        } else {
-            self.reverse_seq.clone()
-        }
+    pub fn get_seq(&self, strand: bool) -> &[u8] {
+        if strand { &self.forward_seq } else { &self.reverse_seq }
     }
 
     pub fn open_start(&self) -> bool {
@@ -437,10 +433,10 @@ mod tests {
         unitig_b.borrow_mut().reverse_next.push(UnitigStrand::new(&unitig_a, strand::REVERSE));
         unitig_a.borrow_mut().reverse_prev.push(UnitigStrand::new(&unitig_b, strand::REVERSE));
 
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::FORWARD)).unwrap(), "GCTGAAGGGC");
-        assert_eq!(std::str::from_utf8(&unitig_a.borrow().get_seq(strand::REVERSE)).unwrap(), "GCCCTTCAGC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::FORWARD)).unwrap(), "CGCGTTCGAC");
-        assert_eq!(std::str::from_utf8(&unitig_b.borrow().get_seq(strand::REVERSE)).unwrap(), "GTCGAACGCG");
+        assert_eq!(std::str::from_utf8(unitig_a.borrow().get_seq(strand::FORWARD)).unwrap(), "GCTGAAGGGC");
+        assert_eq!(std::str::from_utf8(unitig_a.borrow().get_seq(strand::REVERSE)).unwrap(), "GCCCTTCAGC");
+        assert_eq!(std::str::from_utf8(unitig_b.borrow().get_seq(strand::FORWARD)).unwrap(), "CGCGTTCGAC");
+        assert_eq!(std::str::from_utf8(unitig_b.borrow().get_seq(strand::REVERSE)).unwrap(), "GTCGAACGCG");
     }
 
     #[test]

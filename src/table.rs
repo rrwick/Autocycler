@@ -73,20 +73,13 @@ fn print_values(autocycler_dir: &Path, name: String, fields: Vec<String>, sigfig
     print!("{name}");
 
     let yaml_files = find_all_yaml_files(autocycler_dir);
-    let subsample_yaml = get_one_copy_yaml(&yaml_files, "subsample.yaml");
-    let input_assemblies_yaml = get_one_copy_yaml(&yaml_files, "input_assemblies.yaml");
-    let clustering_yaml = get_one_copy_yaml(&yaml_files, "clustering.yaml");
-    let consensus_assembly_yaml = get_one_copy_yaml(&yaml_files, "consensus_assembly.yaml");
-    let untrimmed_yamls = get_multi_copy_yaml(&yaml_files, "1_untrimmed.yaml");
-    let trimmed_yamls = get_multi_copy_yaml(&yaml_files, "2_trimmed.yaml");
-
-    let mut map: HashMap<String, Value> = HashMap::new();
-    if let Some(path) = subsample_yaml          { map.extend(load_single_yaml_to_map(&path)); }
-    if let Some(path) = input_assemblies_yaml   { map.extend(load_single_yaml_to_map(&path)); }
-    if let Some(path) = clustering_yaml         { map.extend(load_single_yaml_to_map(&path)); }
-    if let Some(path) = consensus_assembly_yaml { map.extend(load_single_yaml_to_map(&path)); }
-    if !untrimmed_yamls.is_empty() { map.extend(load_multi_yaml_to_map(&untrimmed_yamls)); }
-    if !trimmed_yamls.is_empty()   { map.extend(load_multi_yaml_to_map(&trimmed_yamls)); }
+    let single_yamls = ["subsample.yaml", "input_assemblies.yaml", "clustering.yaml",
+                        "consensus_assembly.yaml"].map(|name| get_one_copy_yaml(&yaml_files, name));
+    let multi_yamls = ["1_untrimmed.yaml", "2_trimmed.yaml"]
+        .map(|name| get_multi_copy_yaml(&yaml_files, name));
+    let mut map = HashMap::new();
+    for path in single_yamls.into_iter().flatten() { map.extend(load_single_yaml_to_map(&path)); }
+    for paths in multi_yamls { map.extend(load_multi_yaml_to_map(&paths)); }
 
     for field in fields {
         print!("\t");
@@ -106,7 +99,7 @@ fn load_single_yaml_to_map(yaml_path: &Path) -> HashMap<String, Value> {
 }
 
 
-fn load_multi_yaml_to_map(yaml_paths: &Vec<PathBuf>) -> HashMap<String, Value> {
+fn load_multi_yaml_to_map(yaml_paths: &[PathBuf]) -> HashMap<String, Value> {
     let mut combined_map: HashMap<String, Vec<Value>> = HashMap::new();
     for yaml_path in yaml_paths {
         let file_map = load_single_yaml_to_map(yaml_path);
@@ -141,24 +134,17 @@ fn visit_dirs_for_yaml_files(dir: &Path, yaml_files: &mut Vec<PathBuf>) {
 
 
 fn get_one_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Option<PathBuf> {
-    // Returns the YAML file from the given vector with a matching filename. No match is okay and
-    // one match is okay, but multiple matches will result in an error.
-    let found_files = yaml_files.iter()
-        .filter(|path| path.file_name().is_some_and(|name| name == filename)).collect::<Vec<_>>();
-    if found_files.is_empty() {
-        eprintln!("Warning: {filename} not found");
-    }
-    match found_files.len() {
-        0 => None,
-        1 => Some(found_files[0].clone()),
+    let mut found_files = yaml_files.iter()
+        .filter(|path| path.file_name().is_some_and(|name| name == filename));
+    match (found_files.next(), found_files.next()) {
+        (None, _) => { eprintln!("Warning: {filename} not found"); None },
+        (Some(path), None) => Some(path.clone()),
         _ => quit_with_error(&format!("Multiple {filename} files found")),
     }
 }
 
 
 fn get_multi_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Vec<PathBuf> {
-    // Returns all YAML files from the given vector with a matching filename, excluding those that
-    // are in a qc_fail directory.
     let found_files: Vec<_> = yaml_files.iter()
         .filter(|path| {path.file_name().is_some_and(|name| name == filename) &&
                         !path.to_string_lossy().contains("/qc_fail/")}).cloned().collect();
@@ -170,9 +156,6 @@ fn get_multi_copy_yaml(yaml_files: &[PathBuf], filename: &str) -> Vec<PathBuf> {
 
 
 fn format_value(value: &Value, sigfigs: usize) -> String {
-    // This function formats serde_yaml::Value types. Sequences are formatted with square brackets
-    // and commas (no spaces). Mappings are formatted with curly brackets, colons and commas (no
-    // spaces).
     match value {
         Value::Number(n) => format_number(n, sigfigs),
         Value::String(s) => s.clone(),

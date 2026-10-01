@@ -524,12 +524,18 @@ pub fn reverse_path(path: &[i32]) -> Vec<i32> {
 }
 
 
+pub fn parse_node_numbers<T: std::str::FromStr + Ord>(numbers: Option<String>) -> Vec<T> {
+    let Some(numbers) = numbers else { return Vec::new(); };
+    let mut numbers: Vec<T> = numbers.replace(' ', "").split(',')
+        .map(|s| s.parse().unwrap_or_else(|_| quit_with_error(
+            &format!("failed to parse '{s}' as a node number")))).collect();
+    numbers.sort();
+    numbers
+}
+
+
 pub fn sign_at_end(num: i32) -> String {
-    if num >= 0 {
-        format!("{}+", num.abs())
-    } else {
-        format!("{}-", num.abs())
-    }
+    format!("{}{}", num.abs(), if num >= 0 { "+" } else { "-" })
 }
 
 
@@ -544,9 +550,7 @@ pub fn up_to_first_space(string: &str) -> String {
 
 
 pub fn after_first_space(string: &str) -> String {
-    let mut parts = string.splitn(2, char::is_whitespace);
-    parts.next();
-    parts.next().unwrap_or("").to_string()
+    string.split_once(char::is_whitespace).map_or("", |(_, rest)| rest).to_string()
 }
 
 
@@ -769,6 +773,25 @@ mod tests {
         assert_eq!(mad_isize(&[]), 0);
         assert_eq!(mad_isize(&[1, 1, 2, 2, 4, 6, 9]), 1);
         assert_eq!(mad_isize(&[4, 1, 9, 6, 1, 2, 2]), 1);
+    }
+
+    #[test]
+    fn test_parse_node_numbers() {
+        assert_eq!(parse_node_numbers::<u16>(None), Vec::<u16>::new());
+        assert_eq!(parse_node_numbers::<u32>(None), Vec::<u32>::new());
+        for (input, expected) in [("1,2,3", vec![1, 2, 3]), ("4, 5, 6", vec![4, 5, 6]),
+                                   ("  5 , 10 ,15 ", vec![5, 10, 15]), ("3,1,3,0", vec![0, 1, 3, 3])] {
+            assert_eq!(parse_node_numbers::<u32>(Some(input.to_string())), expected);
+            assert_eq!(parse_node_numbers::<u16>(Some(input.to_string())),
+                       expected.iter().map(|&n| n as u16).collect::<Vec<_>>());
+        }
+        for input in ["", "ABC", "1,X,3", "x,y,z", "^&%^*", "1,,2", "1,\t2", "-1", "4294967296"] {
+            assert!(panic::catch_unwind(|| parse_node_numbers::<u16>(Some(input.to_string()))).is_err());
+            assert!(panic::catch_unwind(|| parse_node_numbers::<u32>(Some(input.to_string()))).is_err());
+        }
+        assert_panics_with(|| { parse_node_numbers::<u16>(Some("65536".to_string())); },
+                           "failed to parse '65536' as a node number");
+        assert_eq!(parse_node_numbers::<u32>(Some("65536,4294967295".to_string())), vec![65536, u32::MAX]);
     }
 
     #[test]

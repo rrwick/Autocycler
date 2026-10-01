@@ -22,7 +22,7 @@ use crate::log::{section_header, explanation};
 use crate::metrics::{ClusteringMetrics, UntrimmedClusterMetrics};
 use crate::misc::{check_if_dir_exists, check_if_file_exists, format_float, median_usize,
                   quit_with_error, usize_division_rounded, create_dir, delete_dir_if_exists,
-                  load_file_lines};
+                  load_file_lines, parse_node_numbers};
 use crate::sequence::Sequence;
 use crate::unitig_graph::UnitigGraph;
 
@@ -42,7 +42,7 @@ pub fn cluster(autocycler_dir: PathBuf, cutoff: f64, min_assemblies_option: Opti
     let gfa_lines = load_file_lines(&gfa);
     let (graph, mut sequences) = UnitigGraph::from_gfa_lines(&gfa_lines);
     let min_assemblies = set_min_assemblies(min_assemblies_option, &sequences);
-    let manual_clusters = parse_manual_clusters(manual_clusters);
+    let manual_clusters = parse_node_numbers(manual_clusters);
     print_settings(&autocycler_dir, cutoff, min_assemblies, min_assemblies_option, max_contigs,
                    &manual_clusters);
     check_sequence_count(&sequences, max_contigs);
@@ -574,16 +574,6 @@ fn set_min_assemblies(min_assemblies_option: Option<usize>, sequences: &[Sequenc
         return 1;
     }
     usize_division_rounded(assembly_count, 4).max(2)
-}
-
-
-fn parse_manual_clusters(manual_clusters: Option<String>) -> Vec<u16> {
-    let Some(manual_clusters) = manual_clusters else { return Vec::new(); };
-    let mut clusters: Vec<_> = manual_clusters.replace(' ', "").split(',')
-            .map(|s| s.parse::<u16>().unwrap_or_else(|_| quit_with_error(
-                &format!("failed to parse '{s}' as a node number")))).collect();
-    clusters.sort();
-    clusters
 }
 
 
@@ -1145,19 +1135,6 @@ mod tests {
         assert!(tree.find_node(10).is_none());
         assert!(tree.find_node(11).is_none());
         assert!(tree.find_node(12).is_none());
-    }
-
-    #[test]
-    fn test_parse_manual_clusters() {
-        assert_eq!(parse_manual_clusters(Some("1,2,3".to_string())), vec![1, 2, 3]);
-        assert_eq!(parse_manual_clusters(Some("4, 5, 6".to_string())), vec![4, 5, 6]);
-        assert_eq!(parse_manual_clusters(None), Vec::<u16>::new());
-        assert!(panic::catch_unwind(|| {
-            parse_manual_clusters(Some("x,y,z".to_string()));
-        }).is_err());
-        assert!(panic::catch_unwind(|| {
-            parse_manual_clusters(Some("^&%^*".to_string()));
-        }).is_err());
     }
 
     #[test]

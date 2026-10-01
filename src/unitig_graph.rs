@@ -12,13 +12,14 @@
 // License along with Autocycler. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use std::rc::Rc;
 
 use crate::kmer_graph::KmerGraph;
+use crate::log::{section_header, explanation};
 use crate::position::Position;
 use crate::sequence::Sequence;
 use crate::unitig::{Unitig, UnitigStrand};
@@ -50,6 +51,14 @@ impl UnitigGraph {
     pub fn from_gfa_file(gfa_filename: &Path) -> (Self, Vec<Sequence>) {
         let gfa_lines = load_file_lines(gfa_filename);
         Self::from_gfa_lines(&gfa_lines)
+    }
+
+    pub fn load_gfa_with_summary(gfa_filename: &Path) -> (Self, Vec<Sequence>) {
+        section_header("Loading graph");
+        explanation("The unitig graph is now loaded into memory.");
+        let (graph, sequences) = Self::from_gfa_file(gfa_filename);
+        graph.print_basic_graph_info();
+        (graph, sequences)
     }
 
     pub fn from_gfa_lines(gfa_lines: &[String]) -> (Self, Vec<Sequence>) {
@@ -308,38 +317,40 @@ impl UnitigGraph {
     }
 
     pub fn reconstruct_original_sequences(&self, seqs: &[Sequence])
-            -> HashMap<String, Vec<(String, String)>> {
-        let mut original_seqs = HashMap::new();
+            -> BTreeMap<String, Vec<(String, String)>> {
+        let mut original_seqs = BTreeMap::new();
         for seq in seqs {
-            let (filename, header, sequence) = self.reconstruct_original_sequence(seq);
-            original_seqs.entry(filename).or_insert_with(Vec::new).push((header, sequence));
+            let sequence = self.reconstruct_sequence(seq);
+            original_seqs.entry(seq.filename.clone()).or_insert_with(Vec::new)
+                .push((seq.contig_header.clone(), sequence));
         }
         original_seqs
     }
 
     pub fn reconstruct_original_sequences_u8(&self, seqs: &[Sequence])
             -> Vec<((String, String), Vec<u8>)> {
-        let mut original_seqs = Vec::new();
-        for seq in seqs {
-            let (filename, _header, sequence) = self.reconstruct_original_sequence(seq);
-            original_seqs.push(((filename, seq.contig_name()), sequence.into_bytes()));
-        }
+        let mut original_seqs: Vec<_> = seqs.iter().map(|seq| {
+            let sequence = self.reconstruct_sequence(seq);
+            ((seq.filename.clone(), seq.contig_name()), sequence.into_bytes())
+        }).collect();
         original_seqs.sort();
         original_seqs
     }
 
-    fn reconstruct_original_sequence(&self, seq: &Sequence) -> (String, String, String) {
+    fn reconstruct_sequence(&self, seq: &Sequence) -> String {
         let path = self.get_unitig_path_for_sequence(seq);
         let sequence = self.get_sequence_from_path(&path);
         assert_eq!(sequence.len(), seq.length, "reconstructed sequence does not have expected length");
-        (seq.filename.clone(), seq.contig_header.clone(), sequence)
+        sequence
     }
 
     fn get_sequence_from_path(&self, path: &[(u32, bool)]) -> String {
-        path.iter().map(|(unitig_num, strand)| {
-            let unitig = self.unitig_index.get(unitig_num).unwrap();
-            String::from_utf8(unitig.borrow().get_seq(*strand)).unwrap()
-        }).collect()
+        let mut sequence = String::new();
+        for (unitig_num, strand) in path {
+            let unitig = self.unitig_index.get(unitig_num).unwrap().borrow();
+            sequence.push_str(std::str::from_utf8(unitig.get_seq(*strand)).unwrap());
+        }
+        sequence
     }
 
     pub fn get_sequence_from_path_signed(&self, path: &[i32]) -> Vec<u8> {

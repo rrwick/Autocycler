@@ -347,9 +347,9 @@ fn group_paths_by_start_end(anchor_to_anchor_paths: Vec<Vec<i32>>)
 fn choose_best_path(paths: &[Vec<i32>], unitig_lengths: &HashMap<i32, u32>) -> Vec<i32> {
     let mut best_path: &[i32] = &[];
     let mut best_total = u32::MAX;
-    for (i, path) in paths.iter().enumerate() {
-        let total = paths.iter().enumerate().filter(|(j, _)| i != *j)
-            .map(|(_, other)| global_alignment_distance(path, other, unitig_lengths)).sum();
+    for path in paths {
+        let total = paths.iter().filter(|other| *other != path)
+            .map(|other| global_alignment_distance(path, other, unitig_lengths)).sum();
         if total < best_total || (total == best_total && path.as_slice() < best_path) {
             best_total = total;
             best_path = path;

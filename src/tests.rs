@@ -22,7 +22,7 @@ use std::path::Path;
 use tempfile::tempdir;
 
 use crate::compress::load_sequences;
-use crate::decompress::save_original_seqs_to_dir;
+use crate::decompress::{decompress, save_original_seqs_to_dir};
 use crate::graph_simplification::simplify_structure;
 use crate::kmer_graph::KmerGraph;
 use crate::metrics::InputAssemblyMetrics;
@@ -87,6 +87,46 @@ fn assert_same_content_gzipped(a: &Path, b: &Path) {
     gz_a.read_to_string(&mut content_a).unwrap();
     gz_b.read_to_string(&mut content_b).unwrap();
     assert_eq!(content_a, content_b);
+}
+
+
+#[test]
+fn test_decompress_outputs() {
+    let temp_dir = tempdir().unwrap();
+    let gfa = temp_dir.path().join("input.gfa");
+    make_test_file(&gfa, "H\tVN:Z:1.0\tKM:i:1\n\
+                         S\t1\tACGTAA\tDP:f:1\n\
+                         S\t2\tGATTAC\tDP:f:1\n\
+                         P\t1\t1+\t*\tLN:i:6\tFN:Z:z assembly.fa\tHD:Z:z first description\n\
+                         P\t2\t2-\t*\tLN:i:6\tFN:Z:a assembly.fa.gz\tHD:Z:reverse description\n\
+                         P\t3\t2+\t*\tLN:i:6\tFN:Z:z assembly.fa\tHD:Z:a second description\n");
+    let out_dir = temp_dir.path().join("assemblies");
+    let out_file = temp_dir.path().join("combined.fa.gz");
+    decompress(gfa, Some(out_dir.clone()), Some(out_file.clone()));
+
+    assert_eq!(read_to_string(out_dir.join("z assembly.fa")).unwrap(),
+               ">z first description\nACGTAA\n>a second description\nGATTAC\n");
+    let mut gz = MultiGzDecoder::new(File::open(out_dir.join("a assembly.fa.gz")).unwrap());
+    let mut contents = String::new();
+    gz.read_to_string(&mut contents).unwrap();
+    assert_eq!(contents, ">reverse description\nGTAATC\n");
+    assert_eq!(read_to_string(out_file).unwrap(),
+               ">a_assembly.fa.gz__reverse description\nGTAATC\n\
+                >z_assembly.fa__z first description\nACGTAA\n\
+                >z_assembly.fa__a second description\nGATTAC\n");
+}
+
+
+#[test]
+fn test_decompress_without_paths() {
+    let temp_dir = tempdir().unwrap();
+    let gfa = temp_dir.path().join("input.gfa");
+    make_test_file(&gfa, "H\tVN:Z:1.0\nS\t1\tACGT\tDP:f:1\n");
+    let out_dir = temp_dir.path().join("assemblies");
+    let out_file = temp_dir.path().join("combined.fa");
+    decompress(gfa, Some(out_dir.clone()), Some(out_file.clone()));
+    assert_eq!(std::fs::read_dir(out_dir).unwrap().count(), 0);
+    assert_eq!(read_to_string(out_file).unwrap(), "");
 }
 
 

@@ -24,10 +24,7 @@ pub fn section_header(text: &str) {
 
 
 pub fn explanation(text: &str) {
-    let mut term_width = 80;
-    if let Some((w, _)) = term_size::dimensions_stderr() {
-        term_width = w;
-    }
+    let term_width = term_size::dimensions_stderr().map_or(80, |(width, _)| width);
     let indented_text = format!("    {text}");
     eprintln!("{}", textwrap::fill(&indented_text, term_width).dimmed());
     eprintln!();
