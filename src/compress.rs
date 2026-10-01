@@ -14,6 +14,7 @@
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use regex::bytes::Regex;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str;
@@ -82,11 +83,10 @@ fn print_settings(assemblies_dir: &Path, autocycler_dir: &Path, k_size: u32, thr
 
 
 fn check_sequence_count(sequences: &[Sequence], assembly_count: usize, max_contigs: u32) {
-    let sequence_count = sequences.len() as f64;
-    if sequence_count == 0.0 {
+    if sequences.is_empty() {
         quit_with_error("no sequences found in input assemblies")
     }
-    let mean_seqs_per_assembly = sequence_count / (assembly_count as f64);
+    let mean_seqs_per_assembly = sequences.len() as f64 / assembly_count as f64;
     if mean_seqs_per_assembly > max_contigs as f64 {
         let e = format!("the mean number of contigs per input assembly ({mean_seqs_per_assembly:.1}) exceeds the allowed \
                          threshold ({max_contigs}). Are your input assemblies fragmented or contaminated?");
@@ -141,7 +141,7 @@ fn print_sequence_info(sequence_count: usize, assembly_count: usize) {
 }
 
 
-fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &Vec<Sequence>)
+fn build_kmer_graph(k_size: u32, assembly_count: usize, sequences: &[Sequence])
         -> KmerGraph<'_> {
     section_header("Building k-mer De Bruijn graph");
     explanation("K-mers in the input sequences are now hashed to make a De Bruijn graph.");
@@ -167,7 +167,7 @@ fn build_unitig_graph(kmer_graph: KmerGraph) -> UnitigGraph {
 }
 
 
-fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+fn simplify_unitig_graph(unitig_graph: &mut UnitigGraph, sequences: &[Sequence]) {
     section_header("Simplifying unitig graph");
     explanation("The graph structure is now simplified by moving sequence into repeat unitigs \
                  when possible.");
@@ -199,74 +199,37 @@ fn finished_message(start_time: Instant, out_gfa: PathBuf, out_yaml: PathBuf) {
 }
 
 
-fn sequence_end_repair(sequences: &mut Vec<Sequence>, k_size: u32) {
-    // Since each sequence ends with a half-k string of dots, these will create a dead-end tip for
-    // the sequence's start and end in the graph. To prevent this, this function looks for matching
-    // sequences to replace the dots in other sequences, and if found, replaces the dots. Since the
-    // half-k ends will be trimmed off during overlap trimming, it doesn't matter if the replacing
-    // sequences are 'wrong'.
+fn sequence_end_repair(sequences: &mut [Sequence], k_size: u32) {
+    // Replace dot padding to avoid dead-end graph tips. These bases are trimmed off later.
     let overlap_size = (k_size - 1) as usize;
-    let all_seqs: Vec<_> = sequences.iter().flat_map(|s| vec![s.forward_seq.clone(), s.reverse_seq.clone()]).collect();
-    sequences.par_iter_mut().for_each(|seq| {  // parallel for loop with rayon
-        let start = &seq.forward_seq[..overlap_size];
-        let start_re = Regex::new(str::from_utf8(start).unwrap()).unwrap();
-        let end = &seq.forward_seq[seq.forward_seq.len() - overlap_size..];
-        let end_re = Regex::new(str::from_utf8(end).unwrap()).unwrap();
-
-        let mut all_matches = Vec::new();
-        for s in &all_seqs {
-            for m in start_re.find_iter(s) {
-                all_matches.push(m.as_bytes().to_vec());
-            }
-        }
-        let best_match = find_best_match(all_matches);
-        seq.forward_seq.splice(..overlap_size, best_match.iter().cloned());
-
-        let mut all_matches = Vec::new();
-        for s in &all_seqs {
-            for m in end_re.find_iter(s) {
-                all_matches.push(m.as_bytes().to_vec());
-            }
-        }
-        let best_match = find_best_match(all_matches);
-        seq.forward_seq.splice(seq.forward_seq.len() - overlap_size.., best_match.iter().cloned());
-
+    let all_seqs: Vec<_> = sequences.iter()
+        .flat_map(|s| [s.forward_seq.clone(), s.reverse_seq.clone()]).collect();
+    sequences.par_iter_mut().for_each(|seq| {
+        let end_start = seq.forward_seq.len() - overlap_size;
+        let start_repair = find_end_repair(&seq.forward_seq[..overlap_size], &all_seqs);
+        let end_repair = find_end_repair(&seq.forward_seq[end_start..], &all_seqs);
+        seq.forward_seq[..overlap_size].copy_from_slice(start_repair);
+        seq.forward_seq[end_start..].copy_from_slice(end_repair);
         seq.reverse_seq = reverse_complement(&seq.forward_seq);
     });
 }
 
 
-fn find_best_match(matches: Vec<Vec<u8>>) -> Vec<u8> {
-    // This function takes all of the regex matches and returns the best as defined by:
-    // 1. fewest dots
-    // 2. most occurrences
-    // 3. first alphabetically
+fn find_end_repair<'a>(end: &[u8], sequences: &'a [Vec<u8>]) -> &'a [u8] {
+    let pattern = Regex::new(str::from_utf8(end).unwrap()).unwrap();
+    find_best_match(sequences.iter().flat_map(|seq| pattern.find_iter(seq).map(|m| m.as_bytes())))
+}
+
+
+fn find_best_match<'a>(matches: impl IntoIterator<Item = &'a [u8]>) -> &'a [u8] {
     let mut match_counts = HashMap::new();
-    for m in &matches {
-        let entry = match_counts.entry(m.clone()).or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 = m.iter().filter(|&&c| c == b'.').count();
+    for sequence in matches {
+        *match_counts.entry(sequence).or_insert(0usize) += 1;
     }
-    matches.into_iter().min_by(|a, b| {
-        // Compare by number of `.` characters (fewer is better)
-        let dot_count_a = match_counts.get(a).unwrap().1;
-        let dot_count_b = match_counts.get(b).unwrap().1;
-        match dot_count_a.cmp(&dot_count_b) {
-            std::cmp::Ordering::Equal => {
-                // Compare by frequency (higher is better)
-                let freq_a = match_counts.get(a).unwrap().0;
-                let freq_b = match_counts.get(b).unwrap().0;
-                match freq_a.cmp(&freq_b).reverse() {
-                    std::cmp::Ordering::Equal => {
-                        // Compare alphabetically
-                        a.cmp(b)
-                    }
-                    other => other,
-                }
-            }
-            other => other,
-        }
-    }).expect("There should be at least one match")
+    match_counts.into_iter().min_by_key(|&(sequence, count)| {
+        let dots = sequence.iter().filter(|&&c| c == b'.').count();
+        (dots, Reverse(count), sequence)
+    }).map(|(sequence, _)| sequence).expect("There should be at least one match")
 }
 
 
@@ -279,67 +242,87 @@ mod tests {
     use crate::tests::make_test_file;
 
     #[test]
+    fn test_sequence_end_repair() {
+        for (k_size, expected) in [
+            (1, ["ACGTA", "TACGT", "AAAAA"]),
+            (3, ["TACGTAC", "GTACGTA", "TAAAAAC"]),
+            (5, [".TACGTACG", "CGTACGTA.", "..AAAAAAA"]),
+        ] {
+            let mut sequences: Vec<_> = ["ACGTA", "TACGT", "AAAAA"].iter().enumerate()
+                .map(|(i, seq)| Sequence::new_with_seq(i + 1, seq.to_string(),
+                    "assembly.fasta".to_string(), format!("contig_{i}"), seq.len(), k_size / 2))
+                .collect();
+            sequence_end_repair(&mut sequences, k_size);
+            for (seq, expected) in sequences.iter().zip(expected) {
+                assert_eq!(seq.forward_seq, expected.as_bytes());
+                assert_eq!(seq.reverse_seq, reverse_complement(expected.as_bytes()));
+                assert_eq!(seq.length, 5);
+            }
+        }
+    }
+
+    #[test]
     fn test_find_best_match_1() {
-        let all_matches = vec![b"...ACGT".to_vec()];
+        let all_matches = vec![b"...ACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b"...ACGT");
 
-        let all_matches = vec![b"...ACGT".to_vec(), b"..GACGT".to_vec()];
+        let all_matches = vec![b"...ACGT".as_slice(), b"..GACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b"..GACGT");
 
-        let all_matches = vec![b"..GACGT".to_vec(), b"...ACGT".to_vec()];
+        let all_matches = vec![b"..GACGT".as_slice(), b"...ACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b"..GACGT");
 
-        let all_matches = vec![b"...GAAA".to_vec(), b"...CAAA".to_vec(), b"...TAAA".to_vec()];
+        let all_matches = vec![b"...GAAA".as_slice(), b"...CAAA".as_slice(), b"...TAAA".as_slice()];
         assert_eq!(find_best_match(all_matches), b"...CAAA");
 
-        let all_matches = vec![b"...ACGT".to_vec(),
-                               b"..GACGT".to_vec(),
-                               b"..CACGT".to_vec(),
-                               b"..GACGT".to_vec(),
-                               b"..CACGT".to_vec()];
+        let all_matches = vec![b"...ACGT".as_slice(),
+                               b"..GACGT".as_slice(),
+                               b"..CACGT".as_slice(),
+                               b"..GACGT".as_slice(),
+                               b"..CACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b"..CACGT");
 
-        let all_matches = vec![b"...ACGT".to_vec(),
-                               b"..GACGT".to_vec(),
-                               b"..GACGT".to_vec(),
-                               b".AGACGT".to_vec(),
-                               b".CGACGT".to_vec()];
+        let all_matches = vec![b"...ACGT".as_slice(),
+                               b"..GACGT".as_slice(),
+                               b"..GACGT".as_slice(),
+                               b".AGACGT".as_slice(),
+                               b".CGACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b".AGACGT");
 
-        let all_matches = vec![b"...ACGT".to_vec(),
-                               b".CGACGT".to_vec(),
-                               b"..GACGT".to_vec(),
-                               b".AGACGT".to_vec(),
-                               b".CGACGT".to_vec()];
+        let all_matches = vec![b"...ACGT".as_slice(),
+                               b".CGACGT".as_slice(),
+                               b"..GACGT".as_slice(),
+                               b".AGACGT".as_slice(),
+                               b".CGACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b".CGACGT");
     }
 
     #[test]
     fn test_find_best_match_2() {
-        let all_matches = vec![b"ACGT...".to_vec()];
+        let all_matches = vec![b"ACGT...".as_slice()];
         assert_eq!(find_best_match(all_matches), b"ACGT...");
 
-        let all_matches = vec![b"ACGT...".to_vec(), b"ACGTT..".to_vec()];
+        let all_matches = vec![b"ACGT...".as_slice(), b"ACGTT..".as_slice()];
         assert_eq!(find_best_match(all_matches), b"ACGTT..");
 
-        let all_matches = vec![b"..GACGT".to_vec(), b"...ACGT".to_vec()];
+        let all_matches = vec![b"..GACGT".as_slice(), b"...ACGT".as_slice()];
         assert_eq!(find_best_match(all_matches), b"..GACGT");
 
-        let all_matches = vec![b"GAAA...".to_vec(), b"CAAA...".to_vec(), b"TAAA...".to_vec()];
+        let all_matches = vec![b"GAAA...".as_slice(), b"CAAA...".as_slice(), b"TAAA...".as_slice()];
         assert_eq!(find_best_match(all_matches), b"CAAA...");
 
-        let all_matches = vec![b"CACG...".to_vec(),
-                               b"GACGT..".to_vec(),
-                               b"CACGT..".to_vec(),
-                               b"GACGT..".to_vec(),
-                               b"CACGT..".to_vec()];
+        let all_matches = vec![b"CACG...".as_slice(),
+                               b"GACGT..".as_slice(),
+                               b"CACGT..".as_slice(),
+                               b"GACGT..".as_slice(),
+                               b"CACGT..".as_slice()];
         assert_eq!(find_best_match(all_matches), b"CACGT..");
 
-        let all_matches = vec![b"AGAC...".to_vec(),
-                               b"AGACG..".to_vec(),
-                               b"AGACG..".to_vec(),
-                               b"AGACGT.".to_vec(),
-                               b"CGACGT.".to_vec()];
+        let all_matches = vec![b"AGAC...".as_slice(),
+                               b"AGACG..".as_slice(),
+                               b"AGACG..".as_slice(),
+                               b"AGACGT.".as_slice(),
+                               b"CGACGT.".as_slice()];
         assert_eq!(find_best_match(all_matches), b"AGACGT.");
     }
 

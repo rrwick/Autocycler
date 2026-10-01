@@ -256,7 +256,7 @@ fn exclude_outliers_in_length(graph: &mut UnitigGraph, sequences: &Vec<Sequence>
 }
 
 
-fn clean_up_graph(graph: &mut UnitigGraph, sequences: &Vec<Sequence>) {
+fn clean_up_graph(graph: &mut UnitigGraph, sequences: &[Sequence]) {
     section_header("Clean graph");
     explanation("The unitig graph is now cleaned up based on any trimming and/or exclusion that \
                  has occurred above.");

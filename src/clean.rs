@@ -40,7 +40,7 @@ pub fn clean(in_gfa: PathBuf, out_gfa: PathBuf, remove: Option<String>, duplicat
         remove_low_depth_tigs(&mut graph, d);
     }
     merge_graph(&mut graph);
-    graph.save_gfa(&out_gfa, &vec![], true).unwrap();
+    graph.save_gfa(&out_gfa, &[], true).unwrap();
     finished_message(&out_gfa);
 }
 
@@ -111,7 +111,7 @@ fn remove_low_depth_tigs(graph: &mut UnitigGraph, min_depth: f64) {
 fn merge_graph(graph: &mut UnitigGraph) {
     section_header("Merging linear paths");
     explanation("Linear paths in the graph are now merged.");
-    merge_linear_paths(graph, &vec![]);
+    merge_linear_paths(graph, &[]);
     graph.print_basic_graph_info();
     graph.renumber_unitigs();
 }

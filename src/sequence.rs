@@ -30,20 +30,16 @@ pub struct Sequence {
 impl Sequence {
     pub fn new_with_seq(id: usize, seq: String, filename: String, contig_header: String,
                         length: usize, half_k: u32) -> Sequence {
-        // This constructor creates a Sequence object with the actual sequence stored. This is used
-        // when creating a k-mer graph from Sequences, because the actual sequence is needed to get
-        // the k-mers.
-        // It pads the sequence with a half-k number of dots so the entire sequence will be present
-        // when overlaps are trimmed off. Dots are used because they will be regex wildcards for
-        // substituting this padding with real sequence (as much as possible).
+        // Padding preserves the ends when k-mer overlaps are trimmed. Dots also serve as regex
+        // wildcards when repairing the ends with real sequence.
         let mut forward_seq = seq.into_bytes();
         if !forward_seq.iter().all(|&c| matches!(c, b'A' | b'C' | b'G' | b'T')) {
             quit_with_error(&format!("{filename} contains non-ACGT characters"));
         }
 
         let padding = vec![b'.'; half_k as usize];
-        forward_seq.splice(0..0, padding.iter().cloned());
-        forward_seq.extend(padding.iter().cloned());
+        forward_seq.splice(0..0, padding.iter().copied());
+        forward_seq.extend_from_slice(&padding);
 
         let reverse_seq = reverse_complement(&forward_seq);
 
@@ -60,9 +56,7 @@ impl Sequence {
 
     pub fn new_without_seq(id: u16, filename: String, contig_header: String, length: usize,
                            cluster: u16) -> Sequence {
-        // This constructor creates a Sequence object without storing the sequence. This is used at
-        // later stages in Autocycler where the sequence is stored in the UnitigGraph and so doesn't
-        // need to be stored here as well.
+        // The sequence itself is stored in the UnitigGraph at later stages.
         Sequence {
             id,
             forward_seq: vec![],
@@ -95,16 +89,16 @@ impl Sequence {
     }
 
     pub fn cluster_weight(&self) -> usize {
-        self.contig_header.to_lowercase().split_whitespace()
-            .find_map(|token| { token.strip_prefix("autocycler_cluster_weight=")
-                                     .and_then(|s| s.parse::<usize>().ok()) })
-            .unwrap_or(1)
+        self.header_weight("autocycler_cluster_weight=")
     }
 
     pub fn consensus_weight(&self) -> usize {
+        self.header_weight("autocycler_consensus_weight=")
+    }
+
+    fn header_weight(&self, prefix: &str) -> usize {
         self.contig_header.to_lowercase().split_whitespace()
-            .find_map(|token| { token.strip_prefix("autocycler_consensus_weight=")
-                                     .and_then(|s| s.parse::<usize>().ok()) })
+            .find_map(|token| token.strip_prefix(prefix)?.parse().ok())
             .unwrap_or(1)
     }
 }
@@ -119,18 +113,16 @@ impl fmt::Display for Sequence {
         if self.is_ignored() {
             extras.push("ignored".to_string());
         }
-        if self.cluster_weight() != 1 {
-            extras.push(format!("cluster weight = {}", self.cluster_weight()));
+        for (name, weight) in [("cluster", self.cluster_weight()), ("consensus", self.consensus_weight())] {
+            if weight != 1 {
+                extras.push(format!("{name} weight = {weight}"));
+            }
         }
-        if self.consensus_weight() != 1 {
-            extras.push(format!("consensus weight = {}", self.consensus_weight()));
+        write!(f, "{} {} ({} bp)", self.filename, self.contig_name(), self.length)?;
+        if !extras.is_empty() {
+            write!(f, " [{}]", extras.join(", "))?;
         }
-        if extras.is_empty() {
-            write!(f, "{} {} ({} bp)", self.filename, self.contig_name(), self.length)
-        } else {
-            write!(f, "{} {} ({} bp) [{}]", self.filename, self.contig_name(), self.length,
-                   extras.join(", "))
-        }
+        Ok(())
     }
 }
 
@@ -194,6 +186,10 @@ mod tests {
         // Non-numeric values result in 1
         s.contig_header = "c123 Autocycler_cluster_weight=abc".to_string();
         assert_eq!(s.cluster_weight(), 1);
+
+        s.contig_header = "c123 autocycler_cluster_weight=bad \
+                           AUTOCYCLER_CLUSTER_WEIGHT=0 autocycler_cluster_weight=5".to_string();
+        assert_eq!(s.cluster_weight(), 0);
     }
 
     #[test]
@@ -228,6 +224,10 @@ mod tests {
         // Non-numeric values result in 1
         s.contig_header = "c123 Autocycler_consensus_weight=abc".to_string();
         assert_eq!(s.consensus_weight(), 1);
+
+        s.contig_header = "c123 autocycler_consensus_weight=-1 \
+                           AUTOCYCLER_CONSENSUS_WEIGHT=2 autocycler_consensus_weight=0".to_string();
+        assert_eq!(s.consensus_weight(), 2);
     }
 
     #[test]

@@ -22,26 +22,22 @@ pub struct Position {
 }
 
 impl Position {
-    const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000; // highest bit stores the strand
+    const STRAND_BIT_MASK: u16 = 0b1000_0000_0000_0000;
 
     pub fn new(seq_id: u16, strand: bool, pos: usize) -> Position {
-        let mut seq_id_and_strand = seq_id;
-        if strand {
-            seq_id_and_strand |= Position::STRAND_BIT_MASK;  // set the strand bit
-        }
         Position {
             pos: pos as u32,
-            seq_id_and_strand,
+            seq_id_and_strand: seq_id | if strand { Self::STRAND_BIT_MASK } else { 0 },
         }
     }
 
     pub fn seq_id(&self) -> u16 {
-        self.seq_id_and_strand & !Position::STRAND_BIT_MASK  // mask out the strand bit
+        self.seq_id_and_strand & !Self::STRAND_BIT_MASK
     }
 
     pub fn strand(&self) -> bool {
         // true for forward strand, false for reverse strand
-        (self.seq_id_and_strand & Position::STRAND_BIT_MASK) != 0
+        (self.seq_id_and_strand & Self::STRAND_BIT_MASK) != 0
     }
 }
 

@@ -78,13 +78,8 @@ impl UnitigGraph {
     }
 
     fn read_gfa_header_line(&mut self, parts: &[&str]) {
-        for &p in parts {
-            if let Some(tag_val) = p.strip_prefix("KM:i:") {
-                if let Ok(k) = tag_val.parse::<u32>() {
-                    self.k_size = k;
-                    return;
-                }
-            }
+        if let Some(k) = parts.iter().find_map(|p| p.strip_prefix("KM:i:")?.parse().ok()) {
+            self.k_size = k;
         }
     }
 
@@ -126,12 +121,9 @@ impl UnitigGraph {
                     cluster = tag_val.parse::<u16>().expect("Error parsing cluster");
                 }
             }
-            if length.is_none() || filename.is_none() || header.is_none() {
+            let (Some(length), Some(filename), Some(header)) = (length, filename, header) else {
                 quit_with_error("missing required tag in GFA path line.");
-            }
-            let length = length.unwrap();
-            let filename = filename.unwrap();
-            let header = header.unwrap();
+            };
             let path = parse_unitig_path(parts[2]);
             let sequence = self.create_sequence_and_positions(seq_id, length, filename, header,
                                                               cluster, path);
@@ -154,7 +146,7 @@ impl UnitigGraph {
         for (unitig_num, unitig_strand) in path {
             if let Some(unitig) = self.unitig_index.get(unitig_num) {
                 let mut u = unitig.borrow_mut();
-                let positions = if *unitig_strand {&mut u.forward_positions} 
+                let positions = if *unitig_strand {&mut u.forward_positions}
                                              else {&mut u.reverse_positions};
                 positions.push(Position::new(seq_id, path_strand, pos as usize));
                 pos += u.length();
@@ -178,40 +170,26 @@ impl UnitigGraph {
             seen.insert(forward_kmer.seq());
             seen.insert(reverse_kmer.seq());
 
-            // Extend unitig forward
-            let mut for_k = forward_kmer;
-            let mut rev_k = reverse_kmer;
-            loop {
-                if rev_k.first_position() { break; }
-                let next_kmers = k_graph.next_kmers(for_k.seq());
-                if next_kmers.len() != 1 { break; }
-                for_k = next_kmers[0];
-                if seen.contains(for_k.seq()) { break; }
-                let prev_kmers = k_graph.prev_kmers(for_k.seq());
-                if prev_kmers.len() != 1 { break; }
-                rev_k = k_graph.reverse(for_k);
-                if for_k.first_position() { break; }
-                unitig.add_kmer_to_end(for_k, rev_k);
-                seen.insert(for_k.seq());
-                seen.insert(rev_k.seq());
-            }
-
-            // Extend unitig backward
-            let mut for_k = forward_kmer;
-            let mut rev_k;
-            loop {
-                if for_k.first_position() { break; }
-                let prev_kmers = k_graph.prev_kmers(for_k.seq());
-                if prev_kmers.len() != 1 { break; }
-                for_k = prev_kmers[0];
-                if seen.contains(for_k.seq()) { break; }
-                let next_kmers = k_graph.next_kmers(for_k.seq());
-                if next_kmers.len() != 1 { break; }
-                rev_k = k_graph.reverse(for_k);
-                if rev_k.first_position() { break; }
-                unitig.add_kmer_to_start(for_k, rev_k);
-                seen.insert(for_k.seq());
-                seen.insert(rev_k.seq());
+            // Walking forward on the reverse strand extends the start of the unitig.
+            for (mut kmer, mut reverse, strand) in [(forward_kmer, reverse_kmer, strand::FORWARD),
+                                                   (reverse_kmer, forward_kmer, strand::REVERSE)] {
+                loop {
+                    if reverse.first_position() { break; }
+                    let next_kmers = k_graph.next_kmers(kmer.seq());
+                    if next_kmers.len() != 1 { break; }
+                    kmer = next_kmers[0];
+                    if seen.contains(kmer.seq()) { break; }
+                    if k_graph.prev_kmers(kmer.seq()).len() != 1 { break; }
+                    reverse = k_graph.reverse(kmer);
+                    if kmer.first_position() { break; }
+                    if strand {
+                        unitig.add_kmer_to_end(kmer, reverse);
+                    } else {
+                        unitig.add_kmer_to_start(reverse, kmer);
+                    }
+                    seen.insert(kmer.seq());
+                    seen.insert(reverse.seq());
+                }
             }
             self.unitigs.push(Rc::new(RefCell::new(unitig)));
         }
@@ -478,21 +456,20 @@ impl UnitigGraph {
     }
 
     pub fn delete_dangling_links(&mut self) {
-        // This method deletes any links to no-longer-existing unitigs. It should be run after any
-        // code which deletes Unitigs from the graph.
+        // Run after removing unitigs, before rebuilding the index that keeps them alive.
         let unitig_numbers: HashSet<u32> = self.unitigs.iter().map(|u| u.borrow().number).collect();
         for unitig_rc in &self.unitigs {
             let unitig = unitig_rc.borrow();
-            let forward_next_to_remove = unitig.forward_next.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let forward_prev_to_remove = unitig.forward_prev.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let reverse_next_to_remove = unitig.reverse_next.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
-            let reverse_prev_to_remove = unitig.reverse_prev.iter().enumerate().filter_map(|(index, u)| {if !unitig_numbers.contains(&u.number()) {Some(index)} else {None}}).collect::<Vec<_>>();
+            let keep = [&unitig.forward_next, &unitig.forward_prev,
+                        &unitig.reverse_next, &unitig.reverse_prev].map(|links| {
+                links.iter().map(|link| unitig_numbers.contains(&link.number())).collect()
+            });
             drop(unitig);
-            let mut unitig = unitig_rc.borrow_mut();
-            for index in forward_next_to_remove.into_iter().rev() { unitig.forward_next.remove(index); }
-            for index in forward_prev_to_remove.into_iter().rev() { unitig.forward_prev.remove(index); }
-            for index in reverse_next_to_remove.into_iter().rev() { unitig.reverse_next.remove(index); }
-            for index in reverse_prev_to_remove.into_iter().rev() { unitig.reverse_prev.remove(index); }
+            let unitig = &mut *unitig_rc.borrow_mut();
+            for (links, keep) in [&mut unitig.forward_next, &mut unitig.forward_prev,
+                                 &mut unitig.reverse_next, &mut unitig.reverse_prev].into_iter().zip(keep) {
+                retain_links(links, keep);
+            }
         }
     }
 
@@ -635,7 +612,7 @@ impl UnitigGraph {
         let unitig_num = signed_num.unsigned_abs();
         let next_numbers: Vec<i32> = {
             let unitig = self.unitig_index.get(&unitig_num).unwrap().borrow();
-            let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next }; 
+            let next_unitigs = if strand { &unitig.forward_next } else { &unitig.reverse_next };
             next_unitigs.iter().map(|u| u.signed_number()).collect()
         };
         for next_num in next_numbers {
@@ -648,7 +625,7 @@ impl UnitigGraph {
         let unitig_num = signed_num.unsigned_abs();
         let prev_numbers: Vec<i32> = {
             let unitig = self.unitig_index.get(&unitig_num).unwrap().borrow();
-            let prev_unitigs = if strand { &unitig.forward_prev } else { &unitig.reverse_prev }; 
+            let prev_unitigs = if strand { &unitig.forward_prev } else { &unitig.reverse_prev };
             prev_unitigs.iter().map(|u| u.signed_number()).collect()
         };
         for prev_num in prev_numbers {
@@ -662,44 +639,31 @@ impl UnitigGraph {
     }
 
     fn delete_link_one_way(&mut self, start_num: i32, end_num: i32) {
-        let start_strand = if start_num > 0 { strand::FORWARD } else { strand::REVERSE };
-        let end_strand = if end_num > 0 { strand::FORWARD } else { strand::REVERSE };
+        let start_strand = start_num > 0;
+        let end_strand = end_num > 0;
         let start_num = start_num.unsigned_abs();
         let end_num = end_num.unsigned_abs();
         let start_rc = self.unitig_index.get(&start_num).unwrap();
         let end_rc = self.unitig_index.get(&end_num).unwrap();
 
-        // Collect the indices to remove for start unitig
-        let start_indices: Vec<usize> = {
+        let keep_next = {
             let start = start_rc.borrow();
             let next_unitigs = if start_strand { &start.forward_next } else { &start.reverse_next };
-            next_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig().borrow().number == end_num && connection.strand == end_strand { Some(i) } else { None } }).collect()
+            next_unitigs.iter().map(|link| link.number() != end_num || link.strand != end_strand).collect()
         };
-
-        // Remove the elements from start unitig
         {
             let mut start = start_rc.borrow_mut();
             let next_unitigs = if start_strand { &mut start.forward_next } else { &mut start.reverse_next };
-            for &i in start_indices.iter().rev() {
-                next_unitigs.remove(i);
-            }
+            retain_links(next_unitigs, keep_next);
         }
-
-        // Collect the indices to remove for end unitig
-        let end_indices: Vec<usize> = {
+        let keep_prev = {
             let end = end_rc.borrow();
             let prev_unitigs = if end_strand { &end.forward_prev } else { &end.reverse_prev };
-            prev_unitigs.iter().enumerate().filter_map(|(i, connection)| { if connection.unitig().borrow().number == start_num && connection.strand == start_strand { Some(i) } else { None } }).collect()
+            prev_unitigs.iter().map(|link| link.number() != start_num || link.strand != start_strand).collect()
         };
-
-        // Remove the elements from end unitig
-        {
-            let mut end = end_rc.borrow_mut();
-            let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
-            for &i in end_indices.iter().rev() {
-                prev_unitigs.remove(i);
-            }
-        }
+        let mut end = end_rc.borrow_mut();
+        let prev_unitigs = if end_strand { &mut end.forward_prev } else { &mut end.reverse_prev };
+        retain_links(prev_unitigs, keep_prev);
     }
 
     pub fn create_link(&mut self, start_num: i32, end_num: i32) {
@@ -756,15 +720,10 @@ impl UnitigGraph {
     }
 
     fn connected_unitigs(&self, unitig_num: u32) -> HashSet<u32> {
-        let mut connections = HashSet::new();
-        if let Some(unitig_rc) = self.unitig_index.get(&unitig_num) {
-            let unitig = unitig_rc.borrow();
-            for c in &unitig.forward_next { connections.insert(c.number()); }
-            for c in &unitig.forward_prev { connections.insert(c.number()); }
-            for c in &unitig.reverse_next { connections.insert(c.number()); }
-            for c in &unitig.reverse_prev { connections.insert(c.number()); }
-        }
-        connections
+        let Some(unitig_rc) = self.unitig_index.get(&unitig_num) else { return HashSet::new() };
+        let unitig = unitig_rc.borrow();
+        [&unitig.forward_next, &unitig.forward_prev, &unitig.reverse_next, &unitig.reverse_prev]
+            .into_iter().flatten().map(UnitigStrand::number).collect()
     }
 
     pub fn component_is_circular_loop(&self, component: &[u32]) -> bool {
@@ -784,6 +743,13 @@ impl UnitigGraph {
         }
         visited.len() == component.len()
     }
+}
+
+
+fn retain_links(links: &mut Vec<UnitigStrand>, keep: Vec<bool>) {
+    // Decide which links to keep before borrowing mutably: a link can point to its own unitig.
+    let mut keep = keep.into_iter();
+    links.retain(|_| keep.next().unwrap());
 }
 
 
@@ -1125,6 +1091,29 @@ mod tests {
     }
 
     #[test]
+    fn test_dangling_link_removal_preserves_order_and_duplicates() {
+        for remove_by_number in [true, false] {
+            let lines = (1..=4).map(|n| format!("S\t{n}\tACGT\tDP:f:{}", n % 2)).collect::<Vec<_>>();
+            let (mut graph, _) = UnitigGraph::from_gfa_lines(&lines);
+            for start in [-4, -3, -2, -1, 1, 2, 3, 4] {
+                for end in [1, -2, 3, 4, -1, 2, -3, -4, 3] {
+                    graph.create_link(start, end);
+                }
+            }
+            let expected = graph.get_links_for_gfa(0).into_iter()
+                .filter(|(a, _, b, _)| (a == "1" || a == "3") && (b == "1" || b == "3"))
+                .collect::<Vec<_>>();
+            if remove_by_number {
+                graph.remove_unitigs_by_number(HashSet::from([2, 4]));
+            } else {
+                graph.remove_zero_depth_unitigs();
+            }
+            graph.check_links();
+            assert_eq!(graph.get_links_for_gfa(0), expected);
+        }
+    }
+
+    #[test]
     fn test_get_sequence_from_path() {
         let (graph, _) = UnitigGraph::from_gfa_lines(&get_test_gfa_1());
 
@@ -1412,7 +1401,7 @@ mod tests {
         assert_eq!(graph.total_length(), 70);
         assert_eq!(graph.link_count(), (16, 8));
 
-        merge_linear_paths(&mut graph, &vec![]);
+        merge_linear_paths(&mut graph, &[]);
         assert_eq!(graph.unitigs.len(), 6);
         assert_eq!(graph.total_length(), 70);
         assert_eq!(graph.link_count(), (12, 6));
