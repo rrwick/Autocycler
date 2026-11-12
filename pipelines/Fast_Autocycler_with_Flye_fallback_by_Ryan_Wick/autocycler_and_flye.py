@@ -251,7 +251,8 @@ def flye_assembly(reads, out_dir, threads, read_type):
     flye_log = out_dir / 'logs' / 'flye.log'
     command = ['flye', read_flag, reads, '--threads', threads, '--out-dir', flye_out_dir]
     result = run_command(command, check=False, output_log=flye_log)
-    copy_flye_log(flye_out_dir / 'flye.log', flye_log)
+    if result.returncode == 0:
+        copy_flye_log(flye_out_dir / 'flye.log', flye_log)
     if result.returncode != 0:
         logger.warning(f"Warning: Flye exited with code {result.returncode} (see '{flye_log}')")
     flye_fasta = flye_out_dir / 'assembly.fasta'
