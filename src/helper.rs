@@ -17,7 +17,8 @@ use rand::rngs::StdRng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::env;
-use std::fs::{File, OpenOptions, copy, remove_file, create_dir_all, read_dir, metadata, rename};
+use std::fs::{File, OpenOptions, copy, remove_file, create_dir, create_dir_all, read_dir,
+              read_to_string, metadata, rename, hard_link};
 use std::io::{BufRead, BufReader, BufWriter, ErrorKind, Write, copy as io_copy};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -53,6 +54,7 @@ pub fn helper(task: Task, reads: Vec<PathBuf>, out_prefix: Option<PathBuf>,
         Task::GenomeSize => unreachable!(),
         Task::Canu => canu(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args),
         Task::Flye => flye(reads, &out_prefix, threads, dir, read_type, extra_args),
+        Task::Goldrush => goldrush(reads, &out_prefix, genome_size, threads, dir, extra_args),
         Task::Hifiasm => hifiasm(reads, &out_prefix, threads, dir, read_type, extra_args),
         Task::Ilesta => ilesta(reads, &out_prefix, threads, dir, read_type, extra_args),
         Task::Lja => lja(reads, &out_prefix, threads, dir, extra_args),
@@ -64,6 +66,7 @@ pub fn helper(task: Task, reads: Vec<PathBuf>, out_prefix: Option<PathBuf>,
         Task::Plassembler => plassembler(reads, &out_prefix, threads, dir, read_type, extra_args),
         Task::Raven => raven(reads, &out_prefix, threads, extra_args),
         Task::Redbean => redbean(reads, &out_prefix, genome_size, threads, dir, read_type, extra_args),
+        Task::Shasta => shasta(reads, &out_prefix, threads, dir, read_type, extra_args),
     }
 
     depth_filter(&out_prefix, min_depth_abs, min_depth_rel);
@@ -125,6 +128,49 @@ fn flye(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_ty
                     &add_extension(out_prefix, "fasta"));
     copy_output_file(&dir.join("assembly_graph.gfa"), &add_extension(out_prefix, "gfa"));
     copy_output_file(&dir.join("flye.log"), &add_extension(out_prefix, "log"));
+}
+
+
+fn goldrush(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threads: usize,
+            dir: PathBuf, extra_args: Vec<String>) {
+    // https://github.com/BirolLab/goldrush
+
+    let genome_size = get_genome_size(genome_size, "GoldRush");
+    check_requirements(&["goldrush", "goldrush-path", "goldpolish", "tigmint-make",
+                         "ntLink_rounds", "minimap2"]);
+
+    // GoldRush needs uncompressed reads with a .fastq extension in its working directory.
+    let work_dir = new_subdir_path(&dir, "goldrush");
+    create_dir(&work_dir).unwrap_or_else(|e| {
+        quit_with_error(&format!("cannot create directory {}: {e}", work_dir.display()))
+    });
+    let unzipped_reads = decompress_if_gzipped(&reads);
+    let input_reads = unzipped_reads.as_ref().map_or(reads.as_path(), |(p, _)| p.as_path());
+    let work_reads = work_dir.join("reads.fastq");
+    hard_link(input_reads, &work_reads).or_else(|_| copy(input_reads, &work_reads).map(|_| ()))
+        .unwrap_or_else(|e| quit_with_error(&format!("cannot create {}: {e}",
+                                                     work_reads.display())));
+    drop(unzipped_reads);
+
+    // GoldRush's default minimum read length (20 kbp) is too high for many bacterial read sets.
+    // Make uses the last value given for a variable, so --args can override these.
+    let mut cmd = Command::new("goldrush");
+    cmd.arg("run")
+       .arg("reads=reads")
+       .arg(format!("G={genome_size}"))
+       .arg(format!("t={threads}"))
+       .arg("m=5000");
+    cmd.args(extra_args);
+    cmd.current_dir(&work_dir);
+    run_command(&mut cmd, None);
+
+    // The final assembly's filename depends on GoldRush's settings, but it always ends like this.
+    let assembly = read_dir(&work_dir).unwrap().filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.file_name().and_then(|s| s.to_str())
+                   .is_some_and(|n| n.ends_with("rounds.polished.fa")));
+    if let Some(assembly) = assembly {
+        copy_fasta(&assembly, &add_extension(out_prefix, "fasta"));
+    }
 }
 
 
@@ -425,12 +471,65 @@ fn redbean(reads: PathBuf, out_prefix: &Path, genome_size: Option<String>, threa
 }
 
 
+fn shasta(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
+          extra_args: Vec<String>) {
+    // https://github.com/paoloshasta/shasta
+
+    check_requirements(&["shasta"]);
+    let asm_dir = new_subdir_path(&dir, "shasta");  // Shasta will create this directory
+    let unzipped_reads = decompress_if_gzipped(&reads);
+    let input_reads = unzipped_reads.as_ref().map_or(reads.as_path(), |(p, _)| p.as_path());
+
+    // These are Shasta's haploid (mode 0) configs. Its newer configs (mode 3) are tuned for
+    // ultra-long reads. There is no built-in config for PacBio CLR reads, so this writes one with
+    // the settings from Shasta's PacBio-CLR-Dec2019.conf file.
+    let config = match read_type {
+        ReadType::OntR9      => "Nanopore-May2022".to_string(),
+        ReadType::OntR10     => "Nanopore-R10-Fast-Nov2022".to_string(),
+        ReadType::PacbioHifi => "HiFi-Oct2021".to_string(),
+        ReadType::PacbioClr  => {
+            let conf = dir.join("shasta_pacbio_clr.conf");
+            std::fs::write(&conf, "[ReadGraph]\nmaxAlignmentCount = 20\n\n\
+                                   [Assembly]\nconsensusCaller = Modal\n").unwrap();
+            conf.display().to_string()
+        }
+    };
+
+    // Shasta's default minimum read length (10 kbp) is too high for many bacterial read sets. The
+    // R10 config also requires ~10 kbp alignments, so that is reduced to ~2.5 kbp.
+    let mut options = vec![("--config", config), ("--Reads.minReadLength", "5000".to_string())];
+    if read_type == ReadType::OntR10 {
+        options.push(("--Align.minAlignedMarkerCount", "250".to_string()));
+    }
+
+    let mut cmd = Command::new("shasta");
+    cmd.arg("--input").arg(input_reads)
+       .arg("--assemblyDirectory").arg(&asm_dir)
+       .arg("--threads").arg(threads.to_string());
+    for (option, value) in options {
+        // Shasta forbids repeated options, so only use those not also given via --args.
+        if !extra_args.iter().any(|a| a.split([' ', '=']).next() == Some(option)) {
+            cmd.arg(option).arg(value);
+        }
+    }
+    cmd.args(extra_args);
+    run_command(&mut cmd, None);
+    drop(unzipped_reads);
+
+    shasta_gfa_to_fasta(&asm_dir.join("Assembly.gfa"), &asm_dir.join("shasta.conf"),
+                        &add_extension(out_prefix, "fasta"));
+    copy_output_file(&asm_dir.join("Assembly.gfa"), &add_extension(out_prefix, "gfa"));
+    copy_output_file(&asm_dir.join("stdout.log"), &add_extension(out_prefix, "log"));
+}
+
+
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
 #[value(rename_all = "snake_case")]
 pub enum Task {
     GenomeSize,   // calculate genome size using a Raven assembly
     Canu,
     Flye,
+    Goldrush,
     Hifiasm,
     Ilesta,
     Lja,
@@ -442,6 +541,7 @@ pub enum Task {
     Plassembler,
     Raven,
     Redbean,      // assemble using Redbean (aka wtdbg2)
+    Shasta,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
@@ -534,6 +634,18 @@ fn get_working_dir(dir: Option<PathBuf>) -> (PathBuf, Option<TempDir>) {
 }
 
 
+fn new_subdir_path(dir: &Path, name: &str) -> PathBuf {
+    // Returns the path for a new subdirectory of the working directory. An existing directory is
+    // treated as an error, not deleted, since it may not have been made by Autocycler.
+    let path = dir.join(name);
+    if path.exists() {
+        quit_with_error(&format!("{} already exists, please remove it or use a different --dir",
+                                 path.display()));
+    }
+    path
+}
+
+
 fn copy_output_file(src: &Path, dest: &Path) {
     if !src.exists() || is_file_empty(src) { let _ = remove_file(dest); return; }
     copy(src, dest).unwrap_or_else(|e| {
@@ -614,6 +726,70 @@ fn gfa_to_fasta(gfa: &Path, fasta: &Path) {
         if let Some(d) = depth { header.push_str(&format!(" depth={d}")); }
         writeln!(writer, "{header}\n{seq}").unwrap();
     }
+}
+
+
+fn shasta_gfa_to_fasta(gfa: &Path, shasta_conf: &Path, fasta: &Path) {
+    // Shasta's FASTA lacks depth and circularity, so this makes the FASTA from its GFA instead:
+    // * Depth comes from the RC:i tag, which is average coverage times the segment's base count,
+    //   where base count is in run-length-encoded space unless Shasta used raw representation.
+    // * A segment whose only link is to itself is circular, and its start-end overlap is trimmed.
+    if !gfa.exists() || is_file_empty(gfa) { return; }
+    let rle = !read_to_string(shasta_conf).unwrap_or_default().lines()
+        .any(|l| l.replace(' ', "") == "representation=0");
+    let mut segments = Vec::new();
+    let mut link_counts: HashMap<String, usize> = HashMap::new();
+    let mut self_overlaps: HashMap<String, usize> = HashMap::new();
+    for line in BufReader::new(File::open(gfa).unwrap()).lines().map_while(Result::ok) {
+        let cols: Vec<&str> = line.split('\t').collect();
+        if cols[0] == "S" && cols.len() >= 3 {
+            let read_count = cols[3..].iter().find_map(|c| c.strip_prefix("RC:i:"))
+                .and_then(|c| c.parse::<f64>().ok());
+            segments.push((cols[1].to_string(), cols[2].to_string(), read_count));
+        } else if cols[0] == "L" && cols.len() >= 6 {
+            *link_counts.entry(cols[1].to_string()).or_default() += 1;
+            if cols[3] != cols[1] {
+                *link_counts.entry(cols[3].to_string()).or_default() += 1;
+            } else if cols[2] == cols[4] {
+                self_overlaps.insert(cols[1].to_string(), cigar_overlap(cols[5]));
+            }
+        }
+    }
+    let mut writer = BufWriter::new(File::create(fasta).unwrap());
+    for (name, mut seq, read_count) in segments {
+        let mut header = name.clone();
+        let base_count = if rle { run_count(&seq) } else { seq.len() };
+        if link_counts.get(&name) == Some(&1) {
+            if let Some(&overlap) = self_overlaps.get(&name) {
+                if overlap < seq.len() { seq.truncate(seq.len() - overlap); }
+                header.push_str(" circular=true");
+            }
+        }
+        if let Some(rc) = read_count {
+            if base_count > 0 { header.push_str(&format!(" depth={:.1}", rc / base_count as f64)); }
+        }
+        writeln!(writer, ">{header}\n{seq}").unwrap();
+    }
+}
+
+
+fn cigar_overlap(cigar: &str) -> usize {
+    // Returns the number of bases a GFA link's CIGAR consumes from the first segment.
+    let mut overlap = 0;
+    let mut num = 0;
+    for c in cigar.chars() {
+        if let Some(d) = c.to_digit(10) { num = num * 10 + d as usize; continue; }
+        if matches!(c, 'M' | 'D' | '=' | 'X') { overlap += num; }
+        num = 0;
+    }
+    overlap
+}
+
+
+fn run_count(seq: &str) -> usize {
+    // Returns the length of a sequence in run-length-encoded space (number of homopolymer runs).
+    let seq = seq.as_bytes();
+    seq.iter().enumerate().filter(|&(i, b)| i == 0 || seq[i - 1] != *b).count()
 }
 
 
@@ -1125,5 +1301,61 @@ mod tests {
                         >ctg000003c circular=true depth=51\nGACTACGAT\n";
         gfa_to_fasta(&gfa, &fasta);
         assert_eq!(std::fs::read_to_string(&fasta).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_cigar_overlap() {
+        assert_eq!(cigar_overlap("14M"), 14);
+        assert_eq!(cigar_overlap("10M2I3M"), 13);
+        assert_eq!(cigar_overlap("10M2D3M"), 15);
+        assert_eq!(cigar_overlap("*"), 0);
+    }
+
+    #[test]
+    fn test_run_count() {
+        assert_eq!(run_count(""), 0);
+        assert_eq!(run_count("A"), 1);
+        assert_eq!(run_count("ACGT"), 4);
+        assert_eq!(run_count("AAACCGTTTT"), 4);
+    }
+
+    #[test]
+    fn test_shasta_gfa_to_fasta() {
+        // Segment 0 is circular (only links to itself), 1 and 2 are linked to each other.
+        let dir = tempdir().unwrap();
+        let gfa = dir.path().join("Assembly.gfa");
+        let conf = dir.path().join("shasta.conf");
+        let fasta = dir.path().join("out.fasta");
+        make_test_file(&gfa, "H\tVN:Z:1.0\n\
+                              S\t0\tACGTTTGCAACG\tRC:i:360\n\
+                              S\t1\tAACCGGTT\tRC:i:80\n\
+                              S\t2\tGGTTACGA\n\
+                              L\t0\t+\t0\t+\t3M\n\
+                              L\t1\t+\t2\t+\t4M\n");
+
+        // Raw representation: depth is RC divided by sequence length.
+        make_test_file(&conf, "[Reads]\nrepresentation = 0\n");
+        shasta_gfa_to_fasta(&gfa, &conf, &fasta);
+        assert_eq!(std::fs::read_to_string(&fasta).unwrap(),
+                   ">0 circular=true depth=30.0\nACGTTTGCA\n\
+                    >1 depth=10.0\nAACCGGTT\n\
+                    >2\nGGTTACGA\n");
+
+        // RLE representation: depth is RC divided by number of homopolymer runs.
+        make_test_file(&conf, "[Reads]\nrepresentation = 1\n");
+        shasta_gfa_to_fasta(&gfa, &conf, &fasta);
+        assert_eq!(std::fs::read_to_string(&fasta).unwrap(),
+                   ">0 circular=true depth=40.0\nACGTTTGCA\n\
+                    >1 depth=20.0\nAACCGGTT\n\
+                    >2\nGGTTACGA\n");
+
+        // A segment with a self link and other links is not circular.
+        make_test_file(&gfa, "S\t0\tACGTTTGCAACG\n\
+                              S\t1\tAACCGGTT\n\
+                              L\t0\t+\t0\t+\t3M\n\
+                              L\t0\t+\t1\t+\t3M\n");
+        shasta_gfa_to_fasta(&gfa, &conf, &fasta);
+        assert_eq!(std::fs::read_to_string(&fasta).unwrap(),
+                   ">0\nACGTTTGCAACG\n>1\nAACCGGTT\n");
     }
 }
