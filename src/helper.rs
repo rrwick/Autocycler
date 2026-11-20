@@ -38,6 +38,8 @@ pub fn helper(task: Task, reads: Vec<PathBuf>, out_prefix: Option<PathBuf>,
               read_type: ReadType, min_depth_abs: Option<f64>, min_depth_rel: Option<f64>,
               extra_args: Vec<String>) {
     for read_file in &reads { check_if_file_exists(read_file); }
+    let extra_args: Vec<String> = extra_args.iter().flat_map(|a| a.split_whitespace())
+                                            .map(String::from).collect();
     let (dir, _guard) = get_working_dir(dir);
     let (reads, _reads_guard) = single_fastq(reads);
 
