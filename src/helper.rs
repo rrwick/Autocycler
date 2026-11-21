@@ -200,23 +200,28 @@ fn hifiasm(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read
 fn ilesta(reads: PathBuf, out_prefix: &Path, threads: usize, dir: PathBuf, read_type: ReadType,
           extra_args: Vec<String>) {
     // https://github.com/yvlaere/Ilesta
-    // https://github.com/rrwick/Minipolish
 
-    check_requirements(&["Ilesta", "minipolish", "minimap2", "racon"]);
+    check_requirements(&["Ilesta", "minimap2"]);
 
-    let unzipped_reads = decompress_if_gzipped(&reads);
-    let input_reads = unzipped_reads.as_ref().map_or(reads.as_path(), |(p, _)| p.as_path());
+    let ilesta_read_type = match read_type {
+        ReadType::OntR9 | ReadType::OntR10 => "ont",
+        ReadType::PacbioClr  => "pb-clr",
+        ReadType::PacbioHifi => "pb-hifi",
+    };
 
     let mut cmd = Command::new("Ilesta");
     cmd.arg("assemble")
        .arg("--output-dir").arg(&dir)
-       .arg("--reads-fq").arg(input_reads)
+       .arg("--reads-fq").arg(&reads)
        .arg("--threads").arg(threads.to_string());
+    if !extra_args.iter().any(|a| a.split('=').next() == Some("--read-type")) {
+        cmd.arg("--read-type").arg(ilesta_read_type);
+    }
     cmd.args(extra_args);
     run_command(&mut cmd, None);
-    drop(unzipped_reads);
 
-    minipolish(&reads, &dir.join("unitigs.gfa"), out_prefix, threads, read_type);
+    copy_fasta(&dir.join("contigs.fa"), &add_extension(out_prefix, "fasta"));
+    copy_output_file(&dir.join("contigs.gfa"), &add_extension(out_prefix, "gfa"));
 }
 
 
